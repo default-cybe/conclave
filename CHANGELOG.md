@@ -7,6 +7,12 @@ from the section of its version (`scripts/releases/notes.ts`); a release
 without one fails. At tag time, rename `[Unreleased]` to the version and date,
 like `## [0.4.16] - 2026-10-24`.
 
+## [Unreleased]
+
+### Fixed
+
+- An approval that expired or was cancelled (for example while a chat waited out a usage limit) no longer stays on screen as 'Waiting' with 'approval is not pending' when pressed
+
 ## [0.4.94] - 2026-11-13
 
 ### Fixed

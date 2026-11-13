@@ -738,9 +738,30 @@ class HubRepository(
         }
     }
 
-    suspend fun resolveApproval(id: String, response: ApprovalResponse) {
-        api { it.resolveApproval(id, response) }
+    /**
+     * Answers an approval. False when the hub no longer holds it (it expired, or its
+     * turn ended or was stopped): the card goes all the same and the open ones are refetched.
+     */
+    suspend fun resolveApproval(id: String, response: ApprovalResponse): Boolean {
+        val taken = try {
+            api { it.resolveApproval(id, response) }
+            true
+        } catch (e: ConclaveApiException) {
+            if (e.status != 404 && e.status != 409) throw e
+            false
+        }
         approvals.update { list -> list.filterNot { it.id == id } }
+        if (!taken) try {
+            val before = approvals.value.map { it.id }.toSet()
+            val fresh = api { it.approvals() }
+            // one asked while the list was on its way stays; one answered meanwhile stays gone
+            approvals.update { cur -> fresh.filter { f -> f.id !in before || cur.any { it.id == f.id } } + cur.filter { c -> c.id !in before && fresh.none { it.id == c.id } } }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            // the list refreshes on the next sync
+        }
+        return taken
     }
 
     /** A friend changed (an event, or a call's answer). A removed one leaves the list. */

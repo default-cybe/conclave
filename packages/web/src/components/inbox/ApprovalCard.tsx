@@ -24,8 +24,7 @@ import { useEffect, useRef, useState, type ComponentType, type KeyboardEvent, ty
 import { Check, CircleHelp, GitPullRequest, Globe, MoreHorizontal, Pencil, Plug, SquareTerminal } from 'lucide-react';
 import { Link, useLocation } from 'wouter';
 import type { ApprovalRequest, ApprovalResponse } from '@conclave/core/types';
-import { api } from '@/lib/api';
-import { attempt, heldApprovals, removeKey, useHub, useOnPage } from '@/store/store';
+import { answerApproval, heldApprovals, removeKey, useHub, useOnPage } from '@/store/store';
 import { cn } from '@/lib/text';
 import { durationShort, fileName, hhmm } from '@/lib/format';
 import { useIsMobile, useNow } from '@/lib/hooks';
@@ -182,7 +181,8 @@ export function useApprovalDecision(a: ApprovalRequest, onResolved?: (decision: 
     setBusy(d);
     heldApprovals.add(a.id);
     const r: ApprovalResponse = d === 'deny' ? { decision: 'deny' } : { decision: 'allow', scope: d, ...(d === 'always' && a.suggestedRule ? { rule: a.suggestedRule } : {}) };
-    const ok = await attempt(() => api().resolveApproval(a.id, r));
+    // one the hub no longer holds leaves with a quiet note (answerApproval)
+    const ok = await answerApproval(a.id, r);
     setBusy(null);
     if (ok) setDone({ d, at: Date.now() });
     else heldApprovals.delete(a.id);

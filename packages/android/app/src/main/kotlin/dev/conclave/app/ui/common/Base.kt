@@ -33,6 +33,9 @@ fun errorText(e: Throwable): String = when (e) {
     else -> e.message ?: e.javaClass.simpleName
 }
 
+/** The quiet note when an approval was answered after the hub let it go (HubRepository.resolveApproval). */
+const val EXPIRED = "This request expired"
+
 /** Base for screens that call the hub: one-shot messages go to a snackbar. */
 abstract class HubViewModel(protected val hub: HubRepository) : ViewModel() {
     private val _messages = MutableSharedFlow<String>(extraBufferCapacity = 8)

@@ -6,6 +6,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { create } from 'zustand';
 import type {
   ApprovalRequest,
+  ApprovalResponse,
   Checkpoint,
   ContentBlock,
   Device,
@@ -698,6 +699,25 @@ export function watchMap(): () => void {
   };
 }
 
+/** Statuses in which a session's calls and approvals may still be open. */
+const LIVE_STATUSES = new Set<string>(['running', 'waiting_approval', 'waiting_input']);
+
+/** A session that is not running any more: a call shown as running missed its result (the hub restarted, an event was lost). */
+function settleTools(sessionId: string) {
+  const s = get();
+  let tools: HubState['tools'] | undefined;
+  for (const m of s.messages[sessionId] ?? [])
+    for (const b of m.content)
+      if (b.type === 'tool_use' && s.tools[b.id]?.status === 'running') {
+        tools ??= { ...s.tools };
+        delete tools[b.id];
+      }
+  if (tools) set({ tools });
+}
+
+/** The live connection moved to another address of the hub: the next open refetches what it missed. */
+let lostLive = false;
+
 export function startLive() {
   disconnect?.();
   const live = api().connect(applyEvent, {
@@ -708,7 +728,13 @@ export function startLive() {
       if (conn !== was) clientLog('info', conn === 'open' ? (was === 'closed' ? 'reconnect' : 'connect') : conn === 'closed' ? 'disconnect' : 'reconnecting', { was });
       // the data was live up to now; from here it is the last known state
       set(was === 'open' && conn !== 'open' ? { conn, syncedAt: Date.now() } : { conn });
-      if (conn === 'open' && was === 'closed') void loadAll({ transcripts: true });
+      // a socket at another address of the hub replays nothing (the same address replays or resyncs): refetch what was missed
+      if (conn === 'open' && lostLive) {
+        lostLive = false;
+        void loadAll({ transcripts: true }).then(() => {
+          for (const s of Object.values(get().sessions)) if (!LIVE_STATUSES.has(s.status)) settleTools(s.id);
+        });
+      }
       if (conn === 'open') void loadRemote();
       // a hub restart ends every shell and sends no event for it: ask again
       if (conn === 'open') for (const id of Object.keys(get().shells)) void loadShells(id);
@@ -746,6 +772,7 @@ async function loadRemote() {
 }
 
 function moveTo(conn: Connection) {
+  lostLive = true;
   void connectClient(conn).then(() => startLive());
 }
 
@@ -1002,6 +1029,43 @@ export function upsertSharedProject(p: SharedProjectDto, gone = false) {
 }
 /** Approvals decided from a card on screen: the card removes them after showing the result. */
 export const heldApprovals = new Set<string>();
+/** Ids resolved while a syncApprovals fetch is on its way, one set per fetch. */
+const syncing = new Set<Set<string>>();
+
+/** Refetch the open approvals: the hub's list wins, a card it no longer holds goes. */
+export async function syncApprovals(): Promise<void> {
+  const before = new Set(Object.keys(get().approvals));
+  const gone = new Set<string>();
+  syncing.add(gone);
+  const list = await settle(api().approvals(), undefined).finally(() => syncing.delete(gone));
+  if (!list) return;
+  const now = get().approvals;
+  // one asked while the list was on its way stays, one answered meanwhile stays gone, and a card showing its decision stays
+  const keep = Object.values(now).filter((a) => !before.has(a.id) || heldApprovals.has(a.id));
+  set({ approvals: byId([...list.filter((a) => !gone.has(a.id) && !heldApprovals.has(a.id)), ...keep], (a) => a.id) });
+}
+
+/**
+ * Answer an approval. True when the hub took the answer. One the hub no longer
+ * holds (it expired, or its turn ended or was stopped) leaves the screen with a
+ * quiet note, and the open ones are refetched.
+ */
+export async function answerApproval(id: string, r: ApprovalResponse): Promise<boolean> {
+  try {
+    await api().resolveApproval(id, r);
+    return true;
+  } catch (e) {
+    if (e instanceof ApiError && (e.status === 404 || e.status === 409 || /not pending/i.test(e.message))) {
+      heldApprovals.delete(id);
+      removeKey('approvals', id);
+      toast({ title: 'This request expired', level: 'info' });
+      void syncApprovals();
+      return false;
+    }
+    toast({ title: e instanceof Error ? e.message : String(e), level: 'error' });
+    return false;
+  }
+}
 
 export function removeKey<K extends 'sessions' | 'tasks' | 'routines' | 'memories' | 'devices' | 'apps' | 'approvals' | 'questions' | 'alerts'>(k: K, id: string) {
   if (k === 'sessions') {
@@ -1087,6 +1151,11 @@ export function applyEvent(e: EngineEventEnvelope) {
       }
       const streaming = e.session.status === 'running' ? s.streaming : stopStreaming(s.streaming, (s.messages[e.session.id] ?? []).map((m) => m.id));
       set({ sessions: { ...s.sessions, [e.session.id]: e.session }, streaming });
+      // the turn ended: no call of it still runs, and an approval the hub dropped meanwhile must not stay as "waiting"
+      if (!LIVE_STATUSES.has(e.session.status)) {
+        settleTools(e.session.id);
+        if (Object.values(s.approvals).some((a) => a.sessionId === e.session.id && !heldApprovals.has(a.id))) void syncApprovals();
+      }
       break;
     }
     case 'session.deleted': {
@@ -1188,6 +1257,7 @@ export function applyEvent(e: EngineEventEnvelope) {
       set({ approvals: { ...s.approvals, [e.approval.id]: e.approval } });
       break;
     case 'approval.resolved':
+      for (const gone of syncing) gone.add(e.id);
       // A card that made this decision shows "Allowed once, 14:09" for a moment and removes it itself.
       if (!heldApprovals.has(e.id)) removeKey('approvals', e.id);
       break;

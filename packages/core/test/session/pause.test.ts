@@ -168,4 +168,25 @@ describe('pause and resume a session', () => {
       await t.close();
     }
   });
+
+  test('a restart while a call waits on an approval: the approval expires and the call ends as interrupted', async () => {
+    const t = await startTestEngine({ script: [[{ text: 'continued' }]] });
+    try {
+      const s = await t.engine.createSession({ title: 'asks', cwd: t.cwd });
+      // the hub went down while a Bash call waited on the owner: its approval lived only in memory
+      t.engine.addMessage(s.id, { role: 'user', kind: 'normal', content: [{ type: 'text', text: 'go' }] });
+      t.engine.addMessage(s.id, { role: 'assistant', kind: 'normal', content: [{ type: 'tool_use', id: 'tu_cut', name: 'Bash', input: { command: 'ls' } }] });
+      t.engine.repos.approvals.requested({ id: 'appr_cut', sessionId: s.id, tool: 'Bash', requestedAt: Date.now() });
+      t.engine.repos.sessions.update({ ...t.engine.getSession(s.id)!, status: 'waiting_approval' });
+      await t.engine.shutdown();
+      t.engine = await reopen(t);
+      expect(t.engine.pendingApprovals()).toEqual([]);
+      expect(t.engine.repos.approvals.list().find((a) => a.id === 'appr_cut')?.decision).toBe('expired');
+      const results = t.engine.getMessages(s.id).flatMap((m) => m.content).filter((b) => b.type === 'tool_result');
+      expect(results).toEqual([expect.objectContaining({ toolUseId: 'tu_cut', content: INTERRUPTED, isError: true })]);
+      expect(t.engine.getSession(s.id)?.status).toBe('idle');
+    } finally {
+      await t.close();
+    }
+  });
 });

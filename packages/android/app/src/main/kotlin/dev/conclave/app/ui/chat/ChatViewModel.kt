@@ -3,6 +3,7 @@ package dev.conclave.app.ui.chat
 import androidx.lifecycle.viewModelScope
 import dev.conclave.app.data.HubRepository
 import dev.conclave.app.ui.common.ComposerDraft
+import dev.conclave.app.ui.common.EXPIRED
 import dev.conclave.app.ui.common.HubViewModel
 import dev.conclave.app.ui.common.errorText
 import dev.conclave.app.ui.conversation.attachmentsOf
@@ -325,8 +326,9 @@ class ChatViewModel(hub: HubRepository, val sessionId: String, drafts: DraftStor
     fun stop() = action { hub.api { it.abort(sessionId) } }
 
     fun resolveApproval(id: String, response: ApprovalResponse) = action {
-        hub.resolveApproval(id, response)
+        val taken = hub.resolveApproval(id, response)
         transcript.update { t -> t.copy(approvals = t.approvals.filterNot { it.id == id }) }
+        if (!taken) say(EXPIRED)
     }
 
     fun answer(questionId: String, answers: Map<String, String>) = action {
