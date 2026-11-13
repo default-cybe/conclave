@@ -128,15 +128,16 @@
   /*
     Reading: an answer's prose, your messages, a thought opened
     (docs/design/CHAT-AND-MOTION.md 6). 15/1.6 (a 24px line), as in
-    Claude's apps; phones 16/1.55. A measure of 36em, about 75 characters
-    of Mona Sans (0.48em a character on average): WCAG 1.4.8 asks for at
-    most 80 and line spacing of at least 1.5. A paragraph gap of 0.9em
-    puts paragraphs 1.56 lines apart (1.4.8: 1.5).
+    Claude's apps; phones 16/1.55. No measure: the owner wants replies
+    flush with the message box, so prose fills the transcript column,
+    the same column the composer sits in (it was 36em, about 75
+    characters). A paragraph gap of 0.9em puts paragraphs 1.56 lines
+    apart (WCAG 1.4.8: 1.5).
   */
   --read-base: 15px;
   --read-size: var(--read-base);
   --read-leading: 1.6;
-  --read-measure: 36em;
+  --read-measure: none;
   --read-gap: 0.9em;
   /*
     Text size (Settings > Appearance, this device): 0.875, 1, 1.125 or 1.25.
@@ -156,7 +157,6 @@
     --body-size: 15px;
     --read-base: 16px;
     --read-leading: 1.55;
-    --read-measure: none;
   }
 }
 :root[data-density='compact'] {
@@ -829,7 +829,7 @@
 
 /*
   The answer is the strongest thing on the page: fg (16:1 on both grounds),
-  the reading size and leading, a measure of about 75 characters, room
+  the reading size and leading, the full width of the message box, room
   between paragraphs and list items, and headings a clear step up. Tool rows,
   thoughts and meta are quieter around it (fg-2 and fg-3, 12 to 13.5px).
   docs/design/CHAT-AND-MOTION.md 6.
@@ -840,7 +840,7 @@
   color: var(--fg);
   overflow-wrap: anywhere;
 }
-/* the measure: text blocks only; code, tables and diffs may use the column */
+/* the measure (none now: replies end where the message box ends); text blocks only */
 .md > :is(p, ul, ol, blockquote, h1, h2, h3, h4, h5, h6),
 .md > blockquote > *,
 .md li > :is(p, ul, ol) {
