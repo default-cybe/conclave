@@ -252,7 +252,7 @@ function routeOf(model: string, status: Pick<AccountsStatus, 'accounts' | 'route
 // ---------------------------------------------------------------------------
 
 /** Where the owner gives a plan its short name, for hints elsewhere. */
-export const SHORT_NAME_WHERE = 'Settings > Models > Accounts';
+export const SHORT_NAME_WHERE = 'Settings > Advanced > Accounts';
 
 /** What a signed in plan's short name and its "Use when a model refuses" switch need, said where they are off. */
 export const MANAGEMENT_NOTE = "Short names and Use when a model refuses need CLIProxyAPI's management key. Add it in Subscriptions.";

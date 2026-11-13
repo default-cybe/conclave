@@ -36,7 +36,7 @@ describe('window starter words', () => {
     expect(starterLine(s({ state: 'paused', until: at(27, 10, 0), reason: 'Weekly limit used up' }), NOW)).toEqual({ text: 'Paused: weekly limit used up until Tue 10:00.', tone: 'warn' });
     expect(starterLine(s({ state: 'checking' }), NOW).text).toBe('Sent its request. Checking that the window started.');
     expect(starterLine(s({ state: 'never', reason: 'No 5 hour window' }), NOW).text).toBe('This plan has no 5-hour window, so there is nothing to start.');
-    expect(starterLine(s({ state: 'setup', reason: 'Cannot pin a request to it' }), NOW).text).toBe('Cannot reach this account alone. Give it a short name in Settings > Models > Accounts.');
+    expect(starterLine(s({ state: 'setup', reason: 'Cannot pin a request to it' }), NOW).text).toBe('Cannot reach this account alone. Give it a short name in Settings > Advanced > Accounts.');
     expect(starterLine(s({ state: 'waiting', reason: 'No usage read yet' }), NOW).text).toBe('Waiting for the first usage read.');
     expect(starterLine(s({ state: 'waiting', reason: 'Account paused' }), NOW).text).toBe('Waits while the account is paused.');
   });

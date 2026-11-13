@@ -68,7 +68,7 @@ describe('the field on a plan row', () => {
   });
 
   test('the starter and refusal hints point here', () => {
-    expect(starterLine({ enabled: true, start: '07:00', end: '22:30', zone: 'UTC', state: 'setup', reason: 'Cannot pin a request to it' }).text).toBe('Cannot reach this account alone. Give it a short name in Settings > Models > Accounts.');
+    expect(starterLine({ enabled: true, start: '07:00', end: '22:30', zone: 'UTC', state: 'setup', reason: 'Cannot pin a request to it' }).text).toBe('Cannot reach this account alone. Give it a short name in Settings > Advanced > Accounts.');
   });
 });
 

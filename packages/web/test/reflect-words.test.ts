@@ -13,8 +13,8 @@ const at = (h: number, m: number) => {
 };
 
 describe('Settings > Reflect', () => {
-  test('sits in the Settings group after Assistant, and search finds it', () => {
-    const settings = SETTINGS_GROUPS.find((g) => g.label === 'Settings')!;
+  test('sits in the Assistant group after Assistant, and search finds it', () => {
+    const settings = SETTINGS_GROUPS.find((g) => g.label === 'Assistant')!;
     expect(settings.ids.indexOf('reflect')).toBe(settings.ids.indexOf('assistant') + 1);
     const sections = [
       { id: 'assistant', label: 'Assistant', desc: 'What the assistant brings up on its own.' },
