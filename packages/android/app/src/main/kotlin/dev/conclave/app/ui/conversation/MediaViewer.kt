@@ -216,9 +216,10 @@ private fun ViewerBar(item: ViewerItem, position: String?, onBack: () -> Unit, m
         modifier = modifier,
         title = {
             Column {
-                Text(card.title ?: card.name, style = ConclaveType.rowTitle, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(card.name, style = ConclaveType.rowTitle, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                // the shared card's title ("Real bar, right half at 1:1") leads the line under the name
                 Text(
-                    listOfNotNull(FileCards.facts(card), position).joinToString(", "),
+                    listOfNotNull(FileCards.caption(card), FileCards.facts(card), position).joinToString(", "),
                     style = ConclaveType.meta,
                     color = Color.White.copy(alpha = 0.7f),
                     maxLines = 1,

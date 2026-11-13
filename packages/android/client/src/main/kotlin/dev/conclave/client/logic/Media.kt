@@ -2,6 +2,8 @@ package dev.conclave.client.logic
 
 import dev.conclave.client.model.ImageBlock
 import dev.conclave.client.model.ToolResultBlock
+import dev.conclave.client.model.ToolUseBlock
+import dev.conclave.client.model.string
 import java.util.Locale
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
@@ -10,6 +12,17 @@ import kotlinx.serialization.json.contentOrNull
 
 /** How the in-app viewer (MediaViewer.kt) draws a file. */
 enum class MediaKind { IMAGE, ANIMATED, SVG, VIDEO, PDF, TEXT }
+
+/**
+ * One thumbnail under a row of work (ToolFold.kt): a picture a call returned,
+ * its bytes inline in [block], or a picture or video ShareFile handed the
+ * owner ([shared]: the viewer fetches it from the hub by [card]'s call id).
+ * Both at once: a shared picture a call also returned, drawn from [block] and
+ * opened from the hub. [tool] names the call that returned the picture.
+ */
+data class Thumbnail(val key: String, val card: FileCardData, val block: ImageBlock? = null, val tool: String? = null, val shared: Boolean = false) {
+    val caption: String? get() = FileCards.caption(card)
+}
 
 /*
  * The in-app viewer's choices: which files it can show and how, which of a
@@ -96,6 +109,65 @@ object Media {
 
     /** The thumbnails under a tool's row: its pictures while the setting is on, none when it is off. */
     fun toolPictures(enabled: Boolean, result: ToolResultBlock?): List<ImageBlock> = if (enabled) toolImages(result) else emptyList()
+
+    /**
+     * A shared file that shows as a thumbnail, not a card: a PNG, JPEG, WebP
+     * or GIF small enough to fetch whole, or a video the viewer plays. An SVG,
+     * PDF, code, a ZIP or a bigger file stays a compact card (FileCards.kt).
+     */
+    fun thumbnail(c: FileCardData): Boolean = when (kind(c.mediaType, c.name)) {
+        MediaKind.IMAGE, MediaKind.ANIMATED -> c.size <= FileCards.INLINE_MAX
+        MediaKind.VIDEO -> viewable(c)
+        else -> false
+    }
+
+    private val PICTURE_EXTENSIONS = setOf("png", "jpg", "jpeg", "webp", "gif")
+
+    /** The picture file a call read or fetched, by the last part of its path or URL ("shot.png"); null when it names none. */
+    fun pictureSource(use: ToolUseBlock): String? =
+        listOf("file_path", "path", "filePath", "url").firstNotNullOfOrNull { use.input.string(it)?.takeIf { s -> s.isNotBlank() } }
+            ?.substringBefore('?')?.substringBefore('#')?.trimEnd('/')?.substringAfterLast('/')
+            ?.takeIf { it.substringAfterLast('.', "").lowercase(Locale.US) in PICTURE_EXTENSIONS }
+
+    private fun same(name: String) = name.substringAfterLast('/').trim().lowercase(Locale.US)
+
+    /**
+     * The thumbnail rows of a stretch of work, one per group of calls: the
+     * group's tool pictures first, then the pictures and videos its ShareFile
+     * calls handed the owner. Each file shows once in the stretch, matched by
+     * file name (or a URL's last part): a shared picture a call also returned
+     * (a Read of the PNG, then ShareFile) is the tool picture, which takes the
+     * shared card's name, size and title and opens the shared file. A shared
+     * file whose call is in no group goes in the last row.
+     */
+    fun rows(groups: List<List<ToolUseBlock>>, results: Map<String, ToolResultBlock>, enabled: Boolean): List<List<Thumbnail>> {
+        val shared = FileCards.cards(groups.flatten(), results).filter { thumbnail(it) }.distinctBy { same(it.name) }
+        val byName = shared.associateBy { same(it.name) }
+        val shown = mutableSetOf<String>()
+        val rows = groups.map { uses ->
+            uses.flatMap { u ->
+                val src = pictureSource(u)
+                toolPictures(enabled, results[u.id]).mapIndexedNotNull { i, b ->
+                    // only the first picture of a call is the file it names
+                    val name = src?.takeIf { i == 0 }
+                    if (name != null && !shown.add(same(name))) return@mapIndexedNotNull null
+                    val match = name?.let { byName[same(it)] }
+                    if (match != null) {
+                        Thumbnail("${u.id}:$i", match, b, u.name, shared = true)
+                    } else {
+                        val card = FileCardData("${u.id}-$i", FileCards.pictureName(name ?: "${u.name}-${i + 1}", b.mediaType), b.mediaType, (b.data?.length ?: 0) * 3L / 4)
+                        Thumbnail("${u.id}:$i", card, b, u.name)
+                    }
+                }
+            }.toMutableList()
+        }
+        if (rows.isEmpty()) return rows
+        shared.filterNot { same(it.name) in shown }.forEach { s ->
+            val g = groups.indexOfFirst { us -> us.any { it.id == s.toolUseId } }.takeIf { it >= 0 } ?: rows.lastIndex
+            rows[g].add(Thumbnail("${s.toolUseId}:", s, shared = true))
+        }
+        return rows
+    }
 
     private fun JsonObject.str(k: String): String? = (this[k] as? JsonPrimitive)?.takeIf { it.isString }?.contentOrNull
 }

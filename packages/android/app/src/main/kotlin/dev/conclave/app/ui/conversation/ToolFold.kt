@@ -29,6 +29,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
+import androidx.compose.material.icons.outlined.PlayArrow
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.ModalBottomSheet
@@ -55,11 +56,13 @@ import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import dev.conclave.app.data.HubRepository
 import dev.conclave.app.ui.chat.DiffView
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.conclave.app.ui.common.CodeBox
@@ -73,18 +76,19 @@ import dev.conclave.app.ui.workflows.LocalOpenWorkflowRun
 import dev.conclave.client.logic.ChatSources
 import dev.conclave.client.logic.ChatTools
 import dev.conclave.client.logic.Diffs
-import dev.conclave.client.logic.FileCardData
-import dev.conclave.client.logic.FileCards
 import dev.conclave.client.logic.Media
+import dev.conclave.client.logic.MediaKind
+import dev.conclave.client.logic.Thumbnail
 import dev.conclave.client.logic.ToolLines
 import dev.conclave.client.logic.ToolStep
 import dev.conclave.client.logic.Work
 import dev.conclave.client.logic.WorkEntry
 import dev.conclave.client.logic.WorkSegment
-import dev.conclave.client.model.ImageBlock
 import dev.conclave.client.model.ToolResultBlock
 import dev.conclave.client.model.ToolUseBlock
 import dev.conclave.client.model.string
+import dev.conclave.client.sessionFile
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
@@ -106,7 +110,9 @@ private val PrettyJson = Json { prettyPrint = true }
  * Task calls of one message are one fan-out card (FanOutCard).
  * Places and routes sit under the stretch, open or not. Pictures a call
  * returned (a browser screenshot, a Read of a PNG) are thumbnails under its
- * row, outside the fold, while Settings allows them (ToolPictures).
+ * row, outside the fold, while Settings allows them, and the pictures and
+ * videos ShareFile handed the owner join them, each file once (Media.rows,
+ * ThumbRow). Other shared files are compact cards (FileCards.kt).
  *
  * [live]: the turn works on this stretch now (no text after it yet).
  * [turnLive]: the turn still runs, so a call with no result runs.
@@ -130,6 +136,21 @@ fun TurnWork(
     val calls = remember(entries) { Work.calls(entries) }
     val settings by LocalAppContainer.current.settings.state.collectAsStateWithLifecycle()
     val pictures = settings?.toolPictures ?: Media.TOOL_PICTURES_DEFAULT
+    val sessionId = LocalSessionWork.current.session?.id
+    val hub = LocalAppContainer.current.hub
+    val rows = remember(segments, results, pictures, sessionId) {
+        val groups = segments.map {
+            when (it) {
+                is WorkSegment.One -> listOf(it.call.use)
+                is WorkSegment.Group -> Work.calls(it.entries)
+                else -> emptyList()
+            }
+        }
+        // no session to fetch from: only what a call carried inline
+        Media.rows(groups, results, pictures).map { r -> if (sessionId == null) r.filter { it.block != null } else r }
+    }
+    // one viewer for the stretch: a swipe goes through every thumbnail of it
+    var viewing by remember { mutableStateOf<String?>(null) }
     Column(modifier.fillMaxWidth()) {
         segments.forEachIndexed { i, seg ->
             key(seg.key) {
@@ -148,17 +169,20 @@ fun TurnWork(
                     is WorkSegment.Lone -> thought(seg.thought)
                     is WorkSegment.Group -> WorkGroup(seg.entries, results, live && i == segments.lastIndex, turnLive, cwd, measured, onForget, onOpenMemory)
                 }
-                when (seg) {
-                    is WorkSegment.One -> ToolPictures(listOf(seg.call.use), results, pictures)
-                    is WorkSegment.Group -> ToolPictures(Work.calls(seg.entries), results, pictures)
-                    else -> Unit
-                }
+                rows.getOrNull(i)?.let { ThumbRow(it, sessionId, onOpen = { t -> viewing = t.key }) }
             }
         }
         // places and routes sit under the stretch, open or not (MapsCards.kt)
         MapsCardsView(calls, results)
-        // files a ShareFile call handed the owner, the same way (FileCards.kt)
+        // the other files a ShareFile call handed the owner, the same way (FileCards.kt)
         FileCardsView(calls, results)
+    }
+    viewing?.let { k ->
+        val all = rows.flatten()
+        val items = remember(all, sessionId) { all.map { it.viewerItem(hub, sessionId) } }
+        // gone from the stretch since the tap: nothing to show
+        val n = all.indexOfFirst { it.key == k }
+        if (n >= 0) MediaViewer(items, n) { viewing = null }
     }
 }
 
@@ -292,60 +316,88 @@ private fun ThoughtSheet(t: WorkEntry.Thought, measured: Long?, onDismiss: () ->
 
 private val ThumbSize = 96.dp
 
-/** One picture a call returned, as the viewer takes it: named after the tool, "browser_screenshot-1.png". */
-private class ToolPicture(use: ToolUseBlock, index: Int, val block: ImageBlock) {
-    val key = "${use.id}:$index"
-    val tool = use.name
-    val item = ViewerItem(
-        FileCardData(
-            toolUseId = "${use.id}-$index",
-            name = FileCards.pictureName("${use.name}-${index + 1}", block.mediaType),
-            mediaType = block.mediaType,
-            size = (block.data?.length ?: 0) * 3L / 4,
-        ),
-    ) { withContext(Dispatchers.Default) { java.util.Base64.getDecoder().decode(block.data.orEmpty()) } }
-}
+/** A thumbnail as the viewer takes it: a shared file from the hub by its call id, a tool's picture from its inline bytes. */
+private fun Thumbnail.viewerItem(hub: HubRepository, sessionId: String?): ViewerItem =
+    if (shared && sessionId != null) {
+        card.viewerItem(hub, sessionId)
+    } else {
+        ViewerItem(card) { withContext(Dispatchers.Default) { java.util.Base64.getDecoder().decode(block?.data.orEmpty()) } }
+    }
 
 /**
- * The pictures the calls of a row returned, under the row and outside its
- * fold: a strip of 96dp squares, each holding its place while it decodes so
- * the transcript never jumps. A tap opens the in-app viewer on that picture,
- * the row's others a swipe away.
+ * The pictures and videos of a row, under it and outside its fold: a strip
+ * of 96dp squares with no box and no buttons, each holding its place while
+ * it loads so the transcript never jumps, and a shared file's title in one
+ * line under it when it says more than the name. A tap opens the in-app
+ * viewer, where Save and Share are.
  */
 @Composable
-private fun ToolPictures(calls: List<ToolUseBlock>, results: Map<String, ToolResultBlock>, enabled: Boolean) {
-    val pics = remember(calls, results, enabled) {
-        calls.flatMap { u -> Media.toolPictures(enabled, results[u.id]).mapIndexed { i, b -> ToolPicture(u, i, b) } }
-    }
-    if (pics.isEmpty()) return
-    var open by remember { mutableStateOf<Int?>(null) }
+private fun ThumbRow(thumbs: List<Thumbnail>, sessionId: String?, onOpen: (Thumbnail) -> Unit) {
+    if (thumbs.isEmpty()) return
     Row(
         Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(top = 2.dp, bottom = 6.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.Top,
     ) {
-        pics.forEachIndexed { n, p -> key(p.key) { Thumb(p, onClick = { open = n }) } }
+        thumbs.forEach { t -> key(t.key) { Thumb(t, sessionId, onClick = { onOpen(t) }) } }
     }
-    open?.let { n -> MediaViewer(pics.map { it.item }, n) { open = null } }
 }
 
 @Composable
-private fun Thumb(p: ToolPicture, onClick: () -> Unit) {
+private fun Thumb(t: Thumbnail, sessionId: String?, onClick: () -> Unit) {
     val c = Conclave.colors
+    val hub = LocalAppContainer.current.hub
     val target = with(LocalDensity.current) { (ThumbSize * 2).roundToPx() }
-    val bitmap by produceState<ImageBitmap?>(null, p.key) {
-        value = withContext(Dispatchers.Default) { p.block.data?.let { decodeScaled(it, target) } }
+    val video = Media.kind(t.card.mediaType, t.card.name) == MediaKind.VIDEO
+    var failed by remember(t.key) { mutableStateOf(false) }
+    val bitmap by produceState<ImageBitmap?>(null, t.key, sessionId) {
+        if (video) return@produceState
+        val got = try {
+            val inline = t.block?.data
+            if (inline != null) {
+                withContext(Dispatchers.Default) { decodeScaled(inline, target) }
+            } else {
+                val s = sessionId ?: return@produceState
+                val (bytes, _) = hub.api { it.sessionFile(s, t.card.toolUseId, t.card.image) }
+                withContext(Dispatchers.Default) { decodeScaled(bytes, target) }
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            null
+        }
+        failed = got == null
+        value = got
     }
+    val caption = t.caption
     val shape = RoundedCornerShape(5.dp)
-    Box(
-        Modifier
-            .size(ThumbSize)
-            .clip(shape)
-            .border(1.dp, c.rule, shape)
-            .background(c.bgSunk)
-            .clickable(onClickLabel = "Open full screen", onClick = onClick)
-            .semantics { contentDescription = "Picture from ${p.tool}" },
-    ) {
-        bitmap?.let { Image(bitmap = it, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize()) }
+    val what = when {
+        caption != null -> caption
+        video -> "Video ${t.card.name}"
+        t.shared -> "Picture ${t.card.name}"
+        else -> "Picture from ${t.tool}"
+    }
+    Column(Modifier.width(ThumbSize)) {
+        Box(
+            Modifier
+                .size(ThumbSize)
+                .clip(shape)
+                .border(1.dp, c.rule, shape)
+                .background(c.bgSunk)
+                .clickable(onClickLabel = "Open full screen", onClick = onClick)
+                .semantics { contentDescription = what },
+            contentAlignment = Alignment.Center,
+        ) {
+            val b = bitmap
+            when {
+                b != null -> Image(bitmap = b, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+                video -> Icon(Icons.Outlined.PlayArrow, contentDescription = null, tint = c.fg3, modifier = Modifier.size(32.dp))
+                failed -> Text("Could not load", style = ConclaveType.meta, color = c.fault, textAlign = TextAlign.Center, modifier = Modifier.padding(6.dp))
+            }
+        }
+        if (caption != null) {
+            Text(caption, style = ConclaveType.meta, color = c.fg3, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 4.dp))
+        }
     }
 }
 
