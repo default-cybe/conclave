@@ -48,7 +48,7 @@ const KEYWORDS: Record<string, string> = {
   refusal: 'refuse refused declined safety priority fallback next model',
   usage: 'usage limit quota fallback chain next model',
   security: 'roles routing sec hunter validator refuter reporter recon exploit hunt lane',
-  defaults: 'default model agent device memory',
+  defaults: 'default model agent device memory same model for all work cyber access daybreak security per conversation',
   permissions: 'rules allow ask deny mode',
   notifications: 'notify push alerts phone browser hold',
   assistant: 'proactive quiet hours heartbeat reflection timezone',

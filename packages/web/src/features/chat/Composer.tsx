@@ -516,13 +516,22 @@ export function Composer({ session, narrow }: { session: Session; /** A column o
       style={{ mode: session.mode, onMode: setMode, ultra: !!session.ultra, onUltra: ultraOk ? (ultra) => void patch({ ultra }) : undefined }}
       agent={code ? { value: session.agent, agents: [{ name: CODE_AGENT, description: 'The default. Hands work to its subagents itself' }, ...customs], onChange: (agent) => void patch({ agent }) } : undefined}
       memory={session.incognito ? undefined : { value: memoryModeOf(session.chat), onChange: (m) => void patch({ chat: memoryPatch(m) }) }}
+      turn={{
+        model: session.model,
+        cyber: session.chat?.cyber,
+        onCyber: (v) => void patch({ chat: { cyber: v ?? null } }),
+        sameModel: !!session.chat?.sameModel,
+        onSameModel: (on) => void patch({ chat: { sameModel: on } }),
+        security: !!session.chat?.security,
+        onSecurity: securitySwitch ? (on) => void patch({ chat: { security: on } }) : undefined,
+      }}
     />
   );
   // Bypass is never hidden, not even in the Chat style where permissions do not apply (design review #6)
   const permission = (className: string) => (session.mode !== 'chat' || session.permissionMode === 'bypass') && <PermissionPicker look="text" value={session.permissionMode} onChange={(permissionMode) => void patch({ permissionMode })} className={className} />;
   const right = !mineRow && (
     <>
-      <ModelEffort session={session} model={session.model} value={session.chat?.thinking} follow={follow} onModel={(m) => void switchModel(m)} onEffort={pickEffort} cyber={session.chat?.cyber} onCyber={(v) => void patch({ chat: { cyber: v ?? null } })} sameModel={!!session.chat?.sameModel} onSameModel={(on) => void patch({ chat: { sameModel: on } })} security={!!session.chat?.security} onSecurity={securitySwitch ? (on) => void patch({ chat: { security: on } }) : undefined} harnesses switchOf={messages?.length ? session : undefined} />
+      <ModelEffort session={session} model={session.model} value={session.chat?.thinking} follow={follow} onModel={(m) => void switchModel(m)} onEffort={pickEffort} sameModel={!!session.chat?.sameModel} harnesses switchOf={messages?.length ? session : undefined} />
       {options}
       <ContextRing session={session} />
     </>
