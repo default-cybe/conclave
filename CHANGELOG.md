@@ -15,6 +15,7 @@ like `## [0.4.16] - 2026-10-24`.
 - The sidebar shows Routines in Assistant mode only; Search (Ctrl K), G R and its link still reach it in every mode. The Android side panel does the same
 - Workflows, Memory and Extensions moved into the sidebar's More menu, in that order; their G W, G M and G E keys still work. The phone drawer gained a More row that lists every page
 - Android Settings has a Modes list (Security, Canvas, Meetings), saved on the account like the web's
+- In Chat the Details column on the right starts closed, so a chat gets the full width. Its toggle (and Ctrl Shift \) opens it, and the choice is kept for chats on this device apart from sessions, which still open with Details shown
 
 ### Fixed
 

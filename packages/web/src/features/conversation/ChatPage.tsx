@@ -54,7 +54,8 @@ export default function ChatPage() {
   const bp = useBreakpoint();
   const phone = bp === 'phone';
   const dockPreview = bp === 'desktop' || bp === 'wide';
-  const contextOpen = useUi((s) => s.contextOpen);
+  // a chat's Details column is closed until opened; sessions keep theirs (store/ui.ts)
+  const contextOpen = useUi((s) => s.chatContextOpen);
   const drawer = useUi((s) => s.drawerOpen);
   const preview = useChatUi((s) => s.preview);
   const pendingNew = useChatUi((s) => !!s.pending.new);
@@ -92,7 +93,10 @@ export default function ChatPage() {
     return () => ro.disconnect();
   }, []);
 
-  useEffect(() => () => useUi.getState().set({ drawerOpen: false }), []);
+  useEffect(() => {
+    useUi.getState().set({ onChat: true });
+    return () => useUi.getState().set({ drawerOpen: false, onChat: false });
+  }, []);
 
   // esc stops a running reply from anywhere on the page
   useEffect(() => {
@@ -211,7 +215,7 @@ export default function ChatPage() {
 /** 52px, sticky over the column: the title (click to rename), the chat menu and the panel toggle at the right. */
 function ChatHeader({ id, renaming, setRenaming }: { id?: string; renaming: boolean; setRenaming: (v: boolean) => void }) {
   const session = useHub((s) => (id ? s.sessions[id] : undefined));
-  const contextOpen = useUi((s) => s.contextOpen);
+  const contextOpen = useUi((s) => s.chatContextOpen);
   const drawer = useUi((s) => s.drawerOpen);
   const wide = useBreakpoint() === 'wide';
   const scrolled = useChatUi((s) => s.scrolled);
