@@ -897,9 +897,10 @@ export const questions: QuestionRequest[] = [
         header: 'glibc',
         question: 'Which glibc does the remote use? It decides the heap technique.',
         options: [
-          { label: '2.35 (Ubuntu 22.04)', description: 'tcache with safe linking' },
-          { label: '2.39 (Ubuntu 24.04)', description: 'safe linking, no __free_hook' },
-          { label: 'Unknown', description: 'Leak it first with a puts@got read' },
+          { label: '2.35 (Ubuntu 22.04)', description: 'tcache with safe linking. Poison a tcache entry after leaking the heap base, then overwrite a function pointer in the note struct.' },
+          { label: '2.39 (Ubuntu 24.04)', description: 'Safe linking and no __free_hook or __malloc_hook. Needs a FSOP chain through _IO_list_all, which takes longer to build and test.' },
+          { label: '2.31 (Ubuntu 20.04)', description: 'No safe linking and __free_hook still exists, so a plain tcache dup into the hook is enough.' },
+          { label: 'Unknown', description: 'Leak it first: read puts@got through the show-note bug and match the low bytes against libc.rip before picking a technique.' },
         ],
       },
       {
