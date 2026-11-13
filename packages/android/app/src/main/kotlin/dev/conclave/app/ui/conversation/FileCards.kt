@@ -17,7 +17,6 @@ import android.webkit.WebResourceResponse
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
-import android.widget.ImageView
 import android.widget.Toast
 import androidx.annotation.RequiresApi
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -36,13 +35,16 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.OutlinedButton
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Download
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
@@ -50,6 +52,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.ImageBitmap
@@ -82,19 +85,19 @@ import kotlinx.coroutines.withContext
 
 /*
  * Files a ShareFile call handed the owner, under a turn's work like the
- * maps cards (MapsCards.kt; the web's FileCard.tsx). Name, type and size,
- * then Open and Save. The bytes come from the hub by the call's id
+ * maps cards (MapsCards.kt; the web's FileCard.tsx). A picture or video is
+ * no card: it is a thumbnail in the row's strip (ToolFold.kt ThumbRow,
+ * Media.thumbnail). Anything else is a compact card: name, type and size,
+ * and one small save icon. The bytes come from the hub by the call's id
  * (GET /api/sessions/:id/files/:toolUseId, with the token), never by a path.
- * Open shows a picture, GIF, video, PDF or text in the in-app viewer
+ * A tap on the card shows a PDF, text or a big picture in the in-app viewer
  * (MediaViewer.kt), swiping through the message's other files; any other
  * type it writes to the cache's shared/ folder (res/xml/file_paths.xml)
- * and hands the FileProvider link to the app for the type; Save asks where
- * with the system's create-document picker. A PNG, JPEG, WebP or GIF up to
- * 20 MB also shows above the title (FileCard.tsx); an animated GIF or WebP
- * plays on Android 9+ and is its first frame below. An SVG up to 2 MB (a
- * generated chart or graph) draws in a locked-down WebView (inertWebView):
- * one base64 data: <img> (FileCards.svgDocument), no script, no network, no
- * files, no navigation, destroyed when the card leaves. Anything else is a card.
+ * and hands the FileProvider link to the app for the type; the save icon
+ * asks where with the system's create-document picker. An SVG up to 2 MB (a
+ * generated chart or graph) draws in the card in a locked-down WebView
+ * (inertWebView): one base64 data: <img> (FileCards.svgDocument), no script,
+ * no network, no files, no navigation, destroyed when the card leaves.
  *
  * Pictures a GenerateImage call made come first, as a grid (the web's
  * ImageGrid): one shows large, two to four in two columns. They draw from the
@@ -106,7 +109,8 @@ import kotlinx.coroutines.withContext
 fun FileCardsView(uses: List<ToolUseBlock>, results: Map<String, ToolResultBlock>) {
     val sessionId = LocalSessionWork.current.session?.id ?: return
     val pics = FileCards.generated(uses, results)
-    val cards = FileCards.cards(uses, results)
+    // pictures and videos are thumbnails under the row (ToolFold.kt)
+    val cards = FileCards.cards(uses, results).filterNot { Media.thumbnail(it) }
     if (cards.isEmpty() && pics.isEmpty()) return
     val hub = LocalAppContainer.current.hub
     var viewing by remember { mutableStateOf<FileCardData?>(null) }
@@ -169,19 +173,7 @@ private fun GridCell(sessionId: String, card: FileCardData, one: Boolean, modifi
 }
 
 private val CardShape = RoundedCornerShape(5.dp)
-private val PreviewHeight = 384.dp
 private val SvgHeight = 240.dp
-
-/** A card's inline image: a still bitmap, on API 28+ an animated drawable, or an SVG's page (FileCards.svgDocument). */
-private class Preview(val still: ImageBitmap? = null, val animated: Drawable? = null, val svg: String? = null)
-
-/** Animated GIF/WebP first; anything else (or a still WebP/GIF) through decodeScaled. Null when not an image. */
-private fun decodePreview(bytes: ByteArray, mediaType: String, target: Int): Preview? {
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P && (mediaType == "image/gif" || mediaType == "image/webp")) {
-        decodeAnimated(bytes, target)?.let { return Preview(animated = it) }
-    }
-    return decodeScaled(bytes, target)?.let { Preview(still = it) }
-}
 
 @RequiresApi(Build.VERSION_CODES.P)
 internal fun decodeAnimated(bytes: ByteArray, target: Int): Drawable? = runCatching {
@@ -228,18 +220,13 @@ private fun FileCard(sessionId: String, card: FileCardData, onView: (FileCardDat
         val uri = FileProvider.getUriForFile(context, context.packageName + ".files", file)
         context.startActivity(Intent(Intent.ACTION_VIEW).setDataAndType(uri, card.mediaType).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION))
     }
-    val showInline = FileCards.inlineImage(card.mediaType) && card.size <= FileCards.INLINE_MAX
     val showSvg = FileCards.inlineSvg(card)
-    val target = with(LocalDensity.current) { (PreviewHeight * 2).roundToPx() }
-    val preview by produceState<Preview?>(null, card.toolUseId, showInline, showSvg) {
-        if (!showInline && !showSvg) return@produceState
+    val svg by produceState<String?>(null, card.toolUseId, showSvg) {
+        if (!showSvg) return@produceState
         value = try {
             val (bytes, _) = hub.api { it.sessionFile(sessionId, card.toolUseId) }
-            when {
-                // grown past the cap since it was shared: a card only
-                showSvg -> if (bytes.size > FileCards.SVG_MAX) null else withContext(Dispatchers.Default) { Preview(svg = FileCards.svgDocument(bytes, card.title ?: card.name)) }
-                else -> withContext(Dispatchers.Default) { decodePreview(bytes, card.mediaType, target) }.also { if (it == null) error = "Could not show the image." }
-            }
+            // grown past the cap since it was shared: a card only
+            if (bytes.size > FileCards.SVG_MAX) null else withContext(Dispatchers.Default) { FileCards.svgDocument(bytes, card.title ?: card.name) }
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -256,25 +243,33 @@ private fun FileCard(sessionId: String, card: FileCardData, onView: (FileCardDat
             }
         }
     }
-    Column(Modifier.widthIn(max = 560.dp).fillMaxWidth().border(1.dp, c.rule2, CardShape).padding(horizontal = 16.dp, vertical = 12.dp)) {
-        preview?.let { PreviewImage(it, card.title ?: card.name, onClick = { open() }, onFail = { error = "Could not show the image." }) }
-        Text(card.title ?: card.name, style = ConclaveType.rowTitle, color = c.fg, maxLines = 1, overflow = TextOverflow.Ellipsis)
-        Text(
-            (if (card.title != null) "${card.name}, " else "") + FileCards.facts(card),
-            style = ConclaveType.body.copy(fontSize = 14.sp),
-            color = c.fg3,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
-        Row(Modifier.padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedButton(
-                enabled = !busy,
-                onClick = { open() },
-                modifier = Modifier.heightIn(min = 40.dp),
-            ) { Text("Open", maxLines = 1) }
-            TextButton(enabled = !busy, onClick = { save.launch(card.name) }, modifier = Modifier.heightIn(min = 40.dp)) { Text("Save", maxLines = 1) }
+    // the whole card opens the file; the one small icon saves it
+    Column(
+        Modifier
+            .widthIn(max = 560.dp)
+            .fillMaxWidth()
+            .clip(CardShape)
+            .border(1.dp, c.rule2, CardShape)
+            .clickable(enabled = !busy, onClickLabel = "Open ${card.name}") { open() }
+            .padding(start = 16.dp, end = 4.dp, top = 8.dp, bottom = 8.dp),
+    ) {
+        svg?.let { SvgPreview(it, card.title ?: card.name, onClick = { open() }, onFail = { error = "Could not show the image." }) }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text(card.title ?: card.name, style = ConclaveType.rowTitle, color = c.fg, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(
+                    (if (card.title != null) "${card.name}, " else "") + FileCards.facts(card),
+                    style = ConclaveType.body.copy(fontSize = 14.sp),
+                    color = c.fg3,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            IconButton(enabled = !busy, onClick = { save.launch(card.name) }) {
+                Icon(Icons.Outlined.Download, contentDescription = "Save ${card.name}", tint = c.fg3, modifier = Modifier.size(20.dp))
+            }
         }
-        error?.let { Text(it, style = ConclaveType.meta, color = c.fault, modifier = Modifier.padding(top = 6.dp)) }
+        error?.let { Text(it, style = ConclaveType.meta, color = c.fault, modifier = Modifier.padding(top = 4.dp, end = 12.dp)) }
     }
 }
 
@@ -366,43 +361,22 @@ internal fun saveToPictures(context: Context, bytes: ByteArray, name: String, ty
     }
 }
 
-/** The image above a card's title: full width, at most [PreviewHeight] tall, the card's corners. Tap opens a raster one. */
+/** An SVG card's drawing above its title: full width, [SvgHeight] tall, the card's corners. */
 @Composable
-private fun PreviewImage(preview: Preview, description: String, onClick: () -> Unit, onFail: () -> Unit) {
-    val modifier = Modifier.padding(bottom = 10.dp).fillMaxWidth().heightIn(max = PreviewHeight).clip(CardShape)
-    val still = preview.still
-    val animated = preview.animated
-    val svg = preview.svg
-    if (svg != null) {
-        val fail by rememberUpdatedState(onFail)
+private fun SvgPreview(svg: String, description: String, onClick: () -> Unit, onFail: () -> Unit) {
+    val fail by rememberUpdatedState(onFail)
+    Box(Modifier.padding(top = 4.dp, end = 12.dp, bottom = 8.dp).fillMaxWidth().clip(CardShape).height(SvgHeight)) {
         AndroidView(
             factory = { ctx ->
-                // no WebView on this phone (or it failed to start): the card alone, with Open and Save
+                // no WebView on this phone (or it failed to start): the card alone
                 runCatching { inertWebView(ctx).apply { contentDescription = description; loadDataWithBaseURL(null, svg, "text/html", "utf-8", null) } }
                     .getOrElse { fail(); View(ctx) }
             },
             onRelease = { (it as? WebView)?.apply { stopLoading(); destroy() } },
-            modifier = modifier.height(SvgHeight),
+            modifier = Modifier.matchParentSize(),
         )
-    } else if (still != null) {
-        Image(bitmap = still, contentDescription = description, contentScale = ContentScale.Fit, modifier = modifier.clickable(onClick = onClick))
-    } else if (animated != null) {
-        val tap by rememberUpdatedState(onClick)
-        DisposableEffect(animated) {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) (animated as? AnimatedImageDrawable)?.start()
-            onDispose { if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) (animated as? AnimatedImageDrawable)?.stop() }
-        }
-        AndroidView(
-            factory = { ctx ->
-                ImageView(ctx).apply {
-                    adjustViewBounds = true
-                    scaleType = ImageView.ScaleType.FIT_CENTER
-                    setOnClickListener { tap() }
-                }
-            },
-            update = { it.setImageDrawable(animated); it.contentDescription = description },
-            modifier = modifier,
-        )
+        // the WebView would take the tap: a clear layer over it opens the file, like the rest of the card
+        Box(Modifier.matchParentSize().clickable(onClickLabel = "Open $description", onClick = onClick))
     }
 }
 

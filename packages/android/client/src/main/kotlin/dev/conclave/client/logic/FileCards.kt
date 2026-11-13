@@ -115,6 +115,13 @@ object FileCards {
     private fun escapeAttr(s: String): String =
         s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\"", "&quot;").replace("'", "&#39;")
 
+    /** The card's title when it says more than the file name ("Real bar, right half at 1:1"); null when it only repeats it. */
+    fun caption(c: FileCardData): String? {
+        val t = c.title?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+        val name = c.name.substringAfterLast('/')
+        return t.takeUnless { it.equals(name, ignoreCase = true) || it.equals(name.substringBeforeLast('.'), ignoreCase = true) }
+    }
+
     /** "PDF, 14.2 KB". */
     fun facts(c: FileCardData): String = "${KIND[c.mediaType] ?: "File"}, ${sizeWords(c.size)}"
 
