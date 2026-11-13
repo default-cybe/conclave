@@ -30,6 +30,7 @@ import { isDelegated } from '@conclave/core/session/delegated';
 import { moveToMainList, MOVE_TO_MAIN } from './delegated';
 import { addNote } from './NotesStrip';
 import { canScheduleHere, scheduleHere } from '@/features/meeting/links';
+import { useModeOn } from '@/features/home/modes';
 
 /** "Today, 18:58", "16 Oct, 14:02". */
 export function startedWords(ts: number, now = Date.now()): string {
@@ -40,6 +41,7 @@ export function startedWords(ts: number, now = Date.now()): string {
 export function ConversationSheet({ session, open, onClose, onPeople, peopleLabel = 'People in this chat…' }: { session: Session; open: boolean; onClose: () => void; /** A chat's people (features/chat/shared.tsx); "Add people…" while nobody else is in it. */ onPeople?: () => void; peopleLabel?: string }) {
   const device = useHub((s) => s.devices[session.device]?.name ?? session.device);
   const [, navigate] = useLocation();
+  const meetingsOn = useModeOn('meetings');
   const [renaming, setRenaming] = useState(false);
   const [details, setDetails] = useState(false);
   const [del, setDel] = useState(false);
@@ -108,7 +110,7 @@ export function ConversationSheet({ session, open, onClose, onPeople, peopleLabe
           <Action onClick={archive}>{session.archived ? 'Unarchive' : 'Archive'}</Action>
           {chat ? <Action onClick={later(() => openContinue(session.id))}>Move to Code</Action> : <Action onClick={toChat}>Move to Chat</Action>}
           {!chat && <Action onClick={later(() => setDetails(true))}>Details</Action>}
-          {canScheduleHere(session) && <Action onClick={() => (onClose(), navigate(scheduleHere(session)))}>Schedule a meeting here…</Action>}
+          {meetingsOn && canScheduleHere(session) && <Action onClick={() => (onClose(), navigate(scheduleHere(session)))}>Schedule a meeting here…</Action>}
           <Action tone="fault" onClick={later(() => setDel(true))}>
             Delete
           </Action>

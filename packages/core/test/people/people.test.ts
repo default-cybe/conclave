@@ -172,10 +172,10 @@ describe('the migration', () => {
 
   test('modes: a new hub’s owner and a new member start with Security and Canvas off; an account from before keeps them on', () => {
     const fresh = new PeopleStore(openDb(':memory:'));
-    expect(fresh.owner().settings.modes).toEqual({ security: false, canvas: false });
-    expect(fresh.create({ name: 'mia' }).settings.modes).toEqual({ security: false, canvas: false });
+    expect(fresh.owner().settings.modes).toEqual({ security: false, canvas: false, meetings: false });
+    expect(fresh.create({ name: 'mia' }).settings.modes).toEqual({ security: false, canvas: false, meetings: false });
     // the owner grants keep the modes default unless given
-    expect(fresh.create({ name: 'ned', settings: { webSearch: true } }).settings).toEqual({ modes: { security: false, canvas: false }, webSearch: true });
+    expect(fresh.create({ name: 'ned', settings: { webSearch: true } }).settings).toEqual({ modes: { security: false, canvas: false, meetings: false }, webSearch: true });
     // a hub from before accounts with sessions: its owner was using it, so nothing is hidden
     const db = openDb(':memory:');
     new Repos(db).sessions.insert(session('ses_old'));
@@ -200,7 +200,7 @@ describe('the migration', () => {
       before.close();
       expect(new PeopleStore(openDb(file)).owner().settings.modes).toBeUndefined();
       // a new file is a new hub
-      expect(new PeopleStore(openDb(join(dir, 'new.db'))).owner().settings.modes).toEqual({ security: false, canvas: false });
+      expect(new PeopleStore(openDb(join(dir, 'new.db'))).owner().settings.modes).toEqual({ security: false, canvas: false, meetings: false });
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

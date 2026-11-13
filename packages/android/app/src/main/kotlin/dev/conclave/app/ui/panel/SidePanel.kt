@@ -39,6 +39,7 @@ import androidx.compose.material.icons.outlined.AccountTree
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Event
 import androidx.compose.material.icons.outlined.KeyboardArrowDown
+import androidx.compose.material.icons.outlined.Schedule
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -109,8 +110,9 @@ import kotlinx.coroutines.launch
  * project, device or time), Delegated work (a Delegate call's sessions, in
  * every mode, folding), and at the foot the account row (avatar, name,
  * the hub's state) that opens Settings. Every other page is in Settings,
- * except Meetings under Search (docs/design/MEETING-MODE.md 11.1); the
- * Inbox count is in the top bar. [currentId] marks the open
+ * except Meetings under Search while it is on (docs/design/MEETING-MODE.md
+ * 11.1) and Routines in Assistant mode (Drawer.pages); the Inbox count is
+ * in the top bar. [currentId] marks the open
  * conversation, [inSettings] the account row. Closed ([open] false), the
  * panel lets go of its search, and so of the keyboard.
  */
@@ -127,6 +129,8 @@ fun SidePanel(
     open: Boolean = true,
     inMeetings: Boolean = false,
     onMeetings: () -> Unit = {},
+    inRoutines: Boolean = false,
+    onRoutines: () -> Unit = {},
     inCanvas: Boolean = false,
     onCanvas: () -> Unit = {},
 ) {
@@ -187,10 +191,21 @@ fun SidePanel(
                     Icon(Icons.Outlined.Search, contentDescription = null, tint = c.fg2, modifier = Modifier.size(20.dp))
                 })
             }
-            MeetingsRow(open, selected = inMeetings, onClick = {
-                endSearch()
-                onMeetings()
-            })
+            // Meetings while it is on (web Settings, Appearance, Modes); Routines in Assistant only, Settings has it in every mode
+            Drawer.pages(mode, Start.modeOn(me?.preferences, "meetings") || inMeetings).forEach { p ->
+                when (p) {
+                    Drawer.Page.MEETINGS -> MeetingsRow(open, selected = inMeetings, onClick = {
+                        endSearch()
+                        onMeetings()
+                    })
+                    Drawer.Page.ROUTINES -> PanelRow("Routines", selected = inRoutines, strong = true, onClick = {
+                        endSearch()
+                        onRoutines()
+                    }, leading = {
+                        Icon(Icons.Outlined.Schedule, contentDescription = null, tint = c.fg2, modifier = Modifier.size(20.dp))
+                    })
+                }
+            }
             // Canvas is a page here, not a StartMode: sharing into the app offers only the modes that start a conversation.
             // Turned off in Settings (web, Appearance, Modes): no row, unless Canvas is the page open
             if (Start.modeOn(me?.preferences, "canvas") || inCanvas) {

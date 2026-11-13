@@ -28,7 +28,10 @@ import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalDrawerSheet
 import androidx.compose.material3.ModalNavigationDrawer
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Event
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
@@ -437,6 +440,8 @@ private fun MainScaffold() {
                     onSettings = { close { navigateTop(nav, Routes.SETTINGS) } },
                     inMeetings = route == Routes.MEETINGS,
                     onMeetings = { close { navigateTop(nav, Routes.MEETINGS) } },
+                    inRoutines = route == Routes.ROUTINES,
+                    onRoutines = { close { navigateTop(nav, Routes.ROUTINES) } },
                     inCanvas = route?.startsWith(Routes.CANVAS) == true,
                     onCanvas = { close { navigateTop(nav, Routes.CANVAS) } },
                     modifier = m,
@@ -779,6 +784,17 @@ private fun AppNavHost(nav: NavHostController, modifier: Modifier) {
                 }
             }
             composable(Routes.MEETINGS) {
+                // Meetings turned off (web Settings, Appearance, Modes): a link here says so, not a page with no way in
+                val me by hub.me.collectAsStateWithLifecycle()
+                if (!Start.modeOn(me?.preferences, "meetings")) {
+                    dev.conclave.app.ui.common.EmptyState(
+                        icon = Icons.Outlined.Event,
+                        title = "Meetings is off",
+                        body = "Turn it on in Settings, under Modes.",
+                        action = { TextButton(onClick = { navigateTop(nav, Routes.SETTINGS) }) { Text("Open Settings") } },
+                    )
+                    return@composable
+                }
                 MeetingsScreen(
                     onOpen = { id -> nav.navigate(Routes.meeting(id)) { launchSingleTop = true } },
                     onSchedule = { nav.navigate(Routes.meetingForm()) },

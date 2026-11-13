@@ -1,10 +1,13 @@
 /**
  * Where the pages are reached (docs/design/SPEC.md 5.3). The sidebar shows
- * Inbox, Workflows, Routines, Memory and Extensions as rows; More opens a
- * menu with the rest. Every page keeps its "G then X" key. On a phone the
- * drawer has none of them: they are under Settings, in its More list.
+ * Inbox, Meetings (when on) and the mode's own rows (Routines in
+ * Assistant); More opens a menu with the rest, Workflows, Memory and
+ * Extensions first. Every page keeps its "G then X" key and its place in
+ * Search. On a phone the drawer has none of them: they are under Settings,
+ * in its More list.
  */
 import { useHub } from '@/store/store';
+import type { SideMode } from '@/lib/sidebar';
 import { useFriendInbox } from '@/store/friends';
 import { useIsOwner } from '@/lib/people';
 
@@ -47,14 +50,20 @@ export function useNav(): NavItem[] {
 
 export const isActive = (n: Pick<NavItem, 'to' | 'match'>, path: string) => (n.match ? n.match(path) : path === n.to || path.startsWith(n.to + '/'));
 
-/** The sidebar's rows after Search and New, in order. */
-export const SIDE_PAGES = ['/approvals', '/meetings', '/workflows', '/routines', '/memory', '/extensions'];
+/** Rows one mode's sidebar has of its own. Routines is the assistant's; Search, G R and /routines reach it in every mode. */
+export const MODE_PAGES: Partial<Record<SideMode, string[]>> = { assistant: ['/routines'] };
+
+/** The sidebar's rows after Search and New, in order: Inbox, Meetings when it is on, then the mode's own. */
+export const sidePages = (mode: SideMode, meetings: boolean): string[] => ['/approvals', ...(meetings ? ['/meetings'] : []), ...(MODE_PAGES[mode] ?? [])];
 
 /**
  * The sidebar's More menu: the pages that have no row, then the friends,
  * shares and remote access the owner reaches from Settings too.
  */
 export const MORE_PAGES: Array<{ to: string; label: string; key?: string }> = [
+  { to: '/workflows', label: 'Workflows', key: 'w' },
+  { to: '/memory', label: 'Memory', key: 'm' },
+  { to: '/extensions', label: 'Extensions', key: 'e' },
   { to: '/tasks', label: 'Tasks', key: 't' },
   { to: '/goals', label: 'Goals', key: 'o' },
   { to: '/agents', label: 'Agents', key: 'a' },
@@ -66,9 +75,12 @@ export const MORE_PAGES: Array<{ to: string; label: string; key?: string }> = [
   { to: '/settings/remote', label: 'Remote access' },
 ];
 
+/** A phone's More page: the drawer's More row and Settings' More row both open it. */
+export const PHONE_MORE = '/settings/more';
+
 /**
- * The More list inside a phone's Settings: every page the drawer used to
- * list, the Inbox and All conversations first.
+ * The More list on a phone (PHONE_MORE): every page the drawer has no row
+ * for, the Inbox and All conversations first.
  */
 export const PHONE_PAGES: Array<{ to: string; label: string }> = [
   { to: '/approvals', label: 'Inbox' },

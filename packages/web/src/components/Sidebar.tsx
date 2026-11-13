@@ -6,9 +6,9 @@
  *   Search                                          ⌘K
  *   New session
  *   Inbox                                            3
- *   Meetings                                    in 42m
- *   Workflows, Routines, Memory, Extensions
- *   More                                   (a menu: Tasks, Usage, Devices...)
+ *   Meetings (when on)                          in 42m
+ *   Routines (Assistant only)
+ *   More             (a menu: Workflows, Memory, Extensions, Tasks, Usage...)
  *
  *   Sessions                                 Project v
  *   conclave                                    + ...
@@ -27,7 +27,7 @@
  */
 import { useEffect, useMemo, useRef, useState, type ComponentType, type MouseEvent as ReactMouseEvent, type ReactNode, type RefObject } from 'react';
 import { Link, useLocation } from 'wouter';
-import { Blocks, Brain, CalendarClock, ChevronDown, ChevronRight, Ellipsis, Inbox, PanelLeft, PanelLeftClose, Plus, Presentation, Search, SquarePen, Workflow } from 'lucide-react';
+import { CalendarClock, ChevronDown, ChevronRight, Ellipsis, Inbox, PanelLeft, PanelLeftClose, Plus, Presentation, Search, SquarePen } from 'lucide-react';
 import type { Session } from '@conclave/core/types';
 import { api } from '@/lib/api';
 import { attempt, removeKey, upsertSession, useHub } from '@/store/store';
@@ -42,7 +42,7 @@ import { isDelegated } from '@conclave/core/session/delegated';
 import { moveToMainList, MOVE_TO_MAIN } from '@/features/chat/delegated';
 import { setRailOpen, useChatUi } from '@/features/conversation/state';
 import { openNew, ModeSwitch, useCurrentMode } from '@/features/home/ModeSwitch';
-import { listedMode } from '@/features/home/modes';
+import { listedMode, useModeOn } from '@/features/home/modes';
 import { SideFiles } from '@/features/canvas/files';
 import { LazyShareProjectDialog } from '@/features/friends/ShareProject';
 import { useMeetingHint } from '@/features/meeting/useMeetingHint';
@@ -53,7 +53,7 @@ import { MOD } from './ui/Kbd';
 import { Tooltip } from './ui/Tooltip';
 import { ConfirmDialog, Dialog, Menu, MenuList, Popover, type MenuItem } from './ui/Overlay';
 import { AccountRow } from './AccountMenu';
-import { isActive, MORE_PAGES, OWNER_PAGES, useInboxCount } from './nav';
+import { isActive, MORE_PAGES, OWNER_PAGES, sidePages, useInboxCount } from './nav';
 
 export const SIDEBAR_W = 272;
 export const SIDEBAR_FOLDED_W = 56;
@@ -68,15 +68,12 @@ const ROW_ON = 'bg-side-active text-fg';
 /** A reply came after it was last opened (core session/unread.ts). */
 export const UNREAD = 'font-semibold text-fg';
 
-/** The pages with a row of their own, after Search and New. */
-const ROWS: Array<{ to: string; label: string; Icon: Icon; match?: (p: string) => boolean }> = [
-  { to: '/approvals', label: 'Inbox', Icon: Inbox, match: (p) => p.startsWith('/approvals') || p.startsWith('/inbox') },
-  { to: '/meetings', label: 'Meetings', Icon: Presentation },
-  { to: '/workflows', label: 'Workflows', Icon: Workflow },
-  { to: '/routines', label: 'Routines', Icon: CalendarClock },
-  { to: '/memory', label: 'Memory', Icon: Brain },
-  { to: '/extensions', label: 'Extensions', Icon: Blocks },
-];
+/** The pages that can have a row of their own, after Search and New; nav.ts sidePages says which show. */
+const ROWS: Record<string, { to: string; label: string; Icon: Icon; match?: (p: string) => boolean }> = {
+  '/approvals': { to: '/approvals', label: 'Inbox', Icon: Inbox, match: (p) => p.startsWith('/approvals') || p.startsWith('/inbox') },
+  '/meetings': { to: '/meetings', label: 'Meetings', Icon: Presentation },
+  '/routines': { to: '/routines', label: 'Routines', Icon: CalendarClock },
+};
 
 /** The mode the sidebar lists and starts: the open one, or Chat when it is a mode turned off in Settings (a hunt or Canvas opened by a link). */
 function useSideMode() {
@@ -108,10 +105,12 @@ function Expanded() {
   const path = loc.split('?')[0];
   const owner = useIsOwner();
   const inbox = useInboxCount();
-  const meeting = useMeetingHint();
   const mode = useSideMode();
+  const meetingsOn = useModeOn('meetings');
   const fresh = useNewConversation();
-  const rows = ROWS.filter((r) => owner || !OWNER_PAGES.has(r.to));
+  const rows = sidePages(mode, meetingsOn)
+    .map((to) => ROWS[to])
+    .filter((r) => owner || !OWNER_PAGES.has(r.to));
   return (
     <aside aria-label="Sidebar" className="flex h-full shrink-0 flex-col bg-side pt-safe" style={{ width: SIDEBAR_W }}>
       <div className="flex h-[52px] shrink-0 items-center gap-2 pr-2 pl-4">
@@ -137,14 +136,7 @@ function Expanded() {
                   <span className="sr-only"> waiting on you</span>
                 </span>
               )}
-              {r.to === '/meetings' &&
-                (meeting.live ? (
-                  <span className="mr-1 size-[7px] shrink-0 rounded-full bg-fault">
-                    <span className="sr-only">listening</span>
-                  </span>
-                ) : (
-                  meeting.text && <span className="num text-[12.5px] text-fg-3">{meeting.text}</span>
-                ))}
+              {r.to === '/meetings' && <MeetingHint />}
             </Link>
           );
         })}
@@ -166,8 +158,7 @@ function Folded() {
   const [loc] = useLocation();
   const path = loc.split('?')[0];
   const inbox = useInboxCount();
-  const meeting = useMeetingHint();
-  const meetingTip = meeting.live ? `Meetings, ${meeting.live.title} listening` : meeting.next ? `Meetings, ${meeting.next.title} ${meeting.text}` : 'Meetings';
+  const meetingsOn = useModeOn('meetings');
   const fresh = useNewConversation();
   const icon = 'relative grid size-9 place-items-center rounded-[9px] text-fg-2 transition-colors duration-[var(--dur-1)] hov:bg-side-hover hov:text-fg';
   return (
@@ -200,15 +191,36 @@ function Folded() {
           {inbox > 0 && <span aria-hidden className="absolute top-1.5 right-1.5 size-[7px] rounded-full bg-warn" />}
         </Link>
       </Tooltip>
-      <Tooltip content={meetingTip} side="right">
-        <Link href="/meetings" aria-label={meetingTip} aria-current={path.startsWith('/meetings') ? 'page' : undefined} className={cn(icon, path.startsWith('/meetings') && 'bg-side-active text-fg')}>
-          <Presentation className="size-4" strokeWidth={1.75} aria-hidden />
-          {meeting.live && <span aria-hidden className="absolute top-1.5 right-1.5 size-[7px] rounded-full bg-fault" />}
-        </Link>
-      </Tooltip>
+      {meetingsOn && <FoldedMeetings path={path} className={icon} />}
       <div className="flex-1" />
       <AccountRow compact />
     </aside>
+  );
+}
+
+/** A live meeting's dot, else the next one's countdown. Mounted only while Meetings is on, so off fetches nothing. */
+function MeetingHint() {
+  const meeting = useMeetingHint();
+  if (meeting.live)
+    return (
+      <span className="mr-1 size-[7px] shrink-0 rounded-full bg-fault">
+        <span className="sr-only">listening</span>
+      </span>
+    );
+  return meeting.text ? <span className="num text-[12.5px] text-fg-3">{meeting.text}</span> : null;
+}
+
+function FoldedMeetings({ path, className }: { path: string; className: string }) {
+  const meeting = useMeetingHint();
+  const tip = meeting.live ? `Meetings, ${meeting.live.title} listening` : meeting.next ? `Meetings, ${meeting.next.title} ${meeting.text}` : 'Meetings';
+  const on = path.startsWith('/meetings');
+  return (
+    <Tooltip content={tip} side="right">
+      <Link href="/meetings" aria-label={tip} aria-current={on ? 'page' : undefined} className={cn(className, on && 'bg-side-active text-fg')}>
+        <Presentation className="size-4" strokeWidth={1.75} aria-hidden />
+        {meeting.live && <span aria-hidden className="absolute top-1.5 right-1.5 size-[7px] rounded-full bg-fault" />}
+      </Link>
+    </Tooltip>
   );
 }
 

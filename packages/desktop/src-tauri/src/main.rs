@@ -252,6 +252,8 @@ fn grant_hub_ipc(app: &AppHandle, base: &Url) -> Result<(), String> {
             // the hub page may open the meeting overlay, never start capture (MEETING-MODE.md 2.1.1)
             .permission("allow-meeting-open")
             .permission("allow-meeting-status")
+            // Meetings turned on or off: the tray's meeting items and the overlay hotkey follow (meeting::set_enabled)
+            .permission("allow-meeting-enabled")
             // meeting://status, so notify.ts stays quiet while a meeting listens (MEETING-MODE.md 7.6)
             .permission("core:event:allow-listen")
             .permission("core:event:allow-unlisten"),
@@ -1620,6 +1622,12 @@ fn build_tray(app: &AppHandle) -> tauri::Result<()> {
     let autostart = CheckMenuItem::with_id(app, "autostart", "Start at login", true, autostart_on, None::<&str>)?;
     // a line of status, not a command: the hub in use, or how the one on this computer is doing
     let hub_line = MenuItem::with_id(app, "hub_line", "Hub", false, None::<&str>)?;
+    // the meeting items come and go with the account's Meetings setting (meeting::set_enabled)
+    let meeting_items = [
+        MenuItem::with_id(app, "meeting_toggle", "Start meeting... / Show-hide overlay", true, None::<&str>)?,
+        MenuItem::with_id(app, "meeting_end", "End meeting", true, None::<&str>)?,
+        MenuItem::with_id(app, "meeting_display", "Move overlay to next display", true, None::<&str>)?,
+    ];
     let menu = Menu::with_items(
         app,
         &[
@@ -1628,9 +1636,9 @@ fn build_tray(app: &AppHandle) -> tauri::Result<()> {
             &MenuItem::with_id(app, "new_chat", "New chat", true, None::<&str>)?,
             &MenuItem::with_id(app, "toggle", "Show/Hide", true, None::<&str>)?,
             &MenuItem::with_id(app, "quick", "Quick ask", true, None::<&str>)?,
-            &MenuItem::with_id(app, "meeting_toggle", "Start meeting... / Show-hide overlay", true, None::<&str>)?,
-            &MenuItem::with_id(app, "meeting_end", "End meeting", true, None::<&str>)?,
-            &MenuItem::with_id(app, "meeting_display", "Move overlay to next display", true, None::<&str>)?,
+            &meeting_items[0],
+            &meeting_items[1],
+            &meeting_items[2],
             &PredefinedMenuItem::separator(app)?,
             &MenuItem::with_id(app, "settings", "Settings...", true, None::<&str>)?,
             &MenuItem::with_id(app, "pair_phone", "Pair a phone...", true, None::<&str>)?,
@@ -1643,6 +1651,7 @@ fn build_tray(app: &AppHandle) -> tauri::Result<()> {
     *state(app).autostart_item.lock().unwrap() = Some(autostart);
     *state(app).hub_line.lock().unwrap() = Some(hub_line);
     *state(app).menu.lock().unwrap() = Some(menu.clone());
+    meeting::keep_tray_items(meeting_items.to_vec());
     update_tray_line(app);
 
     let mut tray = TrayIconBuilder::with_id("main")
@@ -1694,6 +1703,12 @@ fn meeting_client_id(app: &AppHandle) -> String {
 #[tauri::command]
 fn meeting_open(app: AppHandle, meeting_id: String) -> Result<(), String> {
     meeting::open(&app, Some(&meeting_id))
+}
+
+/// The hub page says whether Meetings is on for the account: the tray items and the overlay hotkey follow.
+#[tauri::command]
+fn meeting_enabled(app: AppHandle, on: bool) {
+    meeting::set_enabled(&app, on);
 }
 
 #[tauri::command]
@@ -1792,6 +1807,7 @@ fn main() {
         .plugin(update::plugin())
         .invoke_handler(tauri::generate_handler![
             meeting_open,
+            meeting_enabled,
             meeting_status,
             meeting_start,
             meeting_pause,

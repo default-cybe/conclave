@@ -33,6 +33,7 @@ import { PeopleError, accountKey, type HubAccount, type ProviderGrants } from '@
 import { MEMBER_ALLOW_KEY } from '@conclave/core/engine/permissions-view.ts';
 import { forgetAssistant } from '@conclave/core/assistant/registry.ts';
 import { forgetPim } from '@conclave/core/pim/registry.ts';
+import { meetingsOf } from '@conclave/core/meeting/index.ts';
 import type { ConclaveConfig } from '@conclave/core/config/index.ts';
 import type { HonoEnv, ServerContext } from './context';
 import { BodyTooLarge, HttpError, auditFor, badRequest, clientIp, isDirectLocal, notFound, readCapped, readJson } from './http';
@@ -217,7 +218,8 @@ export function registerPeopleRoutes(app: Hono<HonoEnv>, ctx: ServerContext): vo
         ...(a.settings.importWatch ? { importWatch: true } : {}),
         ...(a.settings.splitView?.length ? { splitView: a.settings.splitView } : {}),
         ...(a.settings.pinnedModels?.length ? { pinnedModels: a.settings.pinnedModels } : {}),
-        ...(a.settings.modes ? { modes: a.settings.modes } : {}),
+        // meetings always: what the person chose, else on only when they already have meetings (meeting/index.ts enabled)
+        modes: { ...a.settings.modes, meetings: meetingsOf(engine)?.enabled(a.id) ?? a.settings.modes?.meetings ?? false },
       },
       ...(isMember(a.id) ? { allow: engine.repos.kv.get<string[]>(accountKey(a.id, MEMBER_ALLOW_KEY), []), disk: engine.diskUse(a.id) } : {}),
     };
@@ -291,9 +293,9 @@ export function registerPeopleRoutes(app: Hono<HonoEnv>, ctx: ServerContext): vo
       else delete settings.pinnedModels;
     }
     if (body.modes !== undefined) {
-      // a visibility preference only: the hub still serves Security's and Canvas's routes with a mode off
+      // a visibility preference: the hub still serves Security's, Canvas's and Meetings' routes with one off; Meetings off also stops its background work
       const m = body.modes as Record<string, unknown> | null;
-      if (!m || typeof m !== 'object' || Array.isArray(m) || Object.entries(m).some(([k, v]) => (k !== 'security' && k !== 'canvas') || typeof v !== 'boolean')) throw badRequest('modes is { security, canvas }, each true or false');
+      if (!m || typeof m !== 'object' || Array.isArray(m) || Object.entries(m).some(([k, v]) => (k !== 'security' && k !== 'canvas' && k !== 'meetings') || typeof v !== 'boolean')) throw badRequest('modes is { security, canvas, meetings }, each true or false');
       settings.modes = { security: true, canvas: true, ...settings.modes, ...(m as Partial<ModesPreference>) };
     }
     if (body.allow !== undefined) {

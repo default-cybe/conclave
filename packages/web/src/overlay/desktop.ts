@@ -47,4 +47,6 @@ export const ipc = {
   place: (r: Placed, notch: boolean, blur: boolean) => desktop()?.invoke<void>('meeting_place', { x: r.x, y: r.y, width: r.w, height: r.h, notch, blur }),
   /** Cloud speech to text failed: try again now. */
   sttRetry: () => desktop()?.invoke<void>('meeting_stt_retry'),
+  /** Meetings on or off for this account (Settings, Appearance, Modes): the tray's meeting items and the overlay hotkey come and go with it. Main window only. */
+  enabled: (on: boolean) => desktop()?.invoke<void>('meeting_enabled', { on }),
 };

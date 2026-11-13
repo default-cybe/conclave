@@ -7,6 +7,8 @@
  */
 import { afterAll, beforeAll, beforeEach, describe, expect, spyOn, test } from 'bun:test';
 import { ConclaveClient } from '@conclave/core/client/index.ts';
+import { MeetingStore } from '@conclave/core/meeting/store.ts';
+import { attachMeetings, meetingsOf } from '@conclave/core/meeting/index.ts';
 import { RateLimiter } from '../src/auth';
 import { hashPassword } from '../src/password';
 import { startHub, type TestHub } from './helpers';
@@ -103,22 +105,30 @@ describe('the owner adds people', () => {
 
   test('each account shows or hides Security and Canvas for itself; a new one starts with both off', async () => {
     const me = async (token?: string) => (await asJson(await hub.api('/api/me', token ? { token } : {}))).body.preferences.modes;
+    // the real hub attaches meeting mode at start (engine/create.ts); the test hub does it here
+    if (!meetingsOf(hub.engine)) attachMeetings(hub.engine as never);
     // both new: the test hub's owner and alice
-    expect(await me(alice.token)).toEqual({ security: false, canvas: false });
+    expect(await me(alice.token)).toEqual({ security: false, canvas: false, meetings: false });
     expect((await hub.api('/api/me', { method: 'PATCH', token: alice.token, json: { modes: { security: true } } })).status).toBe(200);
-    expect(await me(alice.token)).toEqual({ security: true, canvas: false });
+    expect(await me(alice.token)).toEqual({ security: true, canvas: false, meetings: false });
     // the owner's are the owner's
-    expect(await me()).toEqual({ security: false, canvas: false });
-    expect((await hub.api('/api/me', { method: 'PATCH', json: { modes: { canvas: true } } })).status).toBe(200);
-    expect(await me()).toEqual({ security: false, canvas: true });
-    expect(await me(alice.token)).toEqual({ security: true, canvas: false });
+    expect(await me()).toEqual({ security: false, canvas: false, meetings: false });
+    expect((await hub.api('/api/me', { method: 'PATCH', json: { modes: { canvas: true, meetings: true } } })).status).toBe(200);
+    expect(await me()).toEqual({ security: false, canvas: true, meetings: true });
+    expect(await me(alice.token)).toEqual({ security: true, canvas: false, meetings: false });
     // an account from before the setting has none saved (both on); a first write keeps the other one on
     const a = hub.engine.people.get(alice.id)!;
     const { modes: _, ...rest } = a.settings;
     hub.engine.people.update(alice.id, { settings: rest });
-    expect(await me(alice.token)).toBeUndefined();
+    // nothing saved and no meetings: Meetings off; once the account has a meeting, on (an upgrade keeps what is used)
+    expect(await me(alice.token)).toEqual({ meetings: false });
+    new MeetingStore(hub.engine.repos.db).create({ accountId: alice.id, sessionId: 'ses_meet', device: 'local', cwd: '/p', title: 'Standup' });
+    expect(await me(alice.token)).toEqual({ meetings: true });
     expect((await hub.api('/api/me', { method: 'PATCH', token: alice.token, json: { modes: { canvas: false } } })).status).toBe(200);
-    expect(await me(alice.token)).toEqual({ security: true, canvas: false });
+    expect(await me(alice.token)).toEqual({ security: true, canvas: false, meetings: true });
+    // turned off, it stays off with meetings recorded
+    expect((await hub.api('/api/me', { method: 'PATCH', token: alice.token, json: { modes: { meetings: false } } })).status).toBe(200);
+    expect(await me(alice.token)).toEqual({ security: true, canvas: false, meetings: false });
     for (const bad of [null, [], { security: 'yes' }, { chat: false }]) expect((await hub.api('/api/me', { method: 'PATCH', token: alice.token, json: { modes: bad } })).status).toBe(400);
   });
 

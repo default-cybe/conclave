@@ -22,7 +22,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ComponentType, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { Link, useLocation } from 'wouter';
-import { ArrowLeft, ChevronDown, Inbox, Presentation, Search, SquarePen } from 'lucide-react';
+import { ArrowLeft, CalendarClock, ChevronDown, Ellipsis, Inbox, Presentation, Search, SquarePen } from 'lucide-react';
 import { openPalette, useUi } from '@/store/ui';
 import { cn } from '@/lib/text';
 import { NEW_WORDS } from '@/lib/sidebar';
@@ -30,10 +30,11 @@ import { useReducedMotion } from './motion';
 import { ModeSwitch } from '@/features/home/ModeSwitch';
 import { IncognitoToggle } from '@/features/conversation/incognito';
 import { useStartMode, type StartMode } from '@/features/home/start';
+import { useModeOn } from '@/features/home/modes';
 import { useMeetingHint } from '@/features/meeting/useMeetingHint';
 import { AccountRow } from './AccountMenu';
 import { SideSessions } from './Sidebar';
-import { useInboxCount } from './nav';
+import { MODE_PAGES, PHONE_MORE, useInboxCount } from './nav';
 
 // ---------------------------------------------------------------------------
 // Places and titles
@@ -406,10 +407,20 @@ export function SidePanel() {
   );
 }
 
+/** Meetings in the drawer, with a live meeting or the next one's countdown; mounted only while Meetings is on, so off fetches nothing. */
+function MeetingsMainRow({ active }: { active: boolean }) {
+  const meeting = useMeetingHint();
+  return (
+    <MainRow Icon={Presentation} label="Meetings" to="/meetings" active={active}>
+      {meeting.live ? <span className="ml-auto text-[15px] font-medium text-fault">Live</span> : meeting.text && <span className="num ml-auto text-[15px] text-fg-3">{meeting.text}</span>}
+    </MainRow>
+  );
+}
+
 function PanelBody() {
   const [loc, navigate] = useLocation();
   const inbox = useInboxCount();
-  const meeting = useMeetingHint();
+  const meetingsOn = useModeOn('meetings');
   const mode = useStartMode((s) => s.mode);
   const path = loc.split('?')[0];
   const close = () => useUi.setState({ panelOpen: false });
@@ -426,9 +437,7 @@ function PanelBody() {
             openPalette();
           }}
         />
-        <MainRow Icon={Presentation} label="Meetings" to="/meetings" active={path === '/meetings' || path.startsWith('/meetings/')}>
-          {meeting.live ? <span className="ml-auto text-[15px] font-medium text-fault">Live</span> : meeting.text && <span className="num ml-auto text-[15px] text-fg-3">{meeting.text}</span>}
-        </MainRow>
+        {meetingsOn && <MeetingsMainRow active={path === '/meetings' || path.startsWith('/meetings/')} />}
         {inbox > 0 && (
           <MainRow Icon={Inbox} label="Inbox" to="/approvals" active={path === '/approvals' || path === '/inbox'}>
             <span className="num ml-auto text-[15px] font-medium text-warn">
@@ -437,6 +446,9 @@ function PanelBody() {
             </span>
           </MainRow>
         )}
+        {/* the mode's own rows (Routines in Assistant), then More: every other page (nav.ts PHONE_PAGES), so none is out of reach on a phone */}
+        {(MODE_PAGES[mode] ?? []).includes('/routines') && <MainRow Icon={CalendarClock} label="Routines" to="/routines" active={path === '/routines' || path.startsWith('/routines/')} />}
+        <MainRow Icon={Ellipsis} label="More" to={PHONE_MORE} active={path === PHONE_MORE} />
         <div className="mt-4">
           <SideSessions mode={mode} phone onPick={close} />
         </div>

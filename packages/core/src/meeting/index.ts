@@ -10,6 +10,7 @@ import { addDays, atLocal, hubZone, localDate, validZone } from '../assistant/ti
 import type { Engine } from '../engine/engine';
 import { EngineError } from '../engine/errors';
 import { agentModelRef } from '../extensions/agent-model';
+import { meetingsDefault } from '../client/people';
 import { isMember } from '../people/context';
 import { pimFor } from '../pim/registry';
 import { projectsOf } from '../projects/attached';
@@ -133,18 +134,34 @@ export class MeetingService {
     this.store = new MeetingStore(engine.repos.db);
     // registered like scheduler/routines.ts: a hub restart runs what was due or half done
     const s = engine.scheduler;
-    s.handle(JOBS.prep, (p) => this.runPrep(String(p.meetingId), p.approve === true, p.auto === true));
-    s.handle(JOBS.remind, (p) => this.remind(String(p.meetingId), Number(p.minutes)));
-    s.handle(JOBS.autoprep, (p) => this.autoPrep(String(p.meetingId)));
-    s.handle(JOBS.arm, async (p) => this.armJob(String(p.meetingId)));
-    s.handle(JOBS.due, async (p) => this.due(String(p.meetingId)));
+    // Meetings turned off for the account (Settings, Appearance, Modes): its due jobs do nothing, no model call, no notice
+    const on = (p: Record<string, unknown>) => {
+      const m = this.store.get(String(p.meetingId));
+      return !m || this.enabled(m.accountId);
+    };
+    s.handle(JOBS.prep, async (p) => (on(p) ? this.runPrep(String(p.meetingId), p.approve === true, p.auto === true) : undefined));
+    s.handle(JOBS.remind, async (p) => (on(p) ? this.remind(String(p.meetingId), Number(p.minutes)) : undefined));
+    s.handle(JOBS.autoprep, async (p) => (on(p) ? this.autoPrep(String(p.meetingId)) : undefined));
+    s.handle(JOBS.arm, async (p) => (on(p) ? this.armJob(String(p.meetingId)) : undefined));
+    s.handle(JOBS.due, async (p) => (on(p) ? this.due(String(p.meetingId)) : undefined));
     s.handle(JOBS.stale, async (p) => this.stale(String(p.meetingId)));
-    // after a restart: nothing can still stream, and work that was half done runs again
+    // after a restart: nothing can still stream, and work that was half done runs again (not for an account that turned Meetings off)
     for (const m of this.store.withStatus(['preparing', 'ready', 'live', 'paused', 'ending'])) {
       this.store.failStreaming(m.id, 'the hub restarted');
+      if (!this.enabled(m.accountId)) continue;
       if (m.status === 'preparing') this.track(this.prepare(m));
       if (m.status === 'ending') this.track(this.runWrapUp(m));
     }
+  }
+
+  /**
+   * Meetings on for this account (GET /api/me preferences.modes.meetings):
+   * what they chose, else on only when they already have a meeting. A new
+   * hub or member saves it off (NEW_ACCOUNT_MODES); an account from before
+   * the setting that used meetings keeps them.
+   */
+  enabled(accountId: string): boolean {
+    return meetingsDefault(this.engine.people.get(accountId)?.settings.modes?.meetings, () => this.store.hasAny(accountId));
   }
 
   private track(p: Promise<unknown>): void {

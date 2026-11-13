@@ -28,7 +28,7 @@ import { ModelMark, ModelName } from './logo';
 import { MODES } from '@/features/chat/modes';
 import { chooseChatModel } from '@/features/conversation/actions';
 import { useStartMode } from '@/features/home/start';
-import { useShownModes } from '@/features/home/modes';
+import { useModeOn, useShownModes } from '@/features/home/modes';
 import { openNew } from '@/features/home/ModeSwitch';
 import { RUN_SETUP_AGAIN } from '@/lib/onboarding';
 import { isDelegated } from '@conclave/core/session/delegated';
@@ -121,6 +121,7 @@ function Palette() {
   const chatId = loc.startsWith('/chat/') ? loc.slice(6).split('/')[0] : undefined;
   const startMode = useStartMode((s) => s.mode);
   const startModes = useShownModes();
+  const meetingsOn = useModeOn('meetings');
   const onChat = loc === '/chat' || !!chatId || (loc === '/' && startMode === 'chat');
   useFocusTrap(boxRef, true, { initial: inputRef });
 
@@ -319,7 +320,8 @@ function Palette() {
     }
 
     // pages
-    for (const n of [...NAV.filter((x) => owner || !OWNER_PAGES.has(x.to)), SETTINGS_NAV]) list.push({ id: `go:${n.to}`, group: 'Pages', text: `${n.label} page go to`, label: n.label, hint: <Kbd>G {n.key.toUpperCase()}</Kbd>, run: go(n.to) });
+    // Meetings off (Settings, Appearance, Modes): not offered; G N and its link still say it is off
+    for (const n of [...NAV.filter((x) => (owner || !OWNER_PAGES.has(x.to)) && (meetingsOn || x.to !== '/meetings')), SETTINGS_NAV]) list.push({ id: `go:${n.to}`, group: 'Pages', text: `${n.label} page go to`, label: n.label, hint: <Kbd>G {n.key.toUpperCase()}</Kbd>, run: go(n.to) });
     if (owner) for (const [tab, label, words] of EXTENSION_TABS) list.push({ id: `go:/extensions/${tab}`, group: 'Pages', text: `${label} extensions ${words}`, label, detail: 'Extensions', run: go(`/extensions/${tab}`) });
     for (const [id, label, words] of SETTINGS_SECTIONS.filter(([x]) => owner || MEMBER_SETTINGS.has(x))) list.push({ id: `go:/settings/${id}`, group: 'Pages', text: `${label} settings ${words}`, label, detail: 'Settings', run: go(`/settings/${id}`) });
 
@@ -356,7 +358,7 @@ function Palette() {
       list.push({ id: `mem:${m.id}`, group: 'Memory', text: m.content, label: m.content, detail: m.kind, run: go(`/memory?focus=${m.id}`) });
     }
     return list;
-  }, [mode, models, agents, routines, workflows, sessions, memories, current, chatId, onChat, navigate, set, owner, startModes]);
+  }, [mode, models, agents, routines, workflows, sessions, memories, current, chatId, onChat, navigate, set, owner, startModes, meetingsOn]);
 
   const filtered = useMemo(() => {
     if (mode !== 'root') {

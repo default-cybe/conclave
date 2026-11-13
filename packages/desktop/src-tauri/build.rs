@@ -40,6 +40,7 @@ fn main() {
             "copy_text",
             // meeting mode: open and status for the hub page, the rest only for the overlay window
             "meeting_open",
+            "meeting_enabled",
             "meeting_status",
             "meeting_start",
             "meeting_pause",

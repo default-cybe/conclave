@@ -63,6 +63,8 @@ beforeAll(() => {
   const g = globalThis as Record<string, unknown>;
   for (const k of GLOBALS) saved[k] = g[k];
   g.window = dom.window;
+  // setup's and the Meetings page's parts read media queries (wave engine, hooks)
+  dom.window.matchMedia ??= () => ({ matches: false, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {} });
   g.document = dom.document;
   g.navigator = dom.window.navigator;
   g.HTMLElement = dom.window.HTMLElement;
@@ -123,6 +125,25 @@ describe('a page of a mode that is off', () => {
   });
   test('nothing when it is on', async () => {
     expect((await render(note, { security: false, canvas: true }, '/canvas')).text).toBe('');
+  });
+});
+
+describe('Meetings off', () => {
+  test('setup has a Meetings box next to Security and Canvas, off for a new account', async () => {
+    // the step needs the setup flow around it, so check its boxes' list and source
+    const { OPTIONAL_MODES } = await import('../src/features/home/modes');
+    expect(OPTIONAL_MODES).toEqual(['security', 'canvas', 'meetings']);
+    expect(NEW_ACCOUNT_MODES.meetings).toBe(false);
+    const src = readFileSync(join(import.meta.dir, '../src/features/onboarding/steps/ModesStep.tsx'), 'utf8');
+    expect(src).toContain('OPTIONAL_MODES.map(');
+    expect(src).toContain("meetings: modeOn(prefs, 'meetings')");
+  });
+  test('a link to /meetings says it is off, with a way to turn it on', async () => {
+    const page = async () => {
+      const { MeetingsOff } = await import('../src/features/meeting/MeetingPage');
+      return <MeetingsOff />;
+    };
+    expect((await render(page, { security: true, canvas: true, meetings: false }, '/meetings')).text).toContain('Meetings is off');
   });
 });
 

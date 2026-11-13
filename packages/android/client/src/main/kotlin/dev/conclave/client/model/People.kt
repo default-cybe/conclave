@@ -47,13 +47,18 @@ data class MePreferences(
     val importWatch: Boolean = false,
     /** Models pinned at the top of the model picker, on every device of this account (the hub leaves it out when empty). */
     val pinnedModels: List<String> = emptyList(),
-    /** Security and Canvas shown or hidden (web Settings, Appearance, Modes). Null: an account from before the setting, both on. */
+    /** Security, Canvas and Meetings shown or hidden (web Settings, Appearance, Modes). Null: an account from before the setting, both on. */
     val modes: ModesPreference? = null,
 )
 
 /** The modes a person may hide. Off only hides them: their sessions still open and the hub still serves them. */
 @Serializable
-data class ModesPreference(val security: Boolean = true, val canvas: Boolean = true)
+data class ModesPreference(
+    val security: Boolean = true,
+    val canvas: Boolean = true,
+    /** Always sent by a hub that knows it (off for a new account, on for one that has meetings); null from an older hub, which had them on. */
+    val meetings: Boolean? = null,
+)
 
 /** GET /api/me: who this token is and what they may use. */
 @Serializable
