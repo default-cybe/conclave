@@ -1,5 +1,6 @@
 /**
- * The composer's chips (design PR #292): agent, mode (with Ultra) and memory
+ * The composer's chips (design PR #292): agent, style (the session mode, with
+ * Jury, Debate, Loop and Ultra under "More styles", design review #4) and memory
  * sit under the box next to the model, "+" keeps files and add-ons only, and
  * there is no status line under the box. The chips set the same session
  * fields the "+" rows set before, and every row the old "+" had is still
@@ -162,13 +163,29 @@ describe('memory chip words and patches', () => {
 });
 
 describe('the session composer', () => {
-  test('agent, mode, Ultra and memory chips set the fields the "+" rows set; "+" is the files only; no status line', async () => {
+  test('a session in an expert style names it, and its menu opens on More styles', async () => {
+    patches();
+    const { Composer } = await import('../src/features/chat/Composer');
+    const v = await mount(<Composer session={base({ mode: 'debate' })} />);
+    expect(v.chip('style')?.textContent).toBe('Debate style');
+    const rows = await v.open(v.chip('style'));
+    expect(v.rowLabels(rows)).toEqual(['Agent', 'Chat', 'Plan', 'More styles', 'Jury', 'Debate', 'Loop', 'Ultra']);
+    expect(rows.find((r) => r.textContent?.startsWith('Debate'))?.getAttribute('aria-checked')).toBe('true');
+    // the fold still closes by hand
+    await v.pick(rows, 'More styles');
+    expect(v.rowLabels(await v.open(v.chip('style')))).toEqual(['Agent', 'Chat', 'Plan', 'More styles']);
+    await v.close(v.chip('style'));
+    await v.unmount();
+  });
+
+  test('agent, style, Ultra and memory chips set the fields the "+" rows set; "+" is the files only; no status line', async () => {
     const sent = patches();
     const { Composer } = await import('../src/features/chat/Composer');
     const v = await mount(<Composer session={base()} />);
     expect(v.host.querySelector('[data-status-line]')).toBeNull();
     expect(v.chip('model')).not.toBeNull();
-    expect(v.chip('mode')?.textContent).toContain('Agent mode');
+    expect(v.chip('mode')).toBeNull();
+    expect(v.chip('style')?.textContent).toContain('Agent style');
     expect(v.chip('memory')?.textContent).toContain('Memory');
 
     // "+": files only (agent, devices, modes and Ultra left it)
@@ -181,15 +198,23 @@ describe('the session composer', () => {
     await v.pick(agents, 'reviewer');
     expect(sent.at(-1)).toEqual({ agent: 'reviewer' });
 
-    // mode: the six modes and Ultra under a rule
-    const modes = await v.open(v.chip('mode'));
-    expect(v.rowLabels(modes)).toEqual(['Agent', 'Chat', 'Plan', 'Jury', 'Debate', 'Loop', 'Ultra']);
-    await v.pick(modes, 'Jury');
+    // style: Agent, Chat, Plan; Jury, Debate, Loop and Ultra in the "More styles" fold
+    const styles = await v.open(v.chip('style'));
+    expect(document.querySelector('[role=menu][aria-label="Style"]')?.textContent).toContain('Working style');
+    expect(v.rowLabels(styles)).toEqual(['Agent', 'Chat', 'Plan', 'More styles']);
+    await v.pick(styles, 'More styles');
+    const folded = await v.open(v.chip('style'));
+    expect(v.rowLabels(folded)).toEqual(['Agent', 'Chat', 'Plan', 'More styles', 'Jury', 'Debate', 'Loop', 'Ultra']);
+    await v.pick(folded, 'Jury');
     expect(sent.at(-1)).toEqual({ mode: 'jury', modeConfig: { jury: DEFAULT_JURY } });
-    const again = await v.open(v.chip('mode'));
-    await v.pick(again, 'Ultra');
+    // a fold opened by hand shuts again with the menu
+    const again = await v.open(v.chip('style'));
+    expect(v.rowLabels(again)).toEqual(['Agent', 'Chat', 'Plan', 'More styles']);
+    expect(again.find((r) => r.textContent === 'More styles')?.getAttribute('aria-expanded')).toBe('false');
+    await v.pick(again, 'More styles');
+    await v.pick(await v.open(v.chip('style')), 'Ultra');
     expect(sent.at(-1)).toEqual({ ultra: true });
-    await v.close(v.chip('mode'));
+    await v.close(v.chip('style'));
 
     // memory
     const mem = await v.open(v.chip('memory'));
@@ -213,7 +238,7 @@ describe('the chat composer', () => {
     const v = await mount(<ChatComposer session={chat} chatId={chat.id} />);
     expect(v.host.querySelector('[data-status-line]')).toBeNull();
     expect(v.chip('agent')).toBeNull();
-    expect(v.chip('mode')).toBeNull();
+    expect(v.chip('style')).toBeNull();
     expect(v.rowLabels(await v.open(v.plus()))).toEqual(['Attach files and images', 'Search the web']);
     await v.close(v.plus());
     const mem = await v.open(v.chip('memory'));
@@ -268,7 +293,7 @@ describe('the model chip', () => {
 });
 
 describe('the Code start', () => {
-  test('chips for agent, mode with Ultra and memory; "+" keeps Work in, worktree and design direction', async () => {
+  test('chips for agent, style with Ultra and memory; "+" keeps Work in, worktree and design direction', async () => {
     patches();
     const { ChatComposer } = await import('../src/features/conversation/ChatComposer');
     const { useSessionTarget } = await import('../src/features/home/SessionStart');
@@ -277,7 +302,7 @@ describe('the Code start', () => {
     }
     const v = await mount(<Start />);
     expect(v.chip('agent')?.textContent).toContain('coder');
-    expect(v.chip('mode')?.textContent).toContain('Agent mode');
+    expect(v.chip('style')?.textContent).toContain('Agent style');
     expect(v.chip('memory')).not.toBeNull();
     const plus = v.rowLabels(await v.open(v.plus()));
     expect(plus[0]).toBe('Attach files and images');
@@ -286,10 +311,16 @@ describe('the Code start', () => {
     expect(plus).toContain('Minimal');
     for (const gone of ['coder, the default', 'Ultra', 'Use and save', 'madx (hub)', 'MacBook']) expect(plus).not.toContain(gone);
     await v.close(v.plus());
-    const modes = await v.open(v.chip('mode'));
-    await v.pick(modes, 'Ultra');
-    expect(v.chip('mode')?.textContent).toContain('Agent mode, Ultra');
-    await v.close(v.chip('mode'));
+    // Ultra is in the fold, and the fold starts open while Ultra is on
+    expect(v.rowLabels(await v.open(v.chip('style')))).not.toContain('Ultra');
+    await v.pick(await v.open(v.chip('style')), 'More styles');
+    await v.pick(await v.open(v.chip('style')), 'Ultra');
+    expect(v.chip('style')?.textContent).toContain('Agent style, Ultra');
+    // Ultra off keeps the fold open under it
+    await v.pick(await v.open(v.chip('style')), 'Ultra');
+    expect(v.chip('style')?.textContent).toBe('Agent style');
+    expect(v.rowLabels(await v.open(v.chip('style')))).toContain('Ultra');
+    await v.close(v.chip('style'));
     expect(v.host.querySelector('[data-picker="device"]')).not.toBeNull();
     await v.unmount();
   });

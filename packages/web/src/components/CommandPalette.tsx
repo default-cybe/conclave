@@ -34,7 +34,7 @@ import { RUN_SETUP_AGAIN } from '@/lib/onboarding';
 import { isDelegated } from '@conclave/core/session/delegated';
 import { delegateWho } from '@/lib/sidebar';
 
-type Group = 'Recent' | 'Actions' | 'Chats' | 'Sessions' | 'Pages' | 'Agents' | 'Models' | 'Memory' | 'Messages' | 'Mode' | 'Run routine' | 'Run workflow';
+type Group = 'Recent' | 'Actions' | 'Chats' | 'Sessions' | 'Pages' | 'Agents' | 'Models' | 'Memory' | 'Messages' | 'Style' | 'Run routine' | 'Run workflow';
 
 interface Item {
   id: string;
@@ -87,7 +87,7 @@ const SETTINGS_SECTIONS: Array<[string, string, string]> = [
 /** The settings a member has (docs/design/ACCOUNTS.md 10); the rest are the hub owner's. */
 const MEMBER_SETTINGS = new Set(['account', 'providers', 'notifications', 'assistant', 'appearance', 'audit', 'about']);
 
-const ORDER: Group[] = ['Recent', 'Actions', 'Chats', 'Sessions', 'Pages', 'Agents', 'Models', 'Memory', 'Messages', 'Mode', 'Run routine', 'Run workflow'];
+const ORDER: Group[] = ['Recent', 'Actions', 'Chats', 'Sessions', 'Pages', 'Agents', 'Models', 'Memory', 'Messages', 'Style', 'Run routine', 'Run workflow'];
 
 export function CommandPalette() {
   const open = useUi((s) => s.paletteOpen);
@@ -219,8 +219,8 @@ function Palette() {
     if (mode === 'mode') {
       return MODES.map((m) => ({
         id: m.value,
-        group: 'Mode' as const,
-        text: `${m.label} ${m.description}`,
+        group: 'Style' as const,
+        text: `${m.label} ${m.description} style mode`,
         label: m.label,
         detail: m.description,
         run: () => {
@@ -277,7 +277,8 @@ function Palette() {
     if (current) {
       action('model', 'Switch model for this session', sub('model'), <Kbd>{MOD === '⌘' ? '⇧⌘M' : 'Ctrl ⇧ M'}</Kbd>, true, true);
       action('agent', 'Switch agent for this session', sub('agent'), undefined, false, true);
-      action('mode', 'Switch mode for this session', sub('mode'), undefined, false, true);
+      // the composer calls it Style; "mode" still finds it
+      list.push({ id: 'mode', group: 'Actions', label: 'Switch style for this session', text: 'Switch style mode for this session', run: sub('mode'), keep: true });
       action('panel', 'Toggle the context panel', toggleContext, <Kbd>{MOD === '⌘' ? '⌘\\' : 'Ctrl \\'}</Kbd>);
     }
 
@@ -438,7 +439,7 @@ function Palette() {
     }
   };
 
-  const placeholder = { root: 'Search or run a command', model: 'Pick a model', agent: 'Pick an agent', mode: 'Pick a mode', search: 'Search messages', routine: 'Run a routine', workflow: 'Run a workflow' }[mode];
+  const placeholder = { root: 'Search or run a command', model: 'Pick a model', agent: 'Pick an agent', mode: 'Pick a style', search: 'Search messages', routine: 'Run a routine', workflow: 'Run a workflow' }[mode];
   let last: Group | '' = '';
   const listId = 'palette-list';
 

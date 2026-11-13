@@ -504,7 +504,7 @@ export function Composer({ session, narrow }: { session: Session; /** A column o
       )}
     </div>
   );
-  // the chips under the box (design PR #292): the agent (Code), the mode with Ultra where the session takes it, memory
+  // the chips under the box (design PR #292): the agent (Code), the style with Ultra where the session takes it, memory
   const customs = agents.filter((a) => (a.primary !== false && a.source !== 'builtin' && customAgent(a.name)) || a.name === session.agent).filter((a) => a.name !== CODE_AGENT);
   const ultraOk = session.kind !== 'chat' && session.mode !== 'chat';
   const chips = !mineRow && (
@@ -593,7 +593,8 @@ export function Composer({ session, narrow }: { session: Session; /** A column o
         )}
         <Sheet open={sheet} onClose={() => setSheet(false)} title="Options">
           <div className="space-y-4 px-4 pb-4">
-            {empty && <Segmented size="touch" full label="Mode" value={session.mode} onChange={setMode} options={MODES.map((m) => ({ value: m.value, label: m.label }))} />}
+            {/* the everyday styles; Jury, Debate and Loop sit under More styles in the Style picker below */}
+            {empty && <Segmented size="touch" full label="Style" value={session.mode} onChange={setMode} options={MODES.filter((m) => !m.more || m.value === session.mode).map((m) => ({ value: m.value, label: m.label }))} />}
             <ComposerPickers session={session} patch={patch} switchModel={switchModel} setMode={setMode} look="field" />
           </div>
         </Sheet>
@@ -731,12 +732,12 @@ function ComposerPickers({
   const items: Array<{ key: string; label: string; node: ReactNode }> = [];
   const device = <DeviceFolderPicker look={look} bare={bare} showCwd={fit === 'full'} device={session.device} cwd={session.cwd} closeOnDevice onDevice={(device) => void moveSessionTo(session, device)} onCwd={(cwd) => patch({ cwd })} />;
   if (session.mode === 'jury') {
-    items.push({ key: 'mode', label: 'Mode', node: <ModePicker look={look} bare={bare} value={session.mode} onChange={setMode} /> });
+    items.push({ key: 'mode', label: 'Style', node: <ModePicker look={look} bare={bare} value={session.mode} onChange={setMode} /> });
     items.push({ key: 'jurors', label: 'Jurors', node: <JurorsPicker look={look} value={cfg.jury} onChange={(jury) => patch({ modeConfig: { ...cfg, jury } })} /> });
     items.push({ key: 'judge', label: 'Judge', node: <JudgePicker look={look} bare={bare} value={cfg.jury?.judge} fallback={session.model} onChange={(judge) => patch({ modeConfig: { ...cfg, jury: { ...(cfg.jury ?? DEFAULT_JURY), judge } } })} /> });
     items.push({ key: 'device', label: 'Device', node: device });
   } else if (session.mode === 'debate') {
-    items.push({ key: 'mode', label: 'Mode', node: <ModePicker look={look} bare={bare} value={session.mode} onChange={setMode} /> });
+    items.push({ key: 'mode', label: 'Style', node: <ModePicker look={look} bare={bare} value={session.mode} onChange={setMode} /> });
     items.push({ key: 'debaters', label: 'Debaters', node: <DebatersPicker look={look} value={cfg.debate} onChange={(debate) => patch({ modeConfig: { ...cfg, debate } })} /> });
     items.push({ key: 'judge', label: 'Judge', node: <JudgePicker look={look} bare={bare} value={cfg.debate?.judge} fallback={session.model} onChange={(judge) => patch({ modeConfig: { ...cfg, debate: { ...(cfg.debate ?? DEFAULT_DEBATE), judge } } })} /> });
     items.push({ key: 'device', label: 'Device', node: device });
@@ -746,7 +747,7 @@ function ComposerPickers({
     items.push({ key: 'device', label: 'Device and folder', node: device });
     if (session.mode !== 'chat') items.push({ key: 'perm', label: 'Permissions', node: <PermissionPicker look={look} value={session.permissionMode} onChange={(permissionMode) => patch({ permissionMode })} /> });
     if (session.mode !== 'chat' && session.kind !== 'chat') items.push({ key: 'ultra', label: 'Ultra', node: <UltraSwitch look={look} session={session} onChange={(ultra) => patch({ ultra })} /> });
-    if (look === 'field') items.push({ key: 'mode', label: 'Mode', node: <ModePicker look={look} value={session.mode} onChange={setMode} /> });
+    if (look === 'field') items.push({ key: 'mode', label: 'Style', node: <ModePicker look={look} value={session.mode} onChange={setMode} /> });
   }
   if (look === 'field')
     return (
