@@ -7,8 +7,8 @@
  *   New session
  *   Inbox                                            3
  *   Meetings (when on)                          in 42m
- *   Routines (Assistant only)
- *   More             (a menu: Workflows, Memory, Extensions, Tasks, Usage...)
+ *   Today, Tasks, Goals, Routines (Assistant only)
+ *   More             (a menu: Workflows, Memory, Extensions, Usage, Devices, Advanced...)
  *
  *   Sessions                                 Project v
  *   conclave                                    + ...
@@ -27,7 +27,7 @@
  */
 import { useEffect, useMemo, useRef, useState, type ComponentType, type MouseEvent as ReactMouseEvent, type ReactNode, type RefObject } from 'react';
 import { Link, useLocation } from 'wouter';
-import { CalendarClock, ChevronDown, ChevronRight, Ellipsis, Inbox, PanelLeft, PanelLeftClose, Plus, Presentation, Search, SquarePen } from 'lucide-react';
+import { CalendarClock, ChevronDown, ChevronRight, Ellipsis, Inbox, ListTodo, PanelLeft, PanelLeftClose, Plus, Presentation, Search, SquarePen, Sun, Target } from 'lucide-react';
 import type { Session } from '@conclave/core/types';
 import { api } from '@/lib/api';
 import { attempt, removeKey, upsertSession, useHub } from '@/store/store';
@@ -53,7 +53,7 @@ import { MOD } from './ui/Kbd';
 import { Tooltip } from './ui/Tooltip';
 import { ConfirmDialog, Dialog, Menu, MenuList, Popover, type MenuItem } from './ui/Overlay';
 import { AccountRow } from './AccountMenu';
-import { isActive, MORE_PAGES, OWNER_PAGES, sidePages, useInboxCount } from './nav';
+import { isActive, MORE_ADVANCED, MORE_PAGES, OWNER_PAGES, sidePages, useInboxCount } from './nav';
 
 export const SIDEBAR_W = 272;
 export const SIDEBAR_FOLDED_W = 56;
@@ -68,10 +68,13 @@ const ROW_ON = 'bg-side-active text-fg';
 /** A reply came after it was last opened (core session/unread.ts). */
 export const UNREAD = 'font-semibold text-fg';
 
-/** The pages that can have a row of their own, after Search and New; nav.ts sidePages says which show. */
-const ROWS: Record<string, { to: string; label: string; Icon: Icon; match?: (p: string) => boolean }> = {
+/** The pages that can have a row of their own, after Search and New; nav.ts sidePages says which show. The phone drawer uses them too. */
+export const SIDE_ROWS: Record<string, { to: string; label: string; Icon: Icon; match?: (p: string) => boolean }> = {
   '/approvals': { to: '/approvals', label: 'Inbox', Icon: Inbox, match: (p) => p.startsWith('/approvals') || p.startsWith('/inbox') },
   '/meetings': { to: '/meetings', label: 'Meetings', Icon: Presentation },
+  '/today': { to: '/today', label: 'Today', Icon: Sun },
+  '/tasks': { to: '/tasks', label: 'Tasks', Icon: ListTodo },
+  '/goals': { to: '/goals', label: 'Goals', Icon: Target },
   '/routines': { to: '/routines', label: 'Routines', Icon: CalendarClock },
 };
 
@@ -109,7 +112,7 @@ function Expanded() {
   const meetingsOn = useModeOn('meetings');
   const fresh = useNewConversation();
   const rows = sidePages(mode, meetingsOn)
-    .map((to) => ROWS[to])
+    .map((to) => SIDE_ROWS[to])
     .filter((r) => owner || !OWNER_PAGES.has(r.to));
   return (
     <aside aria-label="Sidebar" className="flex h-full shrink-0 flex-col bg-side pt-safe" style={{ width: SIDEBAR_W }}>
@@ -244,27 +247,35 @@ function SideButton({ Icon, label, hint, onClick }: { Icon: Icon; label: string;
   );
 }
 
-/** More: the pages without a row of their own, and All conversations. */
+/** More: the pages without a row of their own, All conversations, then the Advanced fold (open while one of its pages is). */
 function MoreRow({ path }: { path: string }) {
   const ref = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
+  const [fold, setFold] = useState<boolean>();
   const [, navigate] = useLocation();
   const owner = useIsOwner();
   const pages = MORE_PAGES.filter((p) => owner || !OWNER_PAGES.has(p.to));
-  const on = pages.some((p) => isActive(p, path));
+  const inAdvanced = MORE_ADVANCED.some((p) => isActive(p, path));
+  const advanced = fold ?? inAdvanced;
+  const on = inAdvanced || pages.some((p) => isActive(p, path));
+  const row = (p: { to: string; label: string; key?: string }): MenuItem => ({ label: p.label, hint: p.key ? `G ${p.key.toUpperCase()}` : undefined, checked: isActive(p, path) || undefined, onSelect: () => navigate(p.to) });
   const items: MenuItem[] = [
-    ...pages.map((p) => ({ label: p.label, hint: p.key ? `G ${p.key.toUpperCase()}` : undefined, checked: isActive(p, path) || undefined, onSelect: () => navigate(p.to) })),
+    ...pages.map(row),
     { separator: true, label: '' },
     { label: 'All conversations', hint: 'G S', checked: path === '/sessions' || undefined, onSelect: () => navigate('/sessions') },
+    { separator: true, label: '' },
+    { label: 'Advanced', hint: <ChevronDown size={14} className={cn('transition-transform', advanced && 'rotate-180')} aria-hidden />, expanded: advanced, keep: true, onSelect: () => setFold(!advanced) },
+    ...(advanced ? MORE_ADVANCED.map(row) : []),
   ];
+  const close = () => (setOpen(false), setFold(undefined));
   return (
     <>
-      <button ref={ref} type="button" aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen((o) => !o)} className={cn(ROW, on || open ? ROW_ON : ROW_IDLE)}>
+      <button ref={ref} type="button" aria-haspopup="menu" aria-expanded={open} onClick={() => (open ? close() : setOpen(true))} className={cn(ROW, on || open ? ROW_ON : ROW_IDLE)}>
         <Ellipsis className="size-4 shrink-0" strokeWidth={1.75} aria-hidden />
         <span className="min-w-0 flex-1 truncate">More</span>
       </button>
-      <Popover anchor={ref} open={open} onClose={() => setOpen(false)} placement="right-start" width={232} maxHeight={520} label="More pages">
-        <MenuList items={items} onDone={() => setOpen(false)} label="More pages" />
+      <Popover anchor={ref} open={open} onClose={close} placement="right-start" width={232} maxHeight={520} label="More pages">
+        <MenuList items={items} onDone={close} label="More pages" />
       </Popover>
     </>
   );
