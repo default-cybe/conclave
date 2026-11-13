@@ -16,7 +16,7 @@ import { PickerButton, SelectMenu } from '@/components/ui/Select';
 import { ModelList, ModelPicker } from '@/components/pickers/ModelPicker';
 import { placeName } from '@/features/home/start';
 import { computerList } from '@/features/home/Where';
-import { MODES, PERMISSION_MODES } from './modes';
+import { MODES, MORE_STYLES, PERMISSION_MODES, STYLE_HEADING } from './modes';
 import { FolderCheckNote, useFolderCheck } from './folderCheck';
 
 export { AgentPicker } from '@/components/pickers/Pickers';
@@ -152,17 +152,18 @@ export function PermissionPicker({ value, onChange, look = 'text', className }: 
   );
 }
 
+/** The session's style (its mode): Agent, Chat and Plan, then Jury, Debate and Loop under "More styles". */
 export function ModePicker({ value, onChange, look = 'text', className, bare }: { value: SessionMode; onChange: (m: SessionMode) => void; look?: 'text' | 'field'; className?: string; bare?: boolean }) {
   return (
     <SelectMenu
       look={look}
-      label="Mode"
-      prefix={look === 'text' && !bare ? 'Mode' : undefined}
+      label="Style"
+      prefix={look === 'text' && !bare ? 'Style' : undefined}
       className={className}
       value={value}
       onChange={onChange}
       width={300}
-      options={MODES.map((m) => ({ value: m.value, label: m.label, text: m.label, detail: m.description }))}
+      options={MODES.map((m) => ({ value: m.value, label: m.label, text: m.label, detail: m.description, group: m.more ? MORE_STYLES : STYLE_HEADING }))}
     />
   );
 }

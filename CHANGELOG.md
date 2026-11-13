@@ -12,6 +12,7 @@ like `## [0.4.16] - 2026-10-24`.
 ### Changed
 
 - Android: shared pictures show as clean thumbnails that open on tap, without the boxed card and Open/Save buttons, and never twice
+- The composer's "Mode" chip is now called "Style" ("Agent style"), on the web and on Android. Its menu shows Agent, Chat and Plan; Jury, Debate, Loop and Ultra sit under "More styles", which opens by itself while one of them is on. The New session dialog, the phone Options sheet and Ctrl K say Style too; searching "mode" still finds it
 
 ## [0.4.96] - 2026-11-13
 
