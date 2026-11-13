@@ -62,6 +62,7 @@ import { useModeOn } from '@/features/home/modes';
 import { LogsSection } from './logs';
 import { FriendsSection } from '@/features/friends/FriendsSection';
 import { FriendPage } from '@/features/friends/FriendPage';
+import { ImportExportTab } from '@/features/memory/ImportExport';
 
 interface SectionDef {
   id: string;
@@ -177,6 +178,12 @@ const ALL_SECTIONS: SectionDef[] = [
     label: 'Reflect',
     desc: 'Your own report for a week up to a year, and what the assistant learns each night about how you like to work.',
     C: ReflectSection,
+  },
+  {
+    id: 'data',
+    label: 'Import & export',
+    desc: 'Bring in chats from Claude.ai, ChatGPT and coding CLIs, and memory files from other tools. Export your memory as markdown.',
+    C: ImportExportTab,
   },
   {
     id: 'maps',

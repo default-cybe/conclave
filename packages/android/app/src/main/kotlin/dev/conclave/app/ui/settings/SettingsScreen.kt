@@ -96,6 +96,8 @@ enum class SettingsPage(val label: String) {
     AGENTS("Agents"),
     MEMORY("Memory"),
     REFLECT("Reflect"),
+    // the phone imports only; export is on the web, Settings, Import & export
+    IMPORT("Import past chats"),
     USAGE("Usage"),
     DEVICES("Devices"),
     MAP("Map"),
@@ -105,7 +107,7 @@ enum class SettingsPage(val label: String) {
 private val PAGE_SECTIONS = listOf(
     "Conversations" to listOf(SettingsPage.INBOX, SettingsPage.CHATS, SettingsPage.SESSIONS),
     "Automation" to listOf(SettingsPage.TASKS, SettingsPage.ROUTINES, SettingsPage.WORKFLOWS, SettingsPage.AGENTS),
-    "Memory and usage" to listOf(SettingsPage.MEMORY, SettingsPage.REFLECT, SettingsPage.USAGE),
+    "Memory and usage" to listOf(SettingsPage.MEMORY, SettingsPage.REFLECT, SettingsPage.IMPORT, SettingsPage.USAGE),
 )
 
 /**

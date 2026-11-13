@@ -1,8 +1,8 @@
 /**
  * Memory (spec 11.7) in five tabs: Notes (/memory), Map (the mind map of
  * all memory, MemoryMap.tsx), Connections (other
- * memory stores), Import and export (other tools' memory files, markdown
- * out), and Share (Conclave memory for Claude Code, Codex, OpenCode and
+ * memory stores), Import and export (a link to Settings, Import & export,
+ * where it moved), and Share (Conclave memory for Claude Code, Codex, OpenCode and
  * Gemini CLI over MCP). /memory/connections#share lands on Share.
  */
 import { useEffect, useState } from 'react';
@@ -16,7 +16,6 @@ import { Tabs } from '@/components/ui/Tags';
 import { cn } from '@/lib/text';
 import { NotesTab } from './Notes';
 import { ConnectionsTab } from './Connections';
-import { ImportExportTab } from './ImportExport';
 import { ShareTab } from './Share';
 import { MemoryMapTab } from './MemoryMap';
 import { useConnectionList } from './store';
@@ -90,7 +89,13 @@ export default function MemoryPage() {
       {current === 'notes' && <NotesTab adding={adding} setAdding={setAdding} store={store.text} />}
       {current === 'connections' && <ConnectionsTab adding={addConn} setAdding={setAddConn} />}
       {current === 'map' && <MemoryMapTab />}
-      {current === 'import' && <ImportExportTab />}
+      {current === 'import' && (
+        <p className="text-[14px] text-fg-2 phone:text-[15px]">
+          <Link href="/settings/data" className="link">
+            Import & export moved to Settings
+          </Link>
+        </p>
+      )}
       {current === 'share' && <ShareTab />}
     </Page>
   );

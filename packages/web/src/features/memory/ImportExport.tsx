@@ -51,6 +51,7 @@ function cliWords(d: Device): string {
   return have.length ? have.join(', ') : 'none of the coding CLIs';
 }
 
+/** Settings, Import & export. The Settings column is too narrow for a side column, so the notes go under the body. */
 export function ImportExportTab() {
   const wide = useIsWide();
   const body = (
@@ -62,9 +63,9 @@ export function ImportExportTab() {
   );
   if (!wide) return <div className="max-w-[780px]">{body}</div>;
   return (
-    <div className="grid grid-cols-[minmax(0,780px)_minmax(0,1fr)]">
-      <div className="min-w-0 pr-10">{body}</div>
-      <aside className="min-w-0 border-l border-rule pl-10" aria-label="Files Conclave reads">
+    <div className="max-w-[780px]">
+      {body}
+      <aside className="mt-10 border-t border-rule pt-8" aria-label="Files Conclave reads">
         <div className="max-w-[460px] space-y-7">
           <Aside title="Files it reads">
             <KV k="Claude Code" keyWidth={96} mono>

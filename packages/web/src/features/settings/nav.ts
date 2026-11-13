@@ -7,7 +7,7 @@
 
 /** The index's groups, in order, by section id. A section not named here goes under the first group. */
 export const SETTINGS_GROUPS: Array<{ label: string; ids: string[] }> = [
-  { label: 'Settings', ids: ['account', 'people', 'appearance', 'notifications', 'assistant', 'reflect'] },
+  { label: 'Settings', ids: ['account', 'people', 'appearance', 'notifications', 'assistant', 'reflect', 'data'] },
   { label: 'Models', ids: ['providers', 'subscriptions', 'accounts', 'refusal', 'usage', 'security', 'defaults'] },
   { label: 'Customize', ids: ['permissions', 'apps', 'github', 'maps', 'websearch', 'meetings', 'calmail', 'browser', 'gateway', 'secrets'] },
   { label: 'Platform', ids: ['remote', 'friends', 'computer', 'audit', 'logs', 'about'] },
@@ -37,6 +37,7 @@ const KEYWORDS: Record<string, string> = {
   notifications: 'notify push alerts phone browser hold',
   assistant: 'proactive quiet hours heartbeat reflection timezone',
   reflect: 'reflection nightly notes learn memory how to work with me recap week month year stats tokens people likes streak',
+  data: 'import export backup claude chatgpt conversations.json zip download memory notes migrate',
   maps: 'google openstreetmap directions places',
   websearch: 'brave tavily exa langsearch linkup firecrawl you.com serper serpapi jina searxng duckduckgo api key internet',
   calmail: 'calendar mail email events',

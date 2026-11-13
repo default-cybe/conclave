@@ -239,6 +239,7 @@ private fun openPage(page: SettingsPage, top: (String) -> Unit, push: (String) -
     SettingsPage.AGENTS -> push(Routes.AGENTS)
     SettingsPage.MEMORY -> push(Routes.MEMORY)
     SettingsPage.REFLECT -> push(Routes.REFLECT)
+    SettingsPage.IMPORT -> push(Routes.IMPORT)
     SettingsPage.USAGE -> push(Routes.USAGE)
     SettingsPage.DEVICES -> push(Routes.DEVICES)
     SettingsPage.MAP -> push(Routes.MAP)

@@ -13,6 +13,10 @@ like `## [0.4.16] - 2026-10-24`.
 
 - Desktop app: the Dock icon bounces (macOS) and the taskbar flashes (Windows/Linux) when an approval or question waits for you
 
+### Changed
+
+- Import & export moved to Settings (Memory links to it)
+
 ### Fixed
 
 - An approval that expired or was cancelled (for example while a chat waited out a usage limit) no longer stays on screen as 'Waiting' with 'approval is not pending' when pressed
