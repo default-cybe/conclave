@@ -179,7 +179,7 @@ fun TurnWork(
     }
     viewing?.let { k ->
         val all = rows.flatten()
-        val items = remember(all, sessionId) { all.map { it.viewerItem(hub, sessionId) } }
+        val items = remember(rows, sessionId) { all.map { it.viewerItem(hub, sessionId) } }
         // gone from the stretch since the tap: nothing to show
         val n = all.indexOfFirst { it.key == k }
         if (n >= 0) MediaViewer(items, n) { viewing = null }

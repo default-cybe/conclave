@@ -178,6 +178,18 @@ class MediaTest {
     }
 
     @Test
+    fun twoFilesOfOneNameInDifferentFoldersBothShow() {
+        val readA = use("r1", "Read", "file_path" to "/a/chart.png")
+        val readA2 = use("r2", "Read", "file_path" to "chart.png")
+        val shareB = use("s", "ShareFile", "path" to "/b/chart.png")
+        val results = mapOf("r1" to pic("r1"), "r2" to pic("r2"), "s" to shared("s", "chart.png"))
+        val row = Media.rows(listOf(listOf(readA, readA2, shareB)), results, enabled = true).single()
+        // the relative Read is the same /a/chart.png: once; the shared /b/chart.png is another file
+        assertEquals(listOf("r1:0", "s:"), row.map { it.key })
+        assertFalse(row[0].shared)
+    }
+
+    @Test
     fun aCallNamingNoPictureIsNeverMatchedOrMerged() {
         val shot1 = use("a", "browser_screenshot", "url" to "https://example.com/page")
         val shot2 = use("b", "browser_screenshot", "url" to "https://example.com/page")

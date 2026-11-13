@@ -123,46 +123,66 @@ object Media {
 
     private val PICTURE_EXTENSIONS = setOf("png", "jpg", "jpeg", "webp", "gif")
 
+    /** The path or URL a call names, without a query or fragment; null when it names none. */
+    private fun named(use: ToolUseBlock): String? =
+        listOf("file_path", "path", "filePath", "url").firstNotNullOfOrNull { use.input.string(it)?.trim()?.takeIf { s -> s.isNotEmpty() } }
+            ?.substringBefore('?')?.substringBefore('#')?.trimEnd('/')?.takeIf { it.isNotEmpty() }
+
     /** The picture file a call read or fetched, by the last part of its path or URL ("shot.png"); null when it names none. */
     fun pictureSource(use: ToolUseBlock): String? =
-        listOf("file_path", "path", "filePath", "url").firstNotNullOfOrNull { use.input.string(it)?.takeIf { s -> s.isNotBlank() } }
-            ?.substringBefore('?')?.substringBefore('#')?.trimEnd('/')?.substringAfterLast('/')
-            ?.takeIf { it.substringAfterLast('.', "").lowercase(Locale.US) in PICTURE_EXTENSIONS }
+        named(use)?.substringAfterLast('/')?.takeIf { it.substringAfterLast('.', "").lowercase(Locale.US) in PICTURE_EXTENSIONS }
 
-    private fun same(name: String) = name.substringAfterLast('/').trim().lowercase(Locale.US)
+    /** A file as a row matches it: its name, lowercased, and the path or URL it came by when known. */
+    private class Source(name: String, val path: String?) {
+        val name = name.substringAfterLast('/').trim().lowercase(Locale.US)
+
+        // one name; and one path, or one path the end of the other (a relative Read of an absolute share), or a path unknown
+        fun same(o: Source): Boolean = name == o.name && (path == null || o.path == null || path == o.path || path.endsWith("/" + o.path) || o.path.endsWith("/$path"))
+    }
 
     /**
      * The thumbnail rows of a stretch of work, one per group of calls: the
      * group's tool pictures first, then the pictures and videos its ShareFile
      * calls handed the owner. Each file shows once in the stretch, matched by
-     * file name (or a URL's last part): a shared picture a call also returned
-     * (a Read of the PNG, then ShareFile) is the tool picture, which takes the
-     * shared card's name, size and title and opens the shared file. A shared
-     * file whose call is in no group goes in the last row.
+     * file name and, when both calls give one, path or URL: a shared picture
+     * a call also returned (a Read of the PNG, then ShareFile) is the tool
+     * picture, which takes the shared card's name, size and title and opens
+     * the shared file. Two calls of one file show it once; two files of one
+     * name in different folders both show. A shared file whose call is in no
+     * group goes in the last row.
      */
     fun rows(groups: List<List<ToolUseBlock>>, results: Map<String, ToolResultBlock>, enabled: Boolean): List<List<Thumbnail>> {
-        val shared = FileCards.cards(groups.flatten(), results).filter { thumbnail(it) }.distinctBy { same(it.name) }
-        val byName = shared.associateBy { same(it.name) }
-        val shown = mutableSetOf<String>()
+        val calls = groups.flatten()
+        val shared = mutableListOf<Pair<FileCardData, Source>>()
+        FileCards.cards(calls, results).filter { thumbnail(it) }.forEach { c ->
+            val src = Source(c.name, calls.firstOrNull { it.id == c.toolUseId }?.let { named(it) })
+            if (shared.none { it.second.same(src) }) shared += c to src
+        }
+        val claimed = mutableSetOf<String>()
+        val shown = mutableListOf<Source>()
         val rows = groups.map { uses ->
             uses.flatMap { u ->
-                val src = pictureSource(u)
+                val name = pictureSource(u)
                 toolPictures(enabled, results[u.id]).mapIndexedNotNull { i, b ->
                     // only the first picture of a call is the file it names
-                    val name = src?.takeIf { i == 0 }
-                    if (name != null && !shown.add(same(name))) return@mapIndexedNotNull null
-                    val match = name?.let { byName[same(it)] }
+                    val src = name?.takeIf { i == 0 }?.let { Source(it, named(u)) }
+                    if (src != null) {
+                        if (shown.any { it.same(src) }) return@mapIndexedNotNull null
+                        shown += src
+                    }
+                    val match = src?.let { s -> shared.firstOrNull { it.first.toolUseId !in claimed && it.second.same(s) }?.first }
                     if (match != null) {
+                        claimed += match.toolUseId
                         Thumbnail("${u.id}:$i", match, b, u.name, shared = true)
                     } else {
-                        val card = FileCardData("${u.id}-$i", FileCards.pictureName(name ?: "${u.name}-${i + 1}", b.mediaType), b.mediaType, (b.data?.length ?: 0) * 3L / 4)
+                        val card = FileCardData("${u.id}-$i", FileCards.pictureName(src?.let { name } ?: "${u.name}-${i + 1}", b.mediaType), b.mediaType, (b.data?.length ?: 0) * 3L / 4)
                         Thumbnail("${u.id}:$i", card, b, u.name)
                     }
                 }
             }.toMutableList()
         }
         if (rows.isEmpty()) return rows
-        shared.filterNot { same(it.name) in shown }.forEach { s ->
+        shared.filter { (c, src) -> c.toolUseId !in claimed && shown.none { it.same(src) } }.forEach { (s, _) ->
             val g = groups.indexOfFirst { us -> us.any { it.id == s.toolUseId } }.takeIf { it >= 0 } ?: rows.lastIndex
             rows[g].add(Thumbnail("${s.toolUseId}:", s, shared = true))
         }

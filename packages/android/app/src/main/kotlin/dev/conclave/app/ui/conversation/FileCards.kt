@@ -17,7 +17,6 @@ import android.webkit.WebResourceResponse
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
-import android.widget.ImageView
 import android.widget.Toast
 import androidx.annotation.RequiresApi
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -46,7 +45,6 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
@@ -255,7 +253,7 @@ private fun FileCard(sessionId: String, card: FileCardData, onView: (FileCardDat
             .clickable(enabled = !busy, onClickLabel = "Open ${card.name}") { open() }
             .padding(start = 16.dp, end = 4.dp, top = 8.dp, bottom = 8.dp),
     ) {
-        svg?.let { SvgPreview(it, card.title ?: card.name, onFail = { error = "Could not show the image." }) }
+        svg?.let { SvgPreview(it, card.title ?: card.name, onClick = { open() }, onFail = { error = "Could not show the image." }) }
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 Text(card.title ?: card.name, style = ConclaveType.rowTitle, color = c.fg, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -365,17 +363,21 @@ internal fun saveToPictures(context: Context, bytes: ByteArray, name: String, ty
 
 /** An SVG card's drawing above its title: full width, [SvgHeight] tall, the card's corners. */
 @Composable
-private fun SvgPreview(svg: String, description: String, onFail: () -> Unit) {
+private fun SvgPreview(svg: String, description: String, onClick: () -> Unit, onFail: () -> Unit) {
     val fail by rememberUpdatedState(onFail)
-    AndroidView(
-        factory = { ctx ->
-            // no WebView on this phone (or it failed to start): the card alone
-            runCatching { inertWebView(ctx).apply { contentDescription = description; loadDataWithBaseURL(null, svg, "text/html", "utf-8", null) } }
-                .getOrElse { fail(); View(ctx) }
-        },
-        onRelease = { (it as? WebView)?.apply { stopLoading(); destroy() } },
-        modifier = Modifier.padding(top = 4.dp, end = 12.dp, bottom = 8.dp).fillMaxWidth().clip(CardShape).height(SvgHeight),
-    )
+    Box(Modifier.padding(top = 4.dp, end = 12.dp, bottom = 8.dp).fillMaxWidth().clip(CardShape).height(SvgHeight)) {
+        AndroidView(
+            factory = { ctx ->
+                // no WebView on this phone (or it failed to start): the card alone
+                runCatching { inertWebView(ctx).apply { contentDescription = description; loadDataWithBaseURL(null, svg, "text/html", "utf-8", null) } }
+                    .getOrElse { fail(); View(ctx) }
+            },
+            onRelease = { (it as? WebView)?.apply { stopLoading(); destroy() } },
+            modifier = Modifier.matchParentSize(),
+        )
+        // the WebView would take the tap: a clear layer over it opens the file, like the rest of the card
+        Box(Modifier.matchParentSize().clickable(onClickLabel = "Open $description", onClick = onClick))
+    }
 }
 
 /**
