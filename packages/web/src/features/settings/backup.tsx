@@ -351,8 +351,8 @@ function Done({ r, onLeave }: { r: RestoreResult; onLeave: () => void }) {
       {r.missingKeys.length > 0 && (
         <p className="m-0 text-fg-2">
           Add keys again for {andList(r.missingKeys.map((p) => providerName(p)))} in{' '}
-          {/* before setup is done, Settings sends the owner back to setup; its Providers step takes keys too */}
-          <Link href={onboarded ? '/settings/providers' : '/setup/providers'} className="link" onClick={onLeave}>
+          {/* before setup is done, Settings sends the owner back to setup; its Connect a model step takes keys too */}
+          <Link href={onboarded ? '/settings/providers' : '/setup/model'} className="link" onClick={onLeave}>
             Providers
           </Link>
           .

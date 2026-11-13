@@ -8,11 +8,11 @@ import type { Device } from '@conclave/core/types';
 import { toast, updateConfig, useHub, type HubConfig } from '@/store/store';
 import { HARNESS_LOGINS, PROVIDERS } from '@/lib/providers';
 import { deviceName, desktopNotifyOn, useNotifyDevices } from '@/lib/notify';
-import { isStepId, type StepId } from './steps';
+import { isStepId, LATER, pageFor, type LaterId, type PageId, type StepId } from './steps';
 
 export interface SetupProgress {
   step?: StepId;
-  skipped?: StepId[];
+  skipped?: PageId[];
   /** CLI logins the owner chose to use (claude-code, codex ...). */
   logins?: string[];
   updatedAt?: number;
@@ -20,45 +20,44 @@ export interface SetupProgress {
 
 export function readProgress(config: HubConfig | undefined): SetupProgress {
   const p = (config?.setup?.progress ?? {}) as Record<string, unknown>;
+  // progress saved by the thirteen step setup resumes in the step its old step became; past Memory, that is the last one
+  const at = pageFor(p.step as string);
   return {
-    step: isStepId(p.step as string) ? (p.step as StepId) : undefined,
-    skipped: Array.isArray(p.skipped) ? (p.skipped as StepId[]) : [],
+    step: isStepId(at) ? at : at ? 'yours' : undefined,
+    skipped: Array.isArray(p.skipped) ? pages(p.skipped) : [],
     logins: Array.isArray(p.logins) ? (p.logins as string[]) : [],
     updatedAt: typeof p.updatedAt === 'number' ? p.updatedAt : undefined,
   };
 }
 
-export function useProgress(): SetupProgress & { done: StepId[]; completed: boolean } {
-  const config = useHub((s) => s.config);
-  return useMemo(() => ({ ...readProgress(config), done: (config?.ui?.onboardingSteps ?? []).filter(isStepId), completed: !!config?.setup?.completedAt }), [config]);
+/** Saved step ids as pages, old ids mapped to the step they were folded into. */
+function pages(ids: unknown[]): PageId[] {
+  return [...new Set(ids.map((x) => pageFor(typeof x === 'string' ? x : undefined)).filter((x): x is PageId => !!x))];
 }
 
-/** Save that a step was finished or skipped, and where to resume. Never blocks the flow. */
-export async function recordStep(id: StepId, how: 'done' | 'skipped', resumeAt: StepId) {
+export function useProgress(): SetupProgress & { done: PageId[]; completed: boolean } {
+  const config = useHub((s) => s.config);
+  return useMemo(() => ({ ...readProgress(config), done: pages(config?.ui?.onboardingSteps ?? []), completed: !!config?.setup?.completedAt }), [config]);
+}
+
+/** Save that a step was finished or skipped, and where to resume (a "Set up later" page leaves that as it is). Never blocks the flow. */
+export async function recordStep(id: PageId, how: 'done' | 'skipped', resumeAt?: StepId) {
   const config = useHub.getState().config;
-  const done = new Set((config?.ui?.onboardingSteps ?? []).filter(isStepId));
+  const done = new Set(pages(config?.ui?.onboardingSteps ?? []));
   const skipped = new Set(readProgress(config).skipped);
   if (how === 'done') {
     done.add(id);
     skipped.delete(id);
   } else if (!done.has(id)) skipped.add(id);
   try {
-    await updateConfig({ ui: { onboardingSteps: [...done] }, setup: { progress: { step: resumeAt, skipped: [...skipped], updatedAt: Date.now() } } });
+    await updateConfig({ ui: { onboardingSteps: [...done] }, setup: { progress: { ...(resumeAt ? { step: resumeAt } : {}), skipped: [...skipped], updatedAt: Date.now() } } });
   } catch (e) {
     toast({ title: `Could not save setup progress. ${e instanceof Error ? e.message : String(e)}`, level: 'error' });
   }
 }
 
-export async function saveProgressAnswer(patch: Partial<SetupProgress>) {
-  try {
-    await updateConfig({ setup: { progress: patch } });
-  } catch {
-    /* progress answers are a convenience; the step still works */
-  }
-}
-
 // ---------------------------------------------------------------------------
-// Facts: what is set up, from live hub state. The rail and Done read these.
+// Facts: what is set up, from live hub state. The rail and "Set up later" read these.
 // ---------------------------------------------------------------------------
 
 export const HARNESS_CLI: Record<string, string> = { 'claude-code': 'claude', codex: 'codex', 'gemini-cli': 'gemini', opencode: 'opencode' };
@@ -166,4 +165,30 @@ export function useSetupFacts(): SetupFacts {
 /** Login plan names for a list of harness ids ("Claude Max", "ChatGPT Pro"). */
 export function loginPlans(ids: string[]): string[] {
   return ids.map((id) => HARNESS_LOGINS.find((l) => l.id === id)?.plan ?? id);
+}
+
+/** True when a "Set up later" item is done: its page was finished, or the hub already shows it set up. */
+export function laterDone(id: LaterId, f: Pick<SetupFacts, 'defaultModel' | 'imported' | 'devices' | 'channels' | 'routines' | 'logins'>, done: readonly PageId[]): boolean {
+  if (done.includes(id)) return true;
+  switch (id) {
+    case 'agents':
+      return f.logins.length > 0;
+    case 'defaults':
+      return !!f.defaultModel;
+    case 'import':
+      return f.imported > 0;
+    case 'devices':
+      return f.devices.length > 1;
+    case 'notifications':
+      return f.channels.length > 0;
+    case 'routines':
+      return f.routines > 0;
+    default:
+      return false;
+  }
+}
+
+/** The "Set up later" items still to do, in order. */
+export function laterLeft(f: Parameters<typeof laterDone>[1], done: readonly PageId[]) {
+  return LATER.filter((s) => !laterDone(s.id as LaterId, f, done));
 }

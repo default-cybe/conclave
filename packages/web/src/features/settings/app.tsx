@@ -11,6 +11,7 @@ import { TEXT_SIZES, type TextSize } from '@/lib/textSize';
 import { useIsMobile, useLoad, useNow } from '@/lib/hooks';
 import { durationShort, hhmm, shortDate } from '@/lib/format';
 import { RUN_SETUP_AGAIN } from '@/lib/onboarding';
+import { SetupLaterGroup } from '@/features/onboarding/SetupLater';
 import { disablePush } from '@/lib/push';
 import { transportWords } from '@/lib/remote';
 import { Button } from '@/components/ui/Button';
@@ -507,7 +508,7 @@ export function AboutSection() {
       </Group>
 
       <Group title="Setup">
-        <SettingRow label="Run setup again" help="Walks through providers, agents, defaults, devices and routines with your answers filled in.">
+        <SettingRow label="Run setup again" help="Walks through connecting a model, memory and modes with your answers filled in.">
           <Button variant="outline" size={size} onClick={() => navigate(RUN_SETUP_AGAIN)}>
             Run setup again
           </Button>
@@ -550,6 +551,8 @@ export function AboutSection() {
           </Button>
         </SettingRow>
       </Group>
+
+      {owner && <SetupLaterGroup size={size} />}
 
       <Group title="Backup">
         <SettingRow label="Download a backup" help="Settings, agents, routines, tasks, memory and sessions in one file. Keys stay out unless you add them.">

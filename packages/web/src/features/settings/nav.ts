@@ -68,7 +68,7 @@ const KEYWORDS: Record<string, string> = {
   remote: 'phone away tunnel cloudflare tailscale address network',
   friends: 'friend invite safety code notes share',
   computer: 'files shells desktop app',
-  about: 'version update updates startup hub client connection backup',
+  about: 'version update updates startup hub client connection backup setup run setup again set up later extension packs coding agents past chats starter routines',
   logs: 'debug download errors',
 };
 

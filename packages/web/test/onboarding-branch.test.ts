@@ -8,6 +8,33 @@ import { describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { branchChoices, branchTarget, hubIsHere, startingName } from '../src/features/onboarding/branch';
+import { LATER, STEPS, pageFor, stepHref } from '../src/features/onboarding/steps';
+import { laterLeft } from '../src/features/onboarding/progress';
+
+describe('four steps', () => {
+  test('Welcome, Hub, Connect a model, Make it yours', () => {
+    expect(STEPS.map((s) => s.name)).toEqual(['Welcome', 'Hub', 'Connect a model', 'Make it yours']);
+    expect(stepHref('welcome')).toBe('/welcome');
+    expect(stepHref('model')).toBe('/setup/model');
+  });
+
+  test('every old step URL still opens a page', () => {
+    for (const old of ['hub', 'subscriptions', 'providers', 'extensions', 'agents', 'defaults', 'modes', 'memory', 'import', 'devices', 'notifications', 'routines', 'done']) expect(pageFor(old)).toBeDefined();
+    expect(pageFor('subscriptions')).toBe('model');
+    expect(pageFor('providers')).toBe('model');
+    expect(pageFor('memory')).toBe('yours');
+    expect(pageFor('done')).toBe('yours');
+    expect(pageFor('routines')).toBe('routines');
+    expect(pageFor('nope')).toBeUndefined();
+  });
+
+  test('Set up later lists what is not done yet', () => {
+    const none = { defaultModel: undefined, imported: 0, devices: [], channels: [], routines: 0, logins: [] };
+    expect(laterLeft(none, []).map((s) => s.id)).toEqual(LATER.map((s) => s.id));
+    const some = { ...none, defaultModel: 'a/b', routines: 2, channels: ['Phone'] };
+    expect(laterLeft(some, ['extensions']).map((s) => s.id)).toEqual(['agents', 'import', 'devices']);
+  });
+});
 
 describe('hub or client', () => {
   test('a hub on this computer is the hub branch only', () => {

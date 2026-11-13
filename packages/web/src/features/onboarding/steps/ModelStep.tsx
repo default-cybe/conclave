@@ -1,11 +1,14 @@
 /**
- * Step 2, Subscriptions: sign in to the plans the owner already pays for
- * (Claude, ChatGPT, Google, Grok, Kimi, Muse). Signing in starts CLIProxyAPI
- * on the hub the first time; every model from those accounts then shows up
- * under CLIProxyAPI in the model picker. "I already run CLIProxyAPI" connects
- * the one the owner runs elsewhere instead. Skippable.
+ * Step 3, Connect a model: sign in to a plan the owner already pays for
+ * (Claude, ChatGPT, Google, Grok, Kimi, Muse), or paste one API key. Signing
+ * in starts CLIProxyAPI on the hub the first time; every model from those
+ * accounts then shows up under CLIProxyAPI in the model picker. "Use an
+ * existing CLIProxyAPI" connects the one the owner runs elsewhere instead.
+ * A signed-in plan becomes the default model on Continue; with keys only, the
+ * hub uses the first model that works. Coding CLIs are found in the
+ * background and wait on the "Set up later" Coding agents page. Skippable.
  */
-import { useState } from 'react';
+import { useCallback, useState, type ReactNode } from 'react';
 import { api } from '@/lib/api';
 import { subscriptionDefaults, useSubscriptions } from '@/lib/subscriptions';
 import { updateConfig, useHub } from '@/store/store';
@@ -14,38 +17,60 @@ import { LoadingRows } from '@/components/ui/EmptyState';
 import { AccountRows, ExternalForm, SubscriptionRows, SubscriptionsStatusLine } from '@/components/subscriptions/Subscriptions';
 import { StepFrame } from '../StepLayout';
 import { Footnote, LINK } from '../parts';
+import { ProviderKeys } from './ProviderKeys';
 
-export function SubscriptionsStep() {
+/** "One account signed in, 2 providers ready", or what is missing. */
+function summaryOf(accounts: number, keys: number, rejected: number): ReactNode {
+  const parts: ReactNode[] = [];
+  if (accounts)
+    parts.push(
+      <span key="a">
+        <span className="font-[560] text-ok">{accounts === 1 ? 'One account' : `${accounts} accounts`}</span> signed in
+      </span>,
+    );
+  if (keys)
+    parts.push(
+      <span key="k">
+        <span className="font-[560] text-ok">{keys === 1 ? 'One provider' : `${keys} providers`}</span> ready
+      </span>,
+    );
+  if (rejected) parts.push(<span key="r">{rejected === 1 ? '1 key needs replacing' : `${rejected} keys need replacing`}</span>);
+  return parts.length ? parts.flatMap((p, i) => (i ? [<span key={`c${i}`}>, </span>, p] : [p])) : 'No model connected yet.';
+}
+
+export function ModelStep() {
   const { status, set, error, reload } = useSubscriptions();
   const hub = useHub((s) => s.hub);
   const [external, setExternal] = useState(false);
+  const [keys, setKeys] = useState<[number, number]>([0, 0]);
+  const onReady = useCallback((ready: number, rejected: number) => setKeys([ready, rejected]), []);
+  const keyRows = (
+    <div className="mt-10">
+      <ProviderKeys onReady={onReady} />
+    </div>
+  );
 
   // a hub from before subscription sign-in: say so instead of an error
   const older = !!hub?.features?.length && !hub.features.includes('subscriptions');
   if (!status)
     return (
-      <StepFrame summary={older ? 'Not available on this hub.' : 'Loading.'}>
+      <StepFrame summary={older ? summaryOf(0, ...keys) : 'Loading.'}>
         {older ? (
-          <p className="m-0 max-w-[64ch] text-[14px] leading-[1.5] text-fg-2">This hub does not support subscription sign-in. Update the hub, then run setup again from Settings, About.</p>
+          <p className="m-0 max-w-[64ch] text-[14px] leading-[1.5] text-fg-2">This hub does not support subscription sign-in. Paste an API key below, or update the hub and run setup again from Settings, About.</p>
         ) : error ? (
           <p className="m-0 text-[14px] text-fault">{error}</p>
         ) : (
           <LoadingRows loading rows={6} />
         )}
+        {(older || error) && keyRows}
       </StepFrame>
     );
 
   const n = status.accounts.length;
-  const summary = n ? (
-    <>
-      <span className="font-[560] text-ok">{n === 1 ? 'One account' : `${n} accounts`}</span> signed in
-    </>
-  ) : (
-    'No account signed in.'
-  );
+  const summary = <>{summaryOf(n, ...keys)}</>;
   const showForm = external || status.mode === 'external';
 
-  // with no key for the default model, the next step starts from a model these accounts give
+  // with no working default model, a model these accounts give becomes the default
   const adopt = async () => {
     const { config, models } = useHub.getState();
     const next = subscriptionDefaults(status, config, (p) => !!models.find((g) => g.provider === p && g.configured && g.enabled && !g.error));
@@ -63,7 +88,7 @@ export function SubscriptionsStep() {
       {!showForm && (
         <section>
           <SectionHeading rule={false} className="pb-1">
-            Sign in
+            Sign in to a plan
           </SectionHeading>
           <p className="m-0 pb-3 max-w-[64ch] text-[12px] leading-[1.45] text-fg-3 phone:text-[13px]">Each opens the provider&apos;s sign-in page in a new tab. More than one account per plan is allowed.</p>
           <SubscriptionRows status={status} />
@@ -113,8 +138,10 @@ export function SubscriptionsStep() {
         </section>
       )}
 
+      {keyRows}
+
       <div className="mt-10 grid gap-x-12 gap-y-6 md:grid-cols-2">
-        <Footnote title="Where sign-ins are stored">On {hub?.name ?? 'the hub'}, in a folder only the hub reads. Tokens never reach this page or your sessions.</Footnote>
+        <Footnote title="Where sign-ins and keys are stored">On {hub?.name ?? 'the hub'}, in files only the hub reads. Tokens and keys never reach this page or your sessions.</Footnote>
         <Footnote title="CLIProxyAPI">
           An open source (MIT) program that signs in to these plans. The hub downloads version {status.pinned.version} and checks its release checksum before it runs.
         </Footnote>

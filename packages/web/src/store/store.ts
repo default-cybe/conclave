@@ -64,7 +64,8 @@ export interface Toast extends Notice {
 /** Hub config as returned by GET /api/config (config.ui.onboarded, ui.limitWarn ...). */
 export type HubConfig = Record<string, unknown> & {
   ui?: { theme?: string; onboarded?: boolean; onboardingSteps?: string[]; limitWarn?: number; limitFault?: number };
-  setup?: { completedAt?: number; progress?: Record<string, unknown> };
+  /** laterHidden: the owner hid Home's "Set up later" list. */
+  setup?: { completedAt?: number; progress?: Record<string, unknown>; laterHidden?: boolean };
 };
 
 export interface HubState {
