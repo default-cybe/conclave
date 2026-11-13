@@ -20,6 +20,7 @@ import { Button, IconButton } from '@/components/ui/Button';
 import { Segmented } from '@/components/ui/Field';
 import { useFocusTrap } from '@/components/ui/Overlay';
 import { EASE, Swap, growFrames, useHeld, usePresence, useReducedMotion } from '@/components/motion';
+import { saveFile } from '@/lib/saveFile';
 import { closePreview, useChatUi, type PreviewDoc } from './state';
 
 const CSP = "default-src 'none'; img-src data: blob:; style-src 'unsafe-inline'; font-src data:";
@@ -37,12 +38,7 @@ export function previewDocument(doc: PreviewDoc, scripts: boolean): string {
 }
 
 function download(doc: PreviewDoc) {
-  const blob = new Blob([doc.code], { type: doc.lang === 'svg' ? 'image/svg+xml' : 'text/html' });
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = `preview.${doc.lang}`;
-  a.click();
-  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  void saveFile(`preview.${doc.lang}`, new Blob([doc.code], { type: doc.lang === 'svg' ? 'image/svg+xml' : 'text/html' }));
 }
 
 /** sheet: phone and tablet sizes. stacked: the header in two rows (a sheet, or a narrow panel). */

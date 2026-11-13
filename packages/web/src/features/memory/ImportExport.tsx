@@ -25,6 +25,7 @@ import { reloadMemories } from './store';
 import { NoteText } from './Notes';
 import { PastChats } from '@/features/import/PastChats';
 import { Batches, NotLearnedLine } from '@/features/import/Batches';
+import { saveFile } from '@/lib/saveFile';
 
 type FileRow = MemoryFileImportResult['files'][number];
 type Run<T> = { state: 'idle' } | { state: 'running'; since: number; dry: boolean } | { state: 'done'; result: T; dry: boolean } | { state: 'failed'; error: string };
@@ -392,14 +393,7 @@ async function downloadMarkdown(includeImported: boolean) {
   }
   // the mock router sends the file as a JSON string
   const text = (res.headers.get('content-type') ?? '').includes('json') ? ((await res.json()) as string) : await res.text();
-  const href = URL.createObjectURL(new Blob([text], { type: 'text/markdown;charset=utf-8' }));
-  const a = document.createElement('a');
-  a.href = href;
-  a.download = 'conclave-memory.md';
-  document.body.append(a);
-  a.click();
-  a.remove();
-  setTimeout(() => URL.revokeObjectURL(href), 2000);
+  await saveFile('conclave-memory.md', new Blob([text], { type: 'text/markdown;charset=utf-8' }));
 }
 
 function ExportSection() {

@@ -17,6 +17,7 @@ import { Button } from '@/components/ui/Button';
 import { OnOff } from '@/components/ui/Field';
 import { Dialog } from '@/components/ui/Overlay';
 import { errText } from './parts';
+import { saveFile } from '@/lib/saveFile';
 
 /** Same name the hub puts in Content-Disposition. */
 export function backupFileName(b: Pick<HubBackup, 'hub' | 'createdAt'>): string {
@@ -24,14 +25,8 @@ export function backupFileName(b: Pick<HubBackup, 'hub' | 'createdAt'>): string 
   return `conclave-backup-${name}-${new Date(b.createdAt).toISOString().slice(0, 10)}.json`;
 }
 
-function saveFile(name: string, text: string) {
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(new Blob([text], { type: 'application/json' }));
-  a.download = name;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+function saveText(name: string, text: string) {
+  void saveFile(name, new Blob([text], { type: 'application/json' }));
 }
 
 /** "A, B and C" */
@@ -86,7 +81,7 @@ export function BackupDialog({ open, onClose }: { open: boolean; onClose: () => 
     try {
       const b = await api().backup({ secrets, sessions });
       const name = backupFileName(b);
-      saveFile(name, JSON.stringify(b));
+      saveText(name, JSON.stringify(b));
       // one line: the file name does not fit beside the close button on a phone
       toast({ title: mobile ? 'Backup saved.' : `Saved ${name}.` });
       close();

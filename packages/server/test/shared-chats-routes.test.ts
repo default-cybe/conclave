@@ -360,3 +360,16 @@ test('history from all to joined drops what their seat summarized; widening it d
   expect((await hub.api(`/api/sessions/${six.id}/participants/${alice}`, { method: 'PATCH', json: { history: 'all' } })).status).toBe(200);
   expect(hub.engine.calls.slice(wide).some((c) => c.method === 'narrowChatHistory')).toBe(false);
 });
+
+test('the Files tab list: metadata only, read like the messages route, a stranger reads 404', async () => {
+  const c = await hub.engine.createSession({ kind: 'chat', title: 'Files' }, 'owner');
+  hub.engine.addMessage(c.id, { role: 'user', kind: 'normal', content: [{ type: 'image', mediaType: 'image/png', data: 'QUFB' }] });
+  hub.engine.addMessage(c.id, { role: 'assistant', kind: 'normal', model: 'm', content: [{ type: 'tool_use', id: 'sf', name: 'ShareFile', input: { path: 'r.pdf' } }, { type: 'tool_result', toolUseId: 'sf', content: 'ok', meta: { file: { name: 'r.pdf', mediaType: 'application/pdf', size: 10 } } }] });
+  const res = await hub.api(`/api/sessions/${c.id}/files`);
+  expect(res.status).toBe(200);
+  const list = (await res.json()) as Array<Record<string, unknown>>;
+  expect(list.map((f) => [f.group, f.name])).toEqual([['generated', 'r.pdf'], ['uploaded', 'image-1-1.png']]);
+  // no bytes in it
+  expect(JSON.stringify(list)).not.toContain('QUFB');
+  expect((await hub.api(`/api/sessions/${c.id}/files`, { token: bobToken })).status).toBe(404);
+});

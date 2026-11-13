@@ -25,6 +25,7 @@ import { deepMerge, SECRET_NAME } from '@conclave/core/config/index.ts';
 import { browserConfigProblems } from '@conclave/core/browser/engine.ts';
 import { buildBundle } from '@conclave/core/session/share.ts';
 import { trimMessage } from '@conclave/core/session/trim.ts';
+import { filesOf, newestFirst, type SessionFile, type ToolNames } from '@conclave/core/session/files.ts';
 import { INLINE_TYPES } from '@conclave/core/files/share.ts';
 import { putUpload, removeUpload, uploadMaxBytes, UploadRefused } from '@conclave/core/attachments/uploads.ts';
 import { forgetDiskUse } from '@conclave/core/people/disk.ts';
@@ -438,6 +439,24 @@ export function registerRoutes(app: Hono<HonoEnv>, ctx: ServerContext): void {
     const visible = s && (s.accountId !== accountOf(c) || msgs.some((m) => m.sender)) ? chatParticipants(ctx).visible(id, accountOf(c), msgs) : msgs;
     // trim=1: blocks over 100 KB come light, listed in meta.trimmed; the route below serves each in full
     return c.json(qBool(c.req.query('trim')) ? visible.map(trimMessage) : visible);
+  });
+
+  // the Files tab (core session/files.ts): every file of the transcript as metadata, newest first, read a page at a time
+  // so a big transcript is never held whole; the bytes come from the block and file routes, which check again
+  app.get('/api/sessions/:id/files', (c) => {
+    const id = sid(c);
+    const s = engine.getSession(id);
+    const tools: ToolNames = new Map();
+    const files: SessionFile[] = [];
+    for (let after = 0; ; ) {
+      const msgs = engine.getMessages(id, { afterSeq: after, limit: 500 });
+      if (!msgs.length) break;
+      after = msgs[msgs.length - 1]!.seq;
+      // as the messages route: a shared chat shows each person only what they may see
+      const visible = s && (s.accountId !== accountOf(c) || msgs.some((m) => m.sender)) ? chatParticipants(ctx).visible(id, accountOf(c), msgs) : msgs;
+      files.push(...filesOf(visible, tools));
+    }
+    return c.json(newestFirst(files));
   });
 
   app.get('/api/sessions/:id/messages/:msgId/blocks/:index', (c) => {

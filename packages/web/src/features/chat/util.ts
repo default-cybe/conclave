@@ -5,6 +5,7 @@ import { api } from '@/lib/api';
 import { attempt, type HubConfig } from '@/store/store';
 import { HARNESSES, harnessId, splitRef } from '@/lib/models';
 import { companyLogo } from '@/components/logo';
+import { saveFile } from '@/lib/saveFile';
 
 /** Put words in a session's composer and focus it (Edit on your message, Ask a follow-up). */
 export const COMPOSE_EVENT = 'conclave:compose';
@@ -185,12 +186,7 @@ export function fallbackModel(session: Session, groups: ModelGroup[], config?: H
 export async function downloadExport(session: Session, format: 'md' | 'json') {
   const r = await attempt(() => api().exportSession(session.id, format));
   if (!r) return;
-  const blob = new Blob([r.content], { type: format === 'json' ? 'application/json' : 'text/markdown' });
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = r.filename;
-  a.click();
-  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  await saveFile(r.filename, new Blob([r.content], { type: format === 'json' ? 'application/json' : 'text/markdown' }));
 }
 
 /** Host of a URL, or the raw value. */

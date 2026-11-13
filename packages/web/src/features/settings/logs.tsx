@@ -14,19 +14,14 @@ import { Button } from '@/components/ui/Button';
 import { OnOff, Segmented } from '@/components/ui/Field';
 import { LoadingRows } from '@/components/ui/EmptyState';
 import { Group, Outcome, SettingRow, errText } from './parts';
+import { saveFile } from '@/lib/saveFile';
 
 type Days = '1' | '7' | '28';
 /** Debug lines stay on this long, then turn off on their own. */
 export const DEBUG_HOURS = 24;
 
 function saveBlob(name: string, blob: Blob) {
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = name;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  setTimeout(() => URL.revokeObjectURL(a.href), 10_000);
+  void saveFile(name, blob);
 }
 
 /** "12 files, 4.2 MB, 14 Oct to 21 Oct" */

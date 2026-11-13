@@ -7,6 +7,20 @@ from the section of its version (`scripts/releases/notes.ts`); a release
 without one fails. At tag time, rename `[Unreleased]` to the version and date,
 like `## [0.4.16] - 2026-10-24`.
 
+## [Unreleased]
+
+### Added
+
+- A Files tab in the session panel lists every file of a chat or session, newest first: Generated (shared files, generated pictures, pages in replies), Screenshots (pictures from tools) and Uploaded (your attachments). Pictures and videos are a thumbnail grid that loads as you scroll, other files compact rows; a tap opens the viewer and Left and Right move through the list. A big chat loaded only in part asks the hub for its list (`GET /api/sessions/:id/files`, metadata only).
+
+### Changed
+
+- File cards open on a tap, as on Android: the picture itself, or the whole card of a PDF, video or code file, opens the viewer, and one small download icon replaces the Open, View and Download buttons. The viewer is black and quiet: name, Download, Copy for pictures, a More menu (Open in new tab or Open in app, Jump to message) and Close.
+
+### Fixed
+
+- Open and Download did nothing in the Linux desktop app: WebKitGTK drops an `<a download>` of a blob: or data: URL and the app refuses window.open of anything but web links. In the desktop app, on every OS, downloads now go through the app, which saves to Downloads under a name that replaces nothing and shows "Saved to ~/Downloads/..." with Show in folder; Open in app hands pictures, video, PDF and text to their default app.
+
 ## [0.4.94] - 2026-11-13
 
 ### Fixed

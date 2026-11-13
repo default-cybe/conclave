@@ -1,9 +1,10 @@
 /**
  * The media viewer: one full-screen layer for every picture, video, PDF and
  * text file the app shows (your attached pictures, file cards, generated
- * pictures, pictures from tools). A dark, blurred backdrop; a slim bar at the
- * top with the name, type and size, Download, Copy (pictures), Open in new
- * tab and Close. Escape and a click on the backdrop close it; Left and Right
+ * pictures, pictures from tools, the Files tab). A black backdrop, content
+ * first; a quiet bar at the top with the name, type and size, then small
+ * icons: Download, Copy (pictures), a More menu (Open in new tab, or Open in
+ * app in the desktop app; Jump to message) and Close. Escape and a click on the backdrop close it; Left and Right
  * (or a swipe) move between the media of the same conversation. A picture
  * zooms with the wheel or a pinch, a double-click toggles fit and 100%, and a
  * drag pans it when zoomed. Video and audio use the browser's own controls, a
@@ -18,10 +19,11 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { createRoot, type Root } from 'react-dom/client';
-import { ChevronLeft, ChevronRight, Copy, Download, ExternalLink, X } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Copy, Download, MoreHorizontal, X } from 'lucide-react';
 import { cn } from '@/lib/text';
 import { langFromPath } from '@/lib/highlight';
 import { isDesktopApp } from '@/lib/notify';
+import { openInApp, saveFile } from '@/lib/saveFile';
 import { toast } from '@/store/store';
 import { kindWord, opensInTab, sizeWords } from '@/features/files/words';
 import { CodeBlock } from './Code';
@@ -37,6 +39,8 @@ export interface MediaItem {
   src?: string;
   /** Or the bytes, fetched when the viewer needs them (a file card's). */
   load?: () => Promise<{ url: string; blob: Blob }>;
+  /** Scrolls the transcript to where it came from (the Files tab); the viewer closes first. */
+  jump?: () => void;
 }
 
 export type MediaKind = 'image' | 'video' | 'audio' | 'pdf' | 'text' | 'other';
@@ -128,13 +132,9 @@ function message(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
 }
 
-async function download(item: MediaItem) {
-  // a plain anchor with download: the browser (and the desktop app's webview) saves it the way every other download in the app does
-  const url = item.src ?? (await item.load!()).url;
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = item.name;
-  a.click();
+/** The browser's download, or the desktop app saves it to Downloads (lib/saveFile.ts). */
+export async function downloadMedia(item: MediaItem) {
+  await saveFile(item.name, item.src && !isDesktopApp() ? item.src : await blobOf(item));
 }
 
 /** PNG bytes of a picture: the clipboard takes PNG everywhere. */
@@ -173,12 +173,19 @@ function tabSafe(mediaType: string): boolean {
   return opensInTab(mediaType) || /^(video|audio)\//.test(mediaType) || mediaType === 'text/plain';
 }
 
-async function openInTab(item: MediaItem) {
+/** A new tab in a browser; in the desktop app, which has no tabs, the default app (desktop open_download). */
+async function openOutside(item: MediaItem) {
   // a blob typed as the card says, so it opens as nothing else; a data: URL would be blocked as a top frame
-  const blob = await blobOf(item);
-  const url = URL.createObjectURL(new Blob([blob], { type: item.mediaType }));
+  const blob = new Blob([await blobOf(item)], { type: item.mediaType });
+  if (await openInApp(item.name, blob)) return;
+  const url = URL.createObjectURL(blob);
   window.open(url, '_blank', 'noopener');
   setTimeout(() => URL.revokeObjectURL(url), 60_000);
+}
+
+/** WebKitGTK, the Linux desktop app's webview, has no PDF viewer: the viewer offers the PDF app instead. */
+function noPdfViewer(): boolean {
+  return isDesktopApp() && /Linux/.test(navigator.userAgent) && !/Android/.test(navigator.userAgent);
 }
 
 // ---------------------------------------------------------------------------
@@ -212,7 +219,7 @@ function useLoaded(item: MediaItem, kind: MediaKind): Loaded {
   return got.key === item.key ? got : {};
 }
 
-const BAR_BTN = 'inline-flex size-9 shrink-0 items-center justify-center rounded-[var(--r-1)] text-white/75 transition-colors duration-[var(--dur-1)] hov:bg-white/10 hov:text-white focus-visible:outline-2 focus-visible:outline-white/70 phone:size-11 [&_svg]:size-[18px] [&_svg]:stroke-[1.75]';
+const BAR_BTN = 'inline-flex size-9 shrink-0 items-center justify-center rounded-full text-white/70 transition-colors duration-[var(--dur-1)] hov:bg-white/10 hov:text-white focus-visible:outline-2 focus-visible:outline-white/70 phone:size-11 [&_svg]:size-[18px] [&_svg]:stroke-[1.75]';
 
 function BarButton({ label, onClick, children, close }: { label: string; onClick: () => void; children: ReactNode; close?: boolean }) {
   return (
@@ -223,10 +230,11 @@ function BarButton({ label, onClick, children, close }: { label: string; onClick
   );
 }
 
-const SIDE_BTN = 'absolute top-1/2 z-10 grid size-11 -translate-y-1/2 place-items-center rounded-[var(--r-2)] bg-black/45 text-white/80 transition-colors duration-[var(--dur-1)] hov:bg-black/70 hov:text-white disabled:opacity-0 focus-visible:outline-2 focus-visible:outline-white/70 phone:hidden [&_svg]:size-5';
+const SIDE_BTN = 'absolute top-1/2 z-10 grid size-11 -translate-y-1/2 place-items-center rounded-full bg-white/[0.06] text-white/70 transition-colors duration-[var(--dur-1)] hov:bg-white/15 hov:text-white disabled:opacity-0 focus-visible:outline-2 focus-visible:outline-white/70 phone:hidden [&_svg]:size-5';
 
 export function MediaViewer({ items: list, start, onClose }: { items: MediaItem[]; start: number; onClose: () => void }) {
   const [at, setAt] = useState(start);
+  const [more, setMore] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   const item = list[at] ?? list[0];
   const kind = mediaKind(item.mediaType, item.name);
@@ -253,6 +261,12 @@ export function MediaViewer({ items: list, start, onClose }: { items: MediaItem[
 
   const facts = [kindWord(item.mediaType), item.size !== undefined ? sizeWords(item.size) : '', n > 1 ? `${at + 1} of ${n}` : ''].filter(Boolean).join(', ');
   const act = (f: () => Promise<void>) => () => void f().catch((e: unknown) => toast({ title: message(e), level: 'error' }));
+  const desktopApp = isDesktopApp();
+  // quiet extras behind More: the main bar keeps Download, Copy and Close
+  const extras: Array<{ label: string; run: () => void }> = [
+    ...(tabSafe(item.mediaType) ? [{ label: desktopApp ? 'Open in app' : 'Open in new tab', run: act(() => openOutside(item)) }] : []),
+    ...(item.jump ? [{ label: 'Jump to message', run: () => (onClose(), item.jump!()) }] : []),
+  ];
 
   let body: ReactNode;
   if (loaded.error) body = <p className="text-[14px] text-white/75">Could not load {item.name}. {loaded.error}</p>;
@@ -261,6 +275,15 @@ export function MediaViewer({ items: list, start, onClose }: { items: MediaItem[
   else if (kind === 'image') body = <ZoomImage key={item.key} src={loaded.url!} alt={item.name} onSwipe={go} onBackdrop={onClose} />;
   else if (kind === 'video') body = <video key={item.key} src={loaded.url} controls playsInline aria-label={item.name} className="max-h-full max-w-full rounded-[var(--r-2)] bg-black" />;
   else if (kind === 'audio') body = <audio key={item.key} src={loaded.url} controls aria-label={item.name} className="w-[min(520px,100%)]" />;
+  else if (kind === 'pdf' && noPdfViewer())
+    body = (
+      <div className="flex flex-col items-center gap-3 text-center text-[14px] text-white/70">
+        <p>This window cannot show PDFs.</p>
+        <button type="button" onClick={act(() => openOutside(item))} className="rounded-[var(--r-2)] bg-white/10 px-4 py-2 text-white hov:bg-white/20">
+          Open in your PDF app
+        </button>
+      </div>
+    );
   else if (kind === 'pdf') body = <iframe key={item.key} src={loaded.url} title={item.name} className="size-full max-w-[1100px] rounded-[var(--r-2)] border-0 bg-white" />;
   else
     body = (
@@ -272,23 +295,23 @@ export function MediaViewer({ items: list, start, onClose }: { items: MediaItem[
 
   return createPortal(
     <div ref={ref} role="dialog" aria-modal="true" aria-label={item.name} aria-describedby="media-viewer-facts" tabIndex={-1} data-media-viewer={kind} className="fixed inset-0 z-[80] flex flex-col outline-none">
-      {/* the fade sits on each layer, not the root: an animated ancestor would keep the blur from seeing the page */}
-      <div aria-hidden onClick={onClose} className="absolute inset-0 bg-black/92 backdrop-blur-xl anim-fade" />
-      <div className="relative z-10 flex h-14 anim-fade shrink-0 items-center gap-1 border-b border-white/10 bg-black/40 pr-2 pl-4 text-white pt-safe phone:h-auto phone:min-h-14 phone:pr-1">
+      {/* the fade sits on each layer, not the root, so the bar and the picture come in together */}
+      <div aria-hidden onClick={onClose} className="absolute inset-0 bg-black anim-fade" />
+      <div className="relative z-10 flex h-14 anim-fade shrink-0 items-center gap-0.5 bg-black pr-2 pl-4 text-white pt-safe phone:h-auto phone:min-h-14 phone:pr-1">
         <div className="min-w-0 flex-1 pr-2">
-          <h2 className="truncate text-[14px] leading-5 font-medium text-white">{item.name}</h2>
-          <p id="media-viewer-facts" className="truncate text-[12.5px] leading-4 text-white/60" aria-live="polite">
+          <h2 className="truncate text-[14px] leading-5 font-normal text-white/90">{item.name}</h2>
+          <p id="media-viewer-facts" className="truncate text-[12px] leading-4 text-white/45" aria-live="polite">
             {facts}
           </p>
         </div>
-        {item.src ? (
-          // a plain anchor: a data: or hub URL downloads where a router Link would navigate
+        {item.src && !desktopApp ? (
+          // a plain anchor: a data: or hub URL downloads where a router Link would navigate; the desktop app saves through lib/saveFile.ts
           <a href={item.src} download={item.name} title="Download" className={BAR_BTN}>
             <Download aria-hidden />
             <span className="sr-only">Download</span>
           </a>
         ) : (
-          <BarButton label="Download" onClick={act(() => download(item))}>
+          <BarButton label="Download" onClick={act(() => downloadMedia(item))}>
             <Download aria-hidden />
           </BarButton>
         )}
@@ -297,13 +320,32 @@ export function MediaViewer({ items: list, start, onClose }: { items: MediaItem[
             <Copy aria-hidden />
           </BarButton>
         )}
-        {/* the desktop app has no tabs and would hand the file to another app */}
-        {tabSafe(item.mediaType) && !isDesktopApp() && (
-          <BarButton label="Open in new tab" onClick={act(() => openInTab(item))}>
-            <ExternalLink aria-hidden />
-          </BarButton>
+        {extras.length > 0 && (
+          <div className="relative" onBlur={(e) => !e.currentTarget.contains(e.relatedTarget as Node | null) && setMore(false)}>
+            <button type="button" title="More" aria-haspopup="menu" aria-expanded={more} onClick={() => setMore((x) => !x)} className={BAR_BTN}>
+              <MoreHorizontal aria-hidden />
+              <span className="sr-only">More</span>
+            </button>
+            {more && (
+              <div role="menu" className="absolute top-full right-0 mt-1 min-w-44 overflow-hidden rounded-[var(--r-2)] border border-white/15 bg-black py-1 anim-pop">
+                {extras.map((x) => (
+                  <button
+                    key={x.label}
+                    type="button"
+                    role="menuitem"
+                    onClick={() => {
+                      setMore(false);
+                      x.run();
+                    }}
+                    className="block w-full px-3.5 py-2 text-left text-[13.5px] text-white/85 hov:bg-white/10 phone:py-3 phone:text-[15px]"
+                  >
+                    {x.label}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
         )}
-        <span aria-hidden className="mx-1 h-5 w-px bg-white/15" />
         <BarButton label="Close" onClick={onClose} close>
           <X aria-hidden />
         </BarButton>

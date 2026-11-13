@@ -167,3 +167,43 @@ describe('useCopy', () => {
     await unmount();
   });
 });
+
+describe('saveFile (Download in the desktop app)', () => {
+  test('the desktop app saves through save_download, never an <a download>, and the toast offers Show in folder', async () => {
+    const { saveFile, homePath } = await import('../src/lib/saveFile');
+    const calls: Array<[string, Record<string, unknown> | undefined]> = [];
+    setDesktop({
+      invoke: (async (cmd: string, args?: Record<string, unknown>) => {
+        calls.push([cmd, args]);
+        return cmd === 'save_download' ? '/home/kai/Downloads/chart (1).png' : undefined;
+      }) as never,
+      listen: async () => () => undefined,
+    });
+    // a page with no createElement: an anchor would throw
+    g.document = {};
+    useHub.setState({ toasts: [] });
+    await saveFile('chart.png', new Blob(['hi']));
+    expect(calls).toEqual([['save_download', { name: 'chart.png', data: 'aGk=' }]]);
+    const t = useHub.getState().toasts[0]!;
+    expect(t.title).toBe('Saved to ~/Downloads/chart (1).png');
+    t.action!.run();
+    expect(calls[1]).toEqual(['reveal_download', { path: '/home/kai/Downloads/chart (1).png' }]);
+    expect(homePath('C:\\Users\\kai\\Downloads\\a.png')).toBe('~\\Downloads\\a.png');
+  });
+
+  test('a refusal from the app is a toast, not a silent nothing', async () => {
+    const { saveFile } = await import('../src/lib/saveFile');
+    fakeApp(false);
+    useHub.setState({ toasts: [] });
+    await saveFile('a.txt', new Blob(['x']));
+    expect(useHub.getState().toasts.map((t) => t.level)).toEqual(['error']);
+  });
+
+  test('in a browser it stays a plain anchor download', async () => {
+    const { saveFile } = await import('../src/lib/saveFile');
+    const clicked: string[] = [];
+    g.document = { body: { appendChild() {} }, createElement: () => ({ click() { clicked.push(`${this.download} ${this.href}`); }, remove() {} }) } as never;
+    await saveFile('a.png', 'data:image/png;base64,AA');
+    expect(clicked).toEqual(['a.png data:image/png;base64,AA']);
+  });
+});
