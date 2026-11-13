@@ -1,8 +1,10 @@
 /**
  * A question from a running session (spec 10.16). Not boxed: a row under the
- * section rule. "GLM-5 asks: Which libc does the remote run?", the options as
- * outline buttons, Reply opens an inline input. Multi-select questions use
- * checkboxes and Send. Several questions in one request step "1 of 2".
+ * section rule. "GLM-5 asks: Which libc does the remote run?", then one
+ * full width row per option, its label over its description, and a last quiet
+ * "Other…" row that opens an inline input. Options with no description at all
+ * stay compact outline buttons. Multi-select questions use checkboxes and
+ * Send. Several questions in one request step "1 of 2".
  *
  * Phones (docs/design/MOBILE-V2.md 5): the question, the options as full
  * width outlined rows, then an "Other answer" field with Send.
@@ -24,6 +26,9 @@ import { askFromInbox, askFromLine, askHome } from '@/lib/asks';
 import { Button } from '../ui/Button';
 import { Checkbox, Input } from '../ui/Field';
 import { ModelName } from '../logo';
+
+/** A desktop option row: full width, hover and keyboard focus show it. */
+const ROW = 'w-full rounded-[var(--r-1)] px-3 py-2 text-left transition-colors duration-[var(--dur-1)] hov:bg-hover focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-signal disabled:cursor-default disabled:opacity-60';
 
 export function QuestionCard({
   question: req,
@@ -165,16 +170,30 @@ export function QuestionCard({
             Send
           </Button>
         </div>
+      ) : q.options.some((o) => o.description) ? (
+        <div className="mt-2 -mx-3 flex max-w-[664px] flex-col" aria-busy={busy || undefined}>
+          {q.options.map((o) => (
+            <button key={o.label} type="button" disabled={busy} onClick={() => commit(o.label)} className={ROW}>
+              <span className="block text-[14px] leading-[1.4] font-medium text-fg">{o.label}</span>
+              {o.description && <span className="mt-0.5 block text-[13px] leading-[1.45] text-fg-3">{o.description}</span>}
+            </button>
+          ))}
+          {reply === null && (
+            <button type="button" disabled={busy} onClick={() => setReply('')} className={cn(ROW, 'text-[14px] leading-[1.4] text-fg-3')}>
+              Other…
+            </button>
+          )}
+        </div>
       ) : (
         <div className="mt-2.5 flex flex-wrap gap-1.5">
           {q.options.map((o) => (
-            <Button key={o.label} variant="outline" size="sm" title={o.description} busy={busy} onClick={() => commit(o.label)}>
+            <Button key={o.label} variant="outline" size="sm" busy={busy} onClick={() => commit(o.label)}>
               {o.label}
             </Button>
           ))}
           {reply === null && (
             <Button variant="quiet" size="sm" onClick={() => setReply('')}>
-              Reply
+              Other…
             </Button>
           )}
         </div>

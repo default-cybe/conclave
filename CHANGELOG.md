@@ -7,6 +7,12 @@ from the section of its version (`scripts/releases/notes.ts`); a release
 without one fails. At tag time, rename `[Unreleased]` to the version and date,
 like `## [0.4.16] - 2026-10-24`.
 
+## [Unreleased]
+
+### Changed
+
+- Desktop: questions from the agent show each option with its description, like on phones
+
 ## [0.4.97] - 2026-11-13
 
 ### Changed
