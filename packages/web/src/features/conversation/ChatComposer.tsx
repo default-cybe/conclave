@@ -3,15 +3,16 @@
  * Claude Code's (ComposerParts.tsx): one box with the field, "+" at the
  * left (attach, search the web) and the mic and Send at the right; Send
  * turns into Stop while a reply runs. Under the box one quiet row: the
- * memory chip, the model with its effort (the levels the model has,
- * lib/effort.ts) and the context ring at the right (design PR #292). Picking
+ * model with its effort (the levels the model has, lib/effort.ts), the
+ * Options chip (memory; design review #6) and the context ring at the right
+ * (design PR #292). Picking
  * another model keeps the Effort level when it has it, else the nearest one
  * it has. The model's tooltip and the ring say the context left and the
  * cost; no status line under the box.
  *
  * A new Assistant or Code conversation uses the same box with a `target`
- * (SessionStart.tsx): the quiet row's left side, its chips (agent, mode,
- * memory), its own model and effort, add-ons under "+", another place for
+ * (SessionStart.tsx): the quiet row's left side, its Options chip (style,
+ * agent, memory), its own model and effort, add-ons under "+", another place for
  * the message, and slash commands.
  *
  * Phones (docs/design/MOBILE-V2.md 4): the box of PhoneBox.tsx with +, the
@@ -38,7 +39,7 @@ import { Rim, SendStopButton, type RimState } from '@/components/motion';
 import { isReminder } from '@/features/chat/util';
 import { useDraft } from '@/features/chat/useDraft';
 import { canDictate, DictateButton } from './Dictate';
-import { AttachmentStrip, ContextRing, MemoryChip, memoryModeOf, memoryPatch, ModelEffort, PlusMenu, QuietRow, readPickedFor, type EffortFollow } from './ComposerParts';
+import { AttachmentStrip, ContextRing, memoryModeOf, memoryPatch, ModelEffort, OptionsChip, PlusMenu, QuietRow, readPickedFor, type EffortFollow } from './ComposerParts';
 import { AddButton, fitField, PHONE_FIELD, PhoneBox, PhoneSend, sizeField } from './PhoneBox';
 import { patchChat, sendTo, startChat, stopChat, type Outgoing } from './actions';
 import { DEFAULTS_EVENT, readDefaults, saveDefaults, setEditing, setRestore, useChatUi, type Thinking } from './state';
@@ -90,7 +91,7 @@ export interface ComposerTarget {
   onCyber?: (v: CyberProgram | undefined) => void;
   /** "+" after Attach files: the add-ons (a GitHub repository, a worktree, a design direction). */
   plus?: MenuItem[];
-  /** The chips before the model: agent, mode, memory (ComposerParts.tsx). */
+  /** The Options chip after the model: style, agent, memory (ComposerParts.tsx OptionsChip). */
   chips?: ReactNode;
   /** Phones: the start of the chip row (the permission mode); `left` is desktop's. */
   phoneLeft?: ReactNode;
@@ -513,7 +514,7 @@ export function ChatComposer({
     />
   );
 
-  // "+" holds the files and what a chat adds (web search) or the target's add-ons; memory, agent and mode are chips
+  // "+" holds the files and what a chat adds (web search) or the target's add-ons; memory, agent and style are in Options
   const plus: MenuItem[] = target ? (target.plus ?? []) : [{ label: 'Search the web', detail: WEB_HELP, checked: sw.webSearch, keep: true, onSelect: () => change({ webSearch: !sw.webSearch }) }];
   // a new chat's memory is the toggle's while incognito (the header holds it); a chat's is its own switches
   const memoryMode: MemoryMode = session ? memoryModeOf(session.chat) : priv.memory;
@@ -522,7 +523,7 @@ export function ChatComposer({
     saveDefaults({ memory: m !== 'off' });
     void patchChat(session.id, { chat: memoryPatch(m) });
   };
-  const chips = target ? target.chips : !session && priv.incognito ? null : <MemoryChip value={memoryMode} onChange={pickMemory} />;
+  const chips = target ? target.chips : !session && priv.incognito ? null : <OptionsChip memory={{ value: memoryMode, onChange: pickMemory }} />;
   const modelEffort = target ? (
     <ModelEffort model={target.model} value={target.effort} follow={target.follow} onModel={target.onModel} onEffort={target.onEffort} cyber={target.cyber} onCyber={target.onCyber} harnesses={target.harnesses} />
   ) : (
@@ -532,8 +533,8 @@ export function ChatComposer({
     seatModel
   ) : (
     <>
-      {chips}
       {modelEffort}
+      {chips}
       <ContextRing session={session} model={target ? target.model : sw.model} />
     </>
   );

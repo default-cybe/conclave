@@ -126,8 +126,10 @@ class ComposerModel(
     val context: ContextUse? = null,
     /** Usage, from the ring's sheet. */
     val onUsage: (() -> Unit)? = null,
-    /** The quiet row's left side: the permission mode, Code's folder and device, then the agent, mode and memory chips. */
+    /** The quiet row's left side: the permission mode (Bypass always), Code's folder and device as one chip. */
     val left: (@Composable RowScope.() -> Unit)? = null,
+    /** The Options chip between the model and the ring: style, agent, memory (design review #6). */
+    val options: (@Composable RowScope.() -> Unit)? = null,
     /** "+" after Photos, Camera and Files: add-ons only (web search, where Code works). */
     val plus: (@Composable (dismiss: () -> Unit) -> Unit)? = null,
     /** The hub's commands, offered while the message is "/" and part of a name. */
@@ -141,9 +143,10 @@ class ComposerModel(
  * one rounded box in the second surface, a hairline round it in light, the
  * text on top (up to six lines), then "+" at the left and the mic and Send
  * at the right; Send folds into Stop while a reply runs. Under the box one
- * quiet row: the permission mode (and Code's folder), then the agent, mode
- * and memory chips at the left, the model with its effort as one picker
- * ("Opus 5.5 Medium") and the context ring at the right. "+" holds the
+ * quiet row: the permission mode (and Code's folder and device, one chip)
+ * at the left, the model with its effort as one picker ("Opus 5.5
+ * Medium"), the Options chip (style, agent, memory; design review #6) and
+ * the context ring at the right. "+" holds the
  * files and add-ons; "/" lists the hub's commands. The Rim on
  * the box's edge says what the reply is doing.
  */
@@ -308,7 +311,7 @@ fun ChatComposer(
                 SendButton(m)
             }
         }
-        // the quiet row: the permission mode (and Code's folder) at the left, the model with its effort and the ring at the right
+        // the quiet row: the permission mode (and Code's folder) at the left, the model with its effort, Options and the ring at the right
         QuietRow(
             left = m.left,
             right = {
@@ -318,9 +321,11 @@ fun ChatComposer(
                     onClick = { picking = true },
                     enabled = enabled,
                     strong = true,
-                    maxWidth = 200.dp,
+                    // room for Options beside it on a narrow phone
+                    maxWidth = if (m.options != null) 160.dp else 200.dp,
                     marked = m.sameModel,
                 )
+                m.options?.invoke(this)
                 val use = m.context
                 if (use != null) ContextRing(use, onClick = { contextOpen = true }, enabled = enabled)
             },

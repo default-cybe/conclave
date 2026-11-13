@@ -2,13 +2,15 @@
  * The composer (spec 11.2.3), shaped like Claude Code's
  * (conversation/ComposerParts.tsx): one box with "+" at the left, the
  * field, the mic and Send, or Steer and Queue while a turn runs. Under it
- * one quiet row: the permission mode, Code's folder (always open to change)
- * and its device when there is more than one place to run at the left; at
- * the right the agent (Code), mode (with Ultra) and memory chips, the model
- * with its effort (the levels the model has; unset runs at the agent's) and
- * the context ring (design PR #292). "+" holds the files only. The model's
- * tooltip, the ring and the session panel say the context left and the
- * cost; no status line under the box.
+ * one quiet row: the permission mode (Bypass always, as a red chip) and
+ * Code's folder with its device as one chip ("~/code/x · MacBook", the
+ * device when there is more than one place to run) at the left; at the
+ * right the model with its effort (the levels the model has; unset runs at
+ * the agent's), one Options chip for the style (with Ultra), the agent
+ * (Code) and memory (design review #6), and the context ring (design PR
+ * #292). "+" holds the files only. The model's tooltip, the ring and the
+ * session panel say the context left and the cost; no status line under
+ * the box.
  * "/" opens the menu of slash.ts, as in Claude Code: Commands, Skills (run
  * through the Skill tool as /<name> args) and Custom. Settings commands
  * (/mcp, /context, /hooks, ...) open a sheet over the session
@@ -48,8 +50,8 @@ import { moveSessionTo } from './FolderChooser';
 import { MODES } from './modes';
 import { UltraSwitch } from '../workflows/UltraSwitch';
 import { GrantChip } from './GrantChip';
-import { AgentChip, AttachmentStrip, ContextRing, MemoryChip, memoryModeOf, memoryPatch, ModeChip, ModelEffort, PlusMenu, QuietRow, readPickedFor, useAgentFollow, type StripFile } from '@/features/conversation/ComposerParts';
-import { DeviceChip, FolderChip, useComputers } from '@/features/home/Where';
+import { AttachmentStrip, ContextRing, memoryModeOf, memoryPatch, ModelEffort, OptionsChip, PlusMenu, QuietRow, readPickedFor, useAgentFollow, type StripFile } from '@/features/conversation/ComposerParts';
+import { FolderChip } from '@/features/home/Where';
 import { CODE_AGENT, customAgent, modeOf } from '@/features/home/start';
 import { useModeOn } from '@/features/home/modes';
 import { COMPOSE_EVENT, downloadExport, isReminder, type ComposeDetail } from './util';
@@ -62,6 +64,9 @@ import { LaneChip } from './Security';
 import { NO_KV } from './draft';
 
 type FileEntry = { name: string; path: string; type: 'dir' | 'file'; size?: number };
+
+/** The folder and device chip at the left of the quiet row, else the phone sheet's device picker: /device and /cwd open it. */
+const PLACE_PICKER = '[data-picker="folder"],[data-picker="device"]';
 
 const drafts = new Map<string, string>();
 
@@ -95,7 +100,6 @@ export function Composer({ session, narrow }: { session: Session; /** A column o
   const waitingReset = session.status === 'waiting_reset';
   const empty = !messages?.length;
   const agents = useHub((s) => s.agents);
-  const computers = useComputers();
   const code = session.kind !== 'chat' && modeOf(session) === 'code';
   // a hunt works in a folder on a computer too: its folder and device chips, not Code's agent list
   const folders = code || (session.kind !== 'chat' && modeOf(session) === 'security');
@@ -205,7 +209,7 @@ export function Composer({ session, narrow }: { session: Session; /** A column o
         const d = Object.values(devices).find((x) => x.id === a || x.name === a);
         // a move finds the project's folder on that device (FolderChooser.tsx)
         if (d) return void moveSessionTo(session, d.id);
-        document.querySelector<HTMLButtonElement>('[data-picker="device"]')?.click();
+        document.querySelector<HTMLButtonElement>(PLACE_PICKER)?.click();
         return;
       }
       case 'move':
@@ -213,7 +217,7 @@ export function Composer({ session, narrow }: { session: Session; /** A column o
         if (/^hub\b/.test(a) && /(^|\s)--copy\b/.test(a)) return attempt(() => api().moveToHub(session.id), 'Copying the folder to the hub.');
         return toast({ title: '/move hub --copy', body: 'Copies this folder to the hub and runs there. /device moves without copying.', level: 'info' });
       case 'cwd':
-        return a ? patch({ cwd: a }) : document.querySelector<HTMLButtonElement>('[data-picker="device"]')?.click();
+        return a ? patch({ cwd: a }) : document.querySelector<HTMLButtonElement>(PLACE_PICKER)?.click();
       case 'new':
         return openNewChat({ agent: session.agent, model: session.model, device: session.device });
       case 'fork': {
@@ -504,20 +508,22 @@ export function Composer({ session, narrow }: { session: Session; /** A column o
       )}
     </div>
   );
-  // the chips under the box (design PR #292): the agent (Code), the style with Ultra where the session takes it, memory
+  // one Options chip (design review #6): the style with Ultra where the session takes it, the agent (Code), memory
   const customs = agents.filter((a) => (a.primary !== false && a.source !== 'builtin' && customAgent(a.name)) || a.name === session.agent).filter((a) => a.name !== CODE_AGENT);
   const ultraOk = session.kind !== 'chat' && session.mode !== 'chat';
-  const chips = !mineRow && (
-    <>
-      {code && <AgentChip value={session.agent} agents={[{ name: CODE_AGENT, description: 'The default. Hands work to its subagents itself' }, ...customs]} onChange={(agent) => void patch({ agent })} />}
-      <ModeChip mode={session.mode} onMode={setMode} ultra={!!session.ultra} onUltra={ultraOk ? (ultra) => void patch({ ultra }) : undefined} />
-      {!session.incognito && <MemoryChip value={memoryModeOf(session.chat)} onChange={(m) => void patch({ chat: memoryPatch(m) })} />}
-    </>
+  const options = (
+    <OptionsChip
+      style={{ mode: session.mode, onMode: setMode, ultra: !!session.ultra, onUltra: ultraOk ? (ultra) => void patch({ ultra }) : undefined }}
+      agent={code ? { value: session.agent, agents: [{ name: CODE_AGENT, description: 'The default. Hands work to its subagents itself' }, ...customs], onChange: (agent) => void patch({ agent }) } : undefined}
+      memory={session.incognito ? undefined : { value: memoryModeOf(session.chat), onChange: (m) => void patch({ chat: memoryPatch(m) }) }}
+    />
   );
+  // Bypass is never hidden, not even in the Chat style where permissions do not apply (design review #6)
+  const permission = (className: string) => (session.mode !== 'chat' || session.permissionMode === 'bypass') && <PermissionPicker look="text" value={session.permissionMode} onChange={(permissionMode) => void patch({ permissionMode })} className={className} />;
   const right = !mineRow && (
     <>
-      {chips}
       <ModelEffort session={session} model={session.model} value={session.chat?.thinking} follow={follow} onModel={(m) => void switchModel(m)} onEffort={pickEffort} cyber={session.chat?.cyber} onCyber={(v) => void patch({ chat: { cyber: v ?? null } })} sameModel={!!session.chat?.sameModel} onSameModel={(on) => void patch({ chat: { sameModel: on } })} security={!!session.chat?.security} onSecurity={securitySwitch ? (on) => void patch({ chat: { security: on } }) : undefined} harnesses switchOf={messages?.length ? session : undefined} />
+      {options}
       <ContextRing session={session} />
     </>
   );
@@ -584,7 +590,19 @@ export function Composer({ session, narrow }: { session: Session; /** A column o
           }
         />
         {sharedRow}
-        {!mineRow && <QuietRow wrap left={session.chat?.security ? <LaneChip session={session} /> : session.mode !== 'chat' && <PermissionPicker look="text" value={session.permissionMode} onChange={(permissionMode) => void patch({ permissionMode })} className="h-9 text-[13px]" />} right={right} />}
+        {/* the Security lane and the permission mode both stay in view (design review #6) */}
+        {!mineRow && (
+          <QuietRow
+            wrap
+            left={
+              <>
+                <LaneChip session={session} />
+                {permission('h-9 text-[13px]')}
+              </>
+            }
+            right={right}
+          />
+        )}
         {/* the phone row has no chips: the Live grant chip and its Revoke sit here */}
         {agentDef?.recipes?.includes('scope-guard') && (
           <div className="flex px-1 empty:hidden">
@@ -608,13 +626,12 @@ export function Composer({ session, narrow }: { session: Session; /** A column o
   const left = (
     <>
       {!mineRow && <LaneChip session={session} />}
-      {session.mode !== 'chat' && <PermissionPicker look="text" value={session.permissionMode} onChange={(permissionMode) => void patch({ permissionMode })} className="h-[24px] text-[12px]" />}
+      {permission('h-[24px] text-[12px]')}
       {session.mode === 'jury' && <JurorsPicker look="text" value={cfg.jury} onChange={(jury) => void patch({ modeConfig: { ...cfg, jury } })} className="h-[24px] text-[12px]" />}
       {session.mode === 'debate' && <DebatersPicker look="text" value={cfg.debate} onChange={(debate) => void patch({ modeConfig: { ...cfg, debate } })} className="h-[24px] text-[12px]" />}
       {agentDef?.recipes?.includes('scope-guard') && <GrantChip sessionId={session.id} />}
       {session.mode === 'loop' && <LoopPicker look="text" value={cfg.loop} onChange={(loop) => void patch({ modeConfig: { ...cfg, loop } })} className="h-[24px] text-[12px]" />}
-      {folders && !narrow && !sessionRepo(session) && <FolderChip device={session.device} cwd={session.cwd} onCwd={(cwd) => void patch({ cwd })} />}
-      {folders && !narrow && computers.length > 1 && <DeviceChip device={session.device} onDevice={(id) => void moveSessionTo(session, id)} />}
+      {folders && !narrow && <FolderChip device={session.device} cwd={session.cwd} onCwd={sessionRepo(session) ? undefined : (cwd) => void patch({ cwd })} onDevice={(id) => void moveSessionTo(session, id)} />}
     </>
   );
 

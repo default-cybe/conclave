@@ -62,17 +62,20 @@ import dev.conclave.app.ui.common.MessagesEffect
 import dev.conclave.app.ui.common.ModelPickerSheet
 import dev.conclave.app.ui.common.OfflineBanner
 import dev.conclave.app.ui.common.TopBar
-import dev.conclave.app.ui.conversation.AgentChip
+import dev.conclave.app.ui.conversation.AgentOption
 import dev.conclave.app.ui.conversation.ChatComposer
 import dev.conclave.app.ui.conversation.ChatHandoff
 import dev.conclave.app.ui.conversation.ComposerModel
 import dev.conclave.app.ui.conversation.IncognitoMark
 import dev.conclave.app.ui.conversation.ConversationSheet
-import dev.conclave.app.ui.conversation.MemoryChip
-import dev.conclave.app.ui.conversation.ModeChip
+import dev.conclave.app.ui.conversation.MemoryOption
 import dev.conclave.app.ui.conversation.NextModelAct
+import dev.conclave.app.ui.conversation.OptionRow
+import dev.conclave.app.ui.conversation.OptionsChip
+import dev.conclave.app.ui.conversation.OptionsSheet
 import dev.conclave.app.ui.conversation.PermissionChip
 import dev.conclave.app.ui.conversation.QuietChip
+import dev.conclave.app.ui.conversation.StyleOption
 import dev.conclave.app.ui.conversation.RunningTasksLine
 import dev.conclave.app.ui.conversation.SessionWork
 import dev.conclave.app.ui.conversation.SheetAction
@@ -112,6 +115,7 @@ import dev.conclave.client.logic.Tasks
 import dev.conclave.client.model.CommandDef
 import dev.conclave.client.model.Message
 import dev.conclave.client.model.MessageKind
+import dev.conclave.client.model.PermissionMode
 import dev.conclave.client.model.Role
 import dev.conclave.client.model.SessionMode
 import dev.conclave.client.model.SessionStatus
@@ -178,6 +182,8 @@ fun ChatScreen(
     val locVm: LocationViewModel = viewModel(key = "loc:$sessionId") { LocationViewModel(hub, sessionId) }
     val chooser by locVm.chooser.collectAsStateWithLifecycle()
     var pickDevice by remember { mutableStateOf(false) }
+    // the folder and computer chip's sheet, when it holds both
+    var pickWhere by remember { mutableStateOf(false) }
     val snackbar = rememberToasts()
     MessagesEffect(vm.messages, snackbar)
     MessagesEffect(locVm.messages, snackbar)
@@ -324,20 +330,31 @@ fun ChatScreen(
                         onUsage = onOpenUsage,
                         left = {
                             if (s != null) {
-                                if (s.mode != SessionMode.CHAT) PermissionChip(s.permissionMode, onChange = vm::setPermissionMode)
-                                if (coding && s.repo == null) {
-                                    QuietChip(folderLabel(s.cwd), onClickLabel = "Change the folder", onClick = { locVm.openChooser(locVm.location.value, s.device) })
+                                // Bypass is never hidden, not even in the Chat style (design review #6)
+                                if (s.mode != SessionMode.CHAT || s.permissionMode == PermissionMode.BYPASS) PermissionChip(s.permissionMode, onChange = vm::setPermissionMode)
+                                // the folder and the computer as one chip: "conclave · MacBook" (web Where.tsx FolderChip)
+                                val folder = coding && s.repo == null
+                                if (folder || showComputer) {
+                                    val words = listOfNotNull(if (folder) folderLabel(s.cwd) else null, if (showComputer) deviceLabel(s.device, devices) else null).joinToString(" · ")
+                                    QuietChip(if (folder) words else "on $words", onClickLabel = "Change where it works", onClick = {
+                                        when {
+                                            folder && showComputer -> pickWhere = true
+                                            folder -> locVm.openChooser(locVm.location.value, s.device)
+                                            else -> pickDevice = true
+                                        }
+                                    })
                                 }
-                                if (showComputer) {
-                                    QuietChip("on " + deviceLabel(s.device, devices), onClickLabel = "Change the computer", onClick = { pickDevice = true })
-                                }
-                                // the chips beside the model (web chat/Composer.tsx): the agent in Code, the mode with Ultra, memory
-                                if (coding) {
-                                    val customs = Start.customAgents(agents, s.agent).map { it.name to it.description.ifBlank { null } }
-                                    AgentChip(s.agent, listOf(Start.CODE_AGENT to "The default. Hands work to its subagents itself") + customs, onChange = vm::setAgent)
-                                }
-                                ModeChip(s.mode, onMode = vm::setMode, ultra = s.ultra == true, onUltra = if (s.mode != SessionMode.CHAT) ({ on: Boolean -> vm.setUltra(on) }) else null)
-                                if (!s.isIncognito) MemoryChip(memoryModeOf(s.chat), onChange = vm::setMemory)
+                            }
+                        },
+                        // one Options chip beside the model (web chat/Composer.tsx): the style with Ultra, the agent in Code, memory
+                        options = {
+                            if (s != null) {
+                                val customs = Start.customAgents(agents, s.agent).map { it.name to it.description.ifBlank { null } }
+                                OptionsChip(
+                                    style = StyleOption(s.mode, onMode = vm::setMode, ultra = s.ultra == true, onUltra = if (s.mode != SessionMode.CHAT) ({ on: Boolean -> vm.setUltra(on) }) else null),
+                                    agent = if (coding) AgentOption(s.agent, listOf(Start.CODE_AGENT to "The default. Hands work to its subagents itself") + customs, onChange = vm::setAgent) else null,
+                                    memory = if (s.isIncognito) null else MemoryOption(memoryModeOf(s.chat), onChange = vm::setMemory),
+                                )
                             }
                         },
                         commands = commands,
@@ -634,6 +651,20 @@ fun ChatScreen(
 
     if (showTodos) TodoSheet(live.todos, onDismiss = { showTodos = false })
 
+    if (pickWhere) {
+        session?.let { s ->
+            OptionsSheet("Where it works", onDismiss = { pickWhere = false }) {
+                OptionRow("Folder", folderLabel(s.cwd), onClick = {
+                    pickWhere = false
+                    locVm.openChooser(locVm.location.value, s.device)
+                })
+                OptionRow("Computer", deviceLabel(s.device, devices), onClick = {
+                    pickWhere = false
+                    pickDevice = true
+                })
+            }
+        }
+    }
     if (pickDevice) {
         session?.let { ss ->
             MoveToDeviceDialog(
