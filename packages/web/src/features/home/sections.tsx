@@ -15,7 +15,8 @@ import { hhmm, inTime } from '@/lib/format';
 import { agoWords } from '@/features/settings/parts';
 import { harnessId, providerName, splitRef } from '@/lib/models';
 import { dayStart, describeSchedule, everyMs, occurrencesToday } from '@/lib/schedule';
-import { askHome } from '@/lib/asks';
+import { askHome, asksForMode } from '@/lib/asks';
+import type { SideMode } from '@/lib/sidebar';
 import { Section } from '@/components/ui/Section';
 import { LimitGroup, limitPeak } from '@/components/ui/Meter';
 import { EmptyState } from '@/components/ui/EmptyState';
@@ -43,17 +44,24 @@ export const HOVER_ROW =
 // Waiting on you
 // ---------------------------------------------------------------------------
 
-/** `open`: how many approval cards show whole; the rest are one line rows. */
-export function WaitingSection({ phone, open: openMax = 2, className }: { phone?: boolean; open?: number; className?: string }) {
+/**
+ * `open`: how many approval cards show whole; the rest are one line rows.
+ * Only `mode`'s requests show; the other modes' are one line, "3 more in Inbox".
+ */
+export function WaitingSection({ mode, phone, open: openMax = 2, className }: { mode: SideMode; phone?: boolean; open?: number; className?: string }) {
   const approvalMap = useHub((s) => s.approvals);
   const questionMap = useHub((s) => s.questions);
-  const approvalsLive = useMemo(() => Object.values(approvalMap).sort((a, b) => a.createdAt - b.createdAt), [approvalMap]);
-  const questionsLive = useMemo(() => Object.values(questionMap).sort((a, b) => a.createdAt - b.createdAt), [questionMap]);
+  const sessions = useHub((s) => s.sessions);
+  const approvalSplit = useMemo(() => asksForMode(Object.values(approvalMap).sort((a, b) => a.createdAt - b.createdAt), sessions, mode), [approvalMap, sessions, mode]);
+  const questionSplit = useMemo(() => asksForMode(Object.values(questionMap).sort((a, b) => a.createdAt - b.createdAt), sessions, mode), [questionMap, sessions, mode]);
+  const approvalsLive = approvalSplit.here;
+  const questionsLive = questionSplit.here;
   const approvals = useRetained(approvalsLive);
   const questions = useRetained(questionsLive);
   const [expanded, setExpanded] = useState<string[] | null>(null);
   const count = approvalsLive.length + questionsLive.length;
-  if (!approvals.list.length && !questions.list.length) return null;
+  const elsewhere = approvalSplit.elsewhere + questionSplit.elsewhere;
+  if (!approvals.list.length && !questions.list.length && !elsewhere) return null;
 
   // at most two cards open; the rest are one line rows (spec 11.1)
   const open = expanded ?? approvals.list.slice(0, openMax).map((a) => a.id);
@@ -92,6 +100,11 @@ export function WaitingSection({ phone, open: openMax = 2, className }: { phone?
           )
         }
       </GapList>
+      {elsewhere > 0 && (
+        <Link href="/approvals" className={cn(HOVER_ROW, 'block py-3 text-[13px] text-fg-3 hover:text-fg-2 phone:text-[14px]', approvals.list.length + questions.list.length > 0 && 'border-t border-rule')}>
+          <span className="num">{elsewhere}</span> more in Inbox
+        </Link>
+      )}
     </Section>
   );
 }

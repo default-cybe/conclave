@@ -1,7 +1,8 @@
 /**
  * A new conversation, in any of the three modes: the greeting and the box,
  * like claude.ai. Under the box, and only here, today's cards: what waits on
- * you (answerable in place) and, in Assistant, the day's plan and proposals
+ * you in this mode (answerable in place; the other modes' requests are one
+ * line, "3 more in Inbox") and, in Assistant, the day's plan and proposals
  * (start.ts showsDay; Chat and Code leave the day out). Chat sends
  * start a chat at /chat/:id; Assistant and Code start a session at /s/:id
  * (SessionStart.tsx).
@@ -42,7 +43,7 @@ export function EmptyConversation({ mode }: { mode: Exclude<StartMode, 'canvas'>
       <div className="mt-7">{mode === 'chat' ? <ChatComposer chatId="new" minRows={3} blurOnEsc placeholder={PLACEHOLDER.chat} /> : <SessionComposer key={mode} mode={mode} />}</div>
       <div className="mx-auto w-full max-w-[784px] space-y-7 px-8 pt-4">
         <ModesNote />
-        <WaitingSection open={1} />
+        <WaitingSection key={mode} mode={mode} open={1} />
         <LearningsBadge />
         {showsDay(mode) && <TodaySection />}
       </div>
