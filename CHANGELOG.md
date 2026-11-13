@@ -12,6 +12,7 @@ like `## [0.4.16] - 2026-10-24`.
 ### Changed
 
 - The composer's "Mode" chip is now called "Style" ("Agent style"), on the web and on Android. Its menu shows Agent, Chat and Plan; Jury, Debate, Loop and Ultra sit under "More styles", which opens by itself while one of them is on. The New session dialog, the phone Options sheet and Ctrl K say Style too; searching "mode" still finds it
+- Home's "Waiting on you" lists only the requests of the mode you are in, so a Chat Home no longer shows a Code session's command to approve. The other modes' requests become one line, "3 more in Inbox", that opens the Inbox
 
 ## [0.4.96] - 2026-11-13
 
@@ -22,7 +23,6 @@ like `## [0.4.16] - 2026-10-24`.
 - Workflows, Memory and Extensions moved into the sidebar's More menu, in that order; their G W, G M and G E keys still work. The phone drawer gained a More row that lists every page
 - Android Settings has a Modes list (Security, Canvas, Meetings), saved on the account like the web's
 - In Chat the Details column on the right starts closed, so a chat gets the full width. Its toggle (and Ctrl Shift \) opens it, and the choice is kept for chats on this device apart from sessions, which still open with Details shown
-- Home's "Waiting on you" lists only the requests of the mode you are in, so a Chat Home no longer shows a Code session's command to approve. The other modes' requests become one line, "3 more in Inbox", that opens the Inbox
 
 ### Fixed
 
