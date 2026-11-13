@@ -1,10 +1,11 @@
 /**
- * The composer's chips (design PR #292): agent, style (the session mode, with
- * Jury, Debate, Loop and Ultra under "More styles", design review #4) and memory
- * sit under the box next to the model, "+" keeps files and add-ons only, and
- * there is no status line under the box. The chips set the same session
- * fields the "+" rows set before, and every row the old "+" had is still
- * reachable. Mounted on linkedom: the chat composer, the session composer
+ * The composer's chips (design PR #292): one Options chip (design review #6)
+ * holds the style (the session mode, with Jury, Debate, Loop and Ultra under
+ * "More styles", design review #4), the agent and memory, after the model;
+ * the folder and device are one chip; Bypass and the Security lane stay in
+ * view. "+" keeps files and add-ons only, and there is no status line under
+ * the box. Options sets the same session fields the old chips set, and every
+ * row the old "+" had is still reachable. Mounted on linkedom: the chat composer, the session composer
  * and the Code start.
  *
  *   cd packages/web && bun test test/composer-chips.test.tsx
@@ -16,7 +17,7 @@ import type { ReactNode } from 'react';
 import type { Session } from '@conclave/core/types';
 import { api, connectClient } from '../src/lib/api';
 import { useHub } from '../src/store/store';
-import { memoryModeOf, memoryPatch } from '../src/features/conversation/ComposerParts';
+import { memoryModeOf, memoryPatch, optionsChanges, optionsWords } from '../src/features/conversation/ComposerParts';
 import { DEFAULT_JURY, modePatch } from '../src/features/chat/pickers';
 
 const saved: Record<string, unknown> = {};
@@ -162,75 +163,118 @@ describe('memory chip words and patches', () => {
   });
 });
 
+describe('the Options chip words', () => {
+  test('"Options" at the defaults, else the first change and how many more, memory first', () => {
+    const agents = [{ name: 'coder' }, { name: 'reviewer' }];
+    expect(optionsWords(optionsChanges({ style: { mode: 'agent' }, agent: { value: 'coder', agents }, memory: 'save' }))).toBe('Options');
+    expect(optionsWords(optionsChanges({ style: { mode: 'plan' } }))).toBe('Plan');
+    const many = optionsChanges({ style: { mode: 'jury', ultra: true, onUltra: () => {} }, agent: { value: 'reviewer', agents }, memory: 'off' });
+    expect(many).toEqual(['No memory', 'Jury', 'Ultra', 'reviewer']);
+    expect(optionsWords(many)).toBe('No memory +3');
+    // Ultra is only named where the session takes it
+    expect(optionsChanges({ style: { mode: 'agent', ultra: true } })).toEqual([]);
+  });
+});
+
 describe('the session composer', () => {
-  test('a session in an expert style names it, and its menu opens on More styles', async () => {
+  test('a session in an expert style says it on Options, and its menu opens on More styles', async () => {
     patches();
     const { Composer } = await import('../src/features/chat/Composer');
     const v = await mount(<Composer session={base({ mode: 'debate' })} />);
-    expect(v.chip('style')?.textContent).toBe('Debate style');
-    const rows = await v.open(v.chip('style'));
-    expect(v.rowLabels(rows)).toEqual(['Agent', 'Chat', 'Plan', 'More styles', 'Jury', 'Debate', 'Loop', 'Ultra']);
+    expect(v.chip('options')?.textContent).toBe('Debate');
+    const rows = await v.open(v.chip('options'));
+    expect(v.rowLabels(rows).slice(0, 8)).toEqual(['Agent', 'Chat', 'Plan', 'More styles', 'Jury', 'Debate', 'Loop', 'Ultra']);
     expect(rows.find((r) => r.textContent?.startsWith('Debate'))?.getAttribute('aria-checked')).toBe('true');
     // the fold still closes by hand
     await v.pick(rows, 'More styles');
-    expect(v.rowLabels(await v.open(v.chip('style')))).toEqual(['Agent', 'Chat', 'Plan', 'More styles']);
-    await v.close(v.chip('style'));
+    expect(v.rowLabels(await v.open(v.chip('options'))).slice(0, 5)).toEqual(['Agent', 'Chat', 'Plan', 'More styles', 'coder']);
+    await v.close(v.chip('options'));
     await v.unmount();
   });
 
-  test('agent, style, Ultra and memory chips set the fields the "+" rows set; "+" is the files only; no status line', async () => {
+  test('one Options chip sets the fields the agent, style and memory chips set; "+" is the files only; one place chip', async () => {
     const sent = patches();
     const { Composer } = await import('../src/features/chat/Composer');
     const v = await mount(<Composer session={base()} />);
     expect(v.host.querySelector('[data-status-line]')).toBeNull();
     expect(v.chip('model')).not.toBeNull();
-    expect(v.chip('mode')).toBeNull();
-    expect(v.chip('style')?.textContent).toContain('Agent style');
-    expect(v.chip('memory')?.textContent).toContain('Memory');
+    for (const gone of ['mode', 'style', 'agent', 'memory']) expect(v.chip(gone)).toBeNull();
+    expect(v.chip('options')?.textContent).toBe('Options');
+    expect(v.chip('options')?.getAttribute('aria-label')).toBe('Options, all at their defaults');
 
-    // "+": files only (agent, devices, modes and Ultra left it)
+    // "+": files only
     expect(v.rowLabels(await v.open(v.plus()))).toEqual(['Attach files and images']);
     await v.close(v.plus());
 
-    // agent: the default and the custom ones, as "+" listed them
-    const agents = await v.open(v.chip('agent'));
-    expect(v.rowLabels(agents)).toEqual(['coder', 'reviewer']);
-    await v.pick(agents, 'reviewer');
+    // Options: Working style, then the agents, then memory
+    const rows = await v.open(v.chip('options'));
+    const menu = document.querySelector('[role=menu][aria-label="Options"]')?.textContent ?? '';
+    for (const heading of ['Working style', 'Agent', 'Memory']) expect(menu).toContain(heading);
+    expect(v.rowLabels(rows)).toEqual(['Agent', 'Chat', 'Plan', 'More styles', 'coder', 'reviewer', 'Use and save', 'Use only', 'Off']);
+    await v.pick(rows, 'reviewer');
     expect(sent.at(-1)).toEqual({ agent: 'reviewer' });
 
-    // style: Agent, Chat, Plan; Jury, Debate, Loop and Ultra in the "More styles" fold
-    const styles = await v.open(v.chip('style'));
-    expect(document.querySelector('[role=menu][aria-label="Style"]')?.textContent).toContain('Working style');
-    expect(v.rowLabels(styles)).toEqual(['Agent', 'Chat', 'Plan', 'More styles']);
-    await v.pick(styles, 'More styles');
-    const folded = await v.open(v.chip('style'));
-    expect(v.rowLabels(folded)).toEqual(['Agent', 'Chat', 'Plan', 'More styles', 'Jury', 'Debate', 'Loop', 'Ultra']);
+    await v.pick(await v.open(v.chip('options')), 'More styles');
+    const folded = await v.open(v.chip('options'));
+    expect(v.rowLabels(folded).slice(0, 8)).toEqual(['Agent', 'Chat', 'Plan', 'More styles', 'Jury', 'Debate', 'Loop', 'Ultra']);
     await v.pick(folded, 'Jury');
     expect(sent.at(-1)).toEqual({ mode: 'jury', modeConfig: { jury: DEFAULT_JURY } });
     // a fold opened by hand shuts again with the menu
-    const again = await v.open(v.chip('style'));
-    expect(v.rowLabels(again)).toEqual(['Agent', 'Chat', 'Plan', 'More styles']);
+    const again = await v.open(v.chip('options'));
+    expect(v.rowLabels(again).slice(0, 5)).toEqual(['Agent', 'Chat', 'Plan', 'More styles', 'coder']);
     expect(again.find((r) => r.textContent === 'More styles')?.getAttribute('aria-expanded')).toBe('false');
     await v.pick(again, 'More styles');
-    await v.pick(await v.open(v.chip('style')), 'Ultra');
+    await v.pick(await v.open(v.chip('options')), 'Ultra');
     expect(sent.at(-1)).toEqual({ ultra: true });
-    await v.close(v.chip('style'));
 
-    // memory
-    const mem = await v.open(v.chip('memory'));
-    expect(v.rowLabels(mem)).toEqual(['Use and save', 'Use only', 'Off']);
-    await v.pick(mem, 'Use only');
+    await v.pick(await v.open(v.chip('options')), 'Use only');
     expect(sent.at(-1)).toEqual({ chat: { memory: true, memorySave: false } });
-    await v.close(v.chip('memory'));
+    await v.close(v.chip('options'));
 
-    // devices: the chip at the left, also for the device this is (it left "+")
-    expect(v.host.querySelector('[data-picker="device"]')).not.toBeNull();
+    // folder and device are one chip at the left; no device chip of its own
+    const place = v.host.querySelector('[data-picker="folder"]');
+    expect(place?.textContent).toContain('~/code/conclave');
+    expect(place?.textContent).toContain('madx (hub)');
+    expect(v.host.querySelector('[data-picker="device"]')).toBeNull();
+    await v.unmount();
+  });
+
+  test('a changed session says it on Options: No memory first', async () => {
+    patches();
+    const { Composer } = await import('../src/features/chat/Composer');
+    const v = await mount(<Composer session={base({ mode: 'plan', chat: { memory: false } } as Partial<Session>)} />);
+    expect(v.chip('options')?.textContent).toBe('No memory +1');
+    expect(v.chip('options')?.getAttribute('aria-label')).toBe('Options, No memory, Plan');
+    await v.unmount();
+  });
+
+  test('Bypass stays a red chip, also in the Chat style', async () => {
+    patches();
+    const { Composer } = await import('../src/features/chat/Composer');
+    const v = await mount(<Composer session={base({ mode: 'chat', permissionMode: 'bypass' })} />);
+    const bypass = [...v.host.querySelectorAll('button')].find((b) => b.textContent?.includes('Bypass'));
+    expect(bypass).toBeDefined();
+    expect(bypass!.className).toContain('text-fault');
+    await v.unmount();
+    // Chat style with an ordinary permission mode: none to show
+    const w = await mount(<Composer session={base({ mode: 'chat' })} />);
+    expect([...w.host.querySelectorAll('button')].some((b) => b.textContent?.includes('Accept edits'))).toBe(false);
+    await w.unmount();
+  });
+
+  test('the Security lane stays its own chip beside the permission mode', async () => {
+    patches();
+    const { Composer } = await import('../src/features/chat/Composer');
+    const v = await mount(<Composer session={base({ chat: { security: true }, meta: { mode: 'code', lane: { lane: 'web', detected: ['web'] } } } as Partial<Session>)} />);
+    const text = v.host.textContent ?? '';
+    expect(text).toContain('Lane');
+    expect(text).toContain('Accept edits');
     await v.unmount();
   });
 });
 
 describe('the chat composer', () => {
-  test('memory is a chip, web search stays in "+", no status line', async () => {
+  test('memory is in Options, web search stays in "+", no status line', async () => {
     const sent = patches();
     const { ChatComposer } = await import('../src/features/conversation/ChatComposer');
     const chat = base({ id: 'ses_chat', kind: 'chat', mode: 'chat', meta: {}, chat: { webSearch: true, memory: true } } as Partial<Session>);
@@ -238,10 +282,14 @@ describe('the chat composer', () => {
     const v = await mount(<ChatComposer session={chat} chatId={chat.id} />);
     expect(v.host.querySelector('[data-status-line]')).toBeNull();
     expect(v.chip('agent')).toBeNull();
-    expect(v.chip('style')).toBeNull();
+    expect(v.chip('memory')).toBeNull();
     expect(v.rowLabels(await v.open(v.plus()))).toEqual(['Attach files and images', 'Search the web']);
     await v.close(v.plus());
-    const mem = await v.open(v.chip('memory'));
+    // the model, then Options, then the ring
+    const order = [...v.host.querySelectorAll('[data-chip]')].map((el) => el.getAttribute('data-chip'));
+    expect(order.indexOf('model')).toBeLessThan(order.indexOf('options'));
+    const mem = await v.open(v.chip('options'));
+    expect(v.rowLabels(mem)).toEqual(['Use and save', 'Use only', 'Off']);
     await v.pick(mem, 'Off');
     expect(sent.at(-1)).toEqual({ chat: { memory: false, memorySave: true } });
     await v.unmount();
@@ -293,7 +341,7 @@ describe('the model chip', () => {
 });
 
 describe('the Code start', () => {
-  test('chips for agent, style with Ultra and memory; "+" keeps Work in, worktree and design direction', async () => {
+  test('Options holds the agent, style with Ultra and memory; "+" keeps Work in, worktree and design direction', async () => {
     patches();
     const { ChatComposer } = await import('../src/features/conversation/ChatComposer');
     const { useSessionTarget } = await import('../src/features/home/SessionStart');
@@ -301,9 +349,13 @@ describe('the Code start', () => {
       return <ChatComposer chatId="start" target={useSessionTarget('code')} />;
     }
     const v = await mount(<Start />);
-    expect(v.chip('agent')?.textContent).toContain('coder');
-    expect(v.chip('style')?.textContent).toContain('Agent style');
-    expect(v.chip('memory')).not.toBeNull();
+    for (const gone of ['agent', 'style', 'memory']) expect(v.chip(gone)).toBeNull();
+    expect(v.chip('options')?.textContent).toBe('Options');
+    const opts = v.rowLabels(await v.open(v.chip('options')));
+    expect(opts).toContain('coder');
+    expect(opts).toContain('Use and save');
+    expect(opts).not.toContain('Ultra');
+    await v.close(v.chip('options'));
     const plus = v.rowLabels(await v.open(v.plus()));
     expect(plus[0]).toBe('Attach files and images');
     expect(plus).toContain('A folder');
@@ -312,16 +364,17 @@ describe('the Code start', () => {
     for (const gone of ['coder, the default', 'Ultra', 'Use and save', 'madx (hub)', 'MacBook']) expect(plus).not.toContain(gone);
     await v.close(v.plus());
     // Ultra is in the fold, and the fold starts open while Ultra is on
-    expect(v.rowLabels(await v.open(v.chip('style')))).not.toContain('Ultra');
-    await v.pick(await v.open(v.chip('style')), 'More styles');
-    await v.pick(await v.open(v.chip('style')), 'Ultra');
-    expect(v.chip('style')?.textContent).toContain('Agent style, Ultra');
+    await v.pick(await v.open(v.chip('options')), 'More styles');
+    await v.pick(await v.open(v.chip('options')), 'Ultra');
+    expect(v.chip('options')?.textContent).toBe('Ultra');
     // Ultra off keeps the fold open under it
-    await v.pick(await v.open(v.chip('style')), 'Ultra');
-    expect(v.chip('style')?.textContent).toBe('Agent style');
-    expect(v.rowLabels(await v.open(v.chip('style')))).toContain('Ultra');
-    await v.close(v.chip('style'));
-    expect(v.host.querySelector('[data-picker="device"]')).not.toBeNull();
+    await v.pick(await v.open(v.chip('options')), 'Ultra');
+    expect(v.chip('options')?.textContent).toBe('Options');
+    expect(v.rowLabels(await v.open(v.chip('options')))).toContain('Ultra');
+    await v.close(v.chip('options'));
+    // the folder and the device are one chip
+    expect(v.host.querySelector('[data-picker="folder"]')?.textContent).toContain('Choose folder');
+    expect(v.host.querySelector('[data-picker="device"]')).toBeNull();
     await v.unmount();
   });
 });

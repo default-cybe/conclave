@@ -13,18 +13,19 @@
  * hub, "madx (hub)", unless a device was picked in this browser before; on
  * a phone on the last computer used (start.ts startDevice). The row has the
  * permission mode, then the folder ("Choose folder" until one is set; the
- * first send asks for it), then the device when there is more than one
- * place to run; at the right the agent, mode (with Ultra) and memory chips
- * and the model (design PR #292). "+" holds the files and the add-ons: a
- * folder or a GitHub repository, a worktree, a design direction.
+ * first send asks for it) with the device after it when there is more than
+ * one place to run, as one chip; at the right the model and one Options chip
+ * for the style (with Ultra), the agent and memory (design review #6). "+"
+ * holds the files and the add-ons: a folder or a GitHub repository, a
+ * worktree, a design direction.
  * "/" lists the hub's commands, and Resume points at the last session.
  *
  * Effort is in the model's picker: the levels the model has (lib/effort.ts);
  * unset runs at the agent's own level. A level the next model lacks becomes
  * the nearest one it has.
  *
- * Phones (docs/design/MOBILE-V2.md 3, 4): the permission mode, the chips and
- * the model wrap under the box; the options sheet holds the device and
+ * Phones (docs/design/MOBILE-V2.md 3, 4): the permission mode, the model and
+ * Options wrap under the box; the options sheet holds the device and
  * folder, the repository, the worktree and the design direction. The first
  * send asks where to work when no folder is set yet.
  *
@@ -67,13 +68,13 @@ import { LiveStatus } from '@/components/motion';
 import { DeviceFolderPicker, modePatch, PermissionPicker } from '@/features/chat/pickers';
 import { keepSession, sendToAssistant, type Outgoing } from '@/features/conversation/actions';
 import { SEND_EVENT, type ComposerTarget } from '@/features/conversation/ChatComposer';
-import { AgentChip, MemoryChip, ModeChip, useAgentFollow } from '@/features/conversation/ComposerParts';
+import { OptionsChip, useAgentFollow } from '@/features/conversation/ComposerParts';
 import { OptionsButton } from '@/features/conversation/PhoneBox';
 import { sameRepo } from '@/lib/github';
 import { BranchPicker, IssuePicker, RepoList, RepoPicker, type IssuePick, type RepoPick } from '@/features/github/RepoPicker';
 import { ASSISTANT_AGENT, CODE_AGENT, CODE_NEEDS_DEVICE, commandOf, customAgent, lastOwnSession, needsOwnDevice, offersIncognito, placeName, readPicks, savePicks, SECURITY_AGENT, sessionSetup, startCommands, startEffort, type Picks, type SessionKind } from './start';
 import { startSurface, useThisComputer } from './here';
-import { DeviceChip, FolderChip, computerList, useComputers } from './Where';
+import { FolderChip, computerList, useComputers } from './Where';
 import { FolderCheckNote, useFolderCheck, useMissingFolders } from '@/features/chat/folderCheck';
 import { StateWord } from '@/components/ui/List';
 import { CODE_INCOGNITO_LINE, memoryChat, usePrivacy } from '@/features/conversation/incognito';
@@ -321,11 +322,11 @@ export function useSessionTarget(kind: SessionKind = 'code'): ComposerTarget {
       ]
     : [];
   const chips = code && (
-    <>
-      {!hunt && <AgentChip value={setup.agent} agents={[{ name: CODE_AGENT, description: 'The default. Hands work to its subagents itself' }, ...customs.filter((a) => a.name !== CODE_AGENT)]} onChange={pickAgent} />}
-      <ModeChip mode={mode} onMode={setMode} ultra={!!picks.ultra} onUltra={(on) => update({ ...picks, ultra: on || undefined })} />
-      {!priv.incognito && <MemoryChip value={priv.memory} onChange={setMemory} />}
-    </>
+    <OptionsChip
+      style={{ mode, onMode: setMode, ultra: !!picks.ultra, onUltra: (on) => update({ ...picks, ultra: on || undefined }) }}
+      agent={hunt ? undefined : { value: setup.agent, agents: [{ name: CODE_AGENT, description: 'The default. Hands work to its subagents itself' }, ...customs.filter((a) => a.name !== CODE_AGENT)], onChange: pickAgent }}
+      memory={priv.incognito ? undefined : { value: priv.memory, onChange: setMemory }}
+    />
   );
 
   const permission = <PermissionPicker look="text" value={permissionMode} onChange={(m) => update({ ...picks, permissionMode: m })} className="h-[24px] text-[12px]" />;
@@ -340,9 +341,8 @@ export function useSessionTarget(kind: SessionKind = 'code'): ComposerTarget {
             {repo && <IssuePicker look="text" repo={repo.repo} value={issue} onChange={pickIssue} className="h-[24px] text-[12px]" />}
           </>
         ) : (
-          <FolderChip device={setup.device} cwd={picks.cwd ?? setup.cwd} onCwd={chooseCwd} open={folderOpen} onOpenChange={folderChip} />
+          <FolderChip device={setup.device} cwd={picks.cwd ?? setup.cwd} onCwd={chooseCwd} onDevice={showDevice ? pickDevice : undefined} open={folderOpen} onOpenChange={folderChip} />
         ))}
-      {showDevice && <DeviceChip device={setup.device} onDevice={pickDevice} />}
     </>
   );
 

@@ -12,6 +12,7 @@ like `## [0.4.16] - 2026-10-24`.
 ### Changed
 
 - The composer's "Mode" chip is now called "Style" ("Agent style"), on the web and on Android. Its menu shows Agent, Chat and Plan; Jury, Debate, Loop and Ultra sit under "More styles", which opens by itself while one of them is on. The New session dialog, the phone Options sheet and Ctrl K say Style too; searching "mode" still finds it
+- The composer's Agent, Style and Memory chips are now one "Options" chip next to the model, on the web and on Android. It says "Options" at the defaults, or what changed, such as "Plan" or "No memory", with "No memory" always first. The folder and the device are one chip ("~/code/conclave · MacBook"), so the row under the box fits on one line. Bypass always shows as a red chip, also in the Chat style, and the Security lane keeps its own chip next to the permission mode
 
 ## [0.4.96] - 2026-11-13
 

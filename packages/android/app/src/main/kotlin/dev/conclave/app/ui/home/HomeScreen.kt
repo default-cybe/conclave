@@ -46,8 +46,9 @@ import dev.conclave.app.ui.conversation.ChatComposer
 import dev.conclave.app.ui.conversation.ChatHomeViewModel
 import dev.conclave.app.ui.conversation.IncognitoAction
 import dev.conclave.app.ui.conversation.IncognitoMark
-import dev.conclave.app.ui.conversation.AgentChip
-import dev.conclave.app.ui.conversation.MemoryChip
+import dev.conclave.app.ui.conversation.AgentOption
+import dev.conclave.app.ui.conversation.MemoryOption
+import dev.conclave.app.ui.conversation.OptionsChip
 import dev.conclave.app.ui.conversation.SwitchRow
 import dev.conclave.app.ui.conversation.WEB_HELP
 import dev.conclave.app.ui.conversation.CodePlus
@@ -328,34 +329,26 @@ fun HomeScreen(
                         onUsage = onOpenUsage,
                         left = {
                             permission()
-                            if (r != null) {
-                                QuietChip(RepoWords.startWords(r, code.base), onClickLabel = "Change the repository", onClick = {
-                                    whereGithub = true
-                                    where = true
-                                })
-                            } else {
-                                val cwd = setup.cwd
-                                QuietChip(if (cwd == null) "Choose folder" else folderLabel(cwd), onClickLabel = "Change the folder", strong = cwd == null, onClick = {
-                                    whereGithub = false
-                                    where = true
-                                })
-                            }
-                            if (showDevice) {
-                                QuietChip("on " + deviceLabel(setup.device, devices, info?.name), onClickLabel = "Change the computer", onClick = {
-                                    whereGithub = false
-                                    where = true
-                                })
-                            }
-                            // the chips beside the model (web SessionStart.tsx): the agent, then memory
+                            // the repository or folder and the computer as one chip (web Where.tsx FolderChip): "conclave · MacBook"
+                            val cwd = setup.cwd
+                            val place = if (r != null) RepoWords.startWords(r, code.base) else if (cwd == null) "Choose folder" else folderLabel(cwd)
+                            val words = if (showDevice) "$place · " + deviceLabel(setup.device, devices, info?.name) else place
+                            QuietChip(words, onClickLabel = if (r != null) "Change the repository or computer" else "Change the folder or computer", strong = r == null && cwd == null, maxWidth = 240.dp, onClick = {
+                                whereGithub = r != null
+                                where = true
+                            })
+                        },
+                        // one Options chip beside the model (web SessionStart.tsx): the agent, then memory
+                        options = {
                             val customs = Start.customAgents(agents, code.agent).map { it.name to it.description.ifBlank { null } }
-                            if (customs.isNotEmpty()) {
-                                AgentChip(setup.agent, listOf(Start.CODE_AGENT to "The default. Hands work to its subagents itself") + customs, onChange = { name ->
+                            OptionsChip(
+                                agent = if (customs.isEmpty()) null else AgentOption(setup.agent, listOf(Start.CODE_AGENT to "The default. Hands work to its subagents itself") + customs, onChange = { name ->
                                     // another agent brings its own model and computer: only the permission mode, Effort and Ultra stay
                                     val now = chat.code.value
                                     chat.setCode(CodeDefaults(agent = if (name == Start.CODE_AGENT) null else name, permissionMode = now.permissionMode, ultra = now.ultra, thinking = now.thinking, assistantModel = now.assistantModel))
-                                })
-                            }
-                            if (!privacy.incognito) MemoryChip(privacy.memory, onChange = { m -> chat.setPrivacy(privacy.copy(memory = m)) })
+                                }),
+                                memory = if (privacy.incognito) null else MemoryOption(privacy.memory, onChange = { m -> chat.setPrivacy(privacy.copy(memory = m)) }),
+                            )
                         },
                         plus = { dismiss ->
                             CodePlus(code, setup, onChange = chat::setCode, onWhere = { gh ->
@@ -389,8 +382,8 @@ fun HomeScreen(
                         onEffort = chat::setThinking,
                         context = ContextUse.of(emptyList(), null, hub.modelInfo(chatModel)),
                         onUsage = onOpenUsage,
-                        // a chat never gets a device or folder: the memory chip beside the model, "+" has the web
-                        left = { if (!privacy.incognito) MemoryChip(privacy.memory, onChange = { m -> chat.setPrivacy(privacy.copy(memory = m)) }) },
+                        // a chat never gets a device or folder: Options (memory) beside the model, "+" has the web
+                        options = { if (!privacy.incognito) OptionsChip(memory = MemoryOption(privacy.memory, onChange = { m -> chat.setPrivacy(privacy.copy(memory = m)) })) },
                         plus = { _ -> SwitchRow("Search the web", WEB_HELP, switches.webSearch, chat::setWeb) },
                     )
                 }

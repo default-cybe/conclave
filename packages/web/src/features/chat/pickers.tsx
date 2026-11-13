@@ -143,7 +143,8 @@ export function PermissionPicker({ value, onChange, look = 'text', className }: 
     <SelectMenu
       look={look}
       label="Permissions"
-      className={cn(value === 'bypass' && look === 'text' && 'text-fault hov:text-fault', className)}
+      // Bypass reads as a red chip wherever the row shows it, so it is never missed (design review #6)
+      className={cn(value === 'bypass' && look === 'text' && 'bg-[color-mix(in_oklab,var(--fault)_14%,transparent)] px-2 font-medium text-fault hov:bg-[color-mix(in_oklab,var(--fault)_22%,transparent)] hov:text-fault aria-expanded:text-fault', className)}
       value={value}
       onChange={onChange}
       width={280}

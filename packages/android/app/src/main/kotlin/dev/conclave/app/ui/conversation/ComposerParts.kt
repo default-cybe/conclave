@@ -91,9 +91,10 @@ import kotlinx.coroutines.withContext
 /*
  * Parts of the composer, shaped like Claude Code's (docs/DESIGN.md 40, web
  * features/conversation/ComposerParts.tsx): under the box one quiet row,
- * the permission mode (and Code's folder) at the left, the model with its
- * effort as one picker ("Opus 5.5 Medium") and a small context ring at the
- * right; the agent, mode and memory chips sit beside the model. "+" holds
+ * the permission mode (and Code's folder and device, one chip) at the left,
+ * the model with its effort as one picker ("Opus 5.5 Medium"), one Options
+ * chip for the style, agent and memory (design review #6) and a small
+ * context ring at the right. "+" holds
  * the files and add-ons, "/" the commands. The sheets' rows live here
  * too, so every screen's "+" reads the same. The files over the field are
  * one row that scrolls sideways at a fixed height (AttachmentStrip).
@@ -168,6 +169,8 @@ fun QuietChip(
     strong: Boolean = false,
     /** A small dot before the text: Same model for all work is on (the model chip). */
     marked: Boolean = false,
+    /** A risky state (Bypass): red words on a red tint, never missed (design review #6). */
+    danger: Boolean = false,
 ) {
     val c = Conclave.colors
     Row(
@@ -176,6 +179,8 @@ fun QuietChip(
             .widthIn(max = maxWidth)
             .clip(RoundedCornerShape(10.dp))
             .clickable(enabled = enabled, onClickLabel = onClickLabel, role = Role.Button, onClick = onClick)
+            .padding(vertical = if (danger) 8.dp else 0.dp)
+            .then(if (danger) Modifier.background(c.fault.copy(alpha = 0.14f), RoundedCornerShape(12.dp)) else Modifier)
             .padding(start = 8.dp, end = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -186,20 +191,20 @@ fun QuietChip(
         Text(
             text,
             style = ConclaveType.meta,
-            color = if (strong) c.fg2 else c.fg3,
+            color = if (danger) c.fault else if (strong) c.fg2 else c.fg3,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f, fill = false),
         )
-        Icon(Icons.Outlined.KeyboardArrowDown, contentDescription = null, modifier = Modifier.size(14.dp), tint = c.fg3)
+        Icon(Icons.Outlined.KeyboardArrowDown, contentDescription = null, modifier = Modifier.size(14.dp), tint = if (danger) c.fault else c.fg3)
     }
 }
 
-/** The permission mode at the left of the quiet row; a tap lists the four with a line each. */
+/** The permission mode at the left of the quiet row; a tap lists the four with a line each. Bypass is a red chip. */
 @Composable
 fun PermissionChip(value: PermissionMode, onChange: (PermissionMode) -> Unit, enabled: Boolean = true) {
     var open by remember { mutableStateOf(false) }
-    QuietChip(permissionLabel(value), onClickLabel = "Permissions, ${permissionLabel(value)}", onClick = { open = true }, enabled = enabled)
+    QuietChip(permissionLabel(value), onClickLabel = "Permissions, ${permissionLabel(value)}", onClick = { open = true }, enabled = enabled, danger = value == PermissionMode.BYPASS)
     if (open) {
         OptionsSheet("Permissions", onDismiss = { open = false }) {
             PermissionMode.entries.forEach { p ->
@@ -398,54 +403,62 @@ fun SlashMenu(matches: List<CommandDef>, onPick: (CommandDef) -> Unit, modifier:
 }
 
 // ---------------------------------------------------------------------------
-// Chips beside the model: agent, mode and memory (web ComposerParts.tsx AgentChip, ModeChip, MemoryChip)
+// Options beside the model: style, agent and memory in one chip (web ComposerParts.tsx OptionsChip)
 // ---------------------------------------------------------------------------
 
-/** The agent: the ones offered here (Code: the default and the custom ones), each with its line. */
-@Composable
-fun AgentChip(value: String?, agents: List<Pair<String, String?>>, onChange: (String) -> Unit, enabled: Boolean = true) {
-    var open by remember { mutableStateOf(false) }
-    val words = value?.ifBlank { null } ?: "Agent"
-    QuietChip(words, onClickLabel = "Agent, $words", onClick = { open = true }, enabled = enabled)
-    if (open) {
-        OptionsSheet("Agent", onDismiss = { open = false }) {
-            agents.forEach { (name, detail) ->
-                ChoiceRow(name, selected = name == value, detail = detail, onClick = {
-                    open = false
-                    if (name != value) onChange(name)
-                })
-            }
-        }
-    }
-}
+/** The style part of Options: the session mode, and Ultra where the session takes it ([onUltra]). */
+class StyleOption(val mode: SessionMode, val onMode: (SessionMode) -> Unit, val ultra: Boolean = false, val onUltra: ((Boolean) -> Unit)? = null)
+
+/** The agent part of Options: the ones offered here, the default first (Code: coder, then the custom ones), each with its line. */
+class AgentOption(val value: String?, val agents: List<Pair<String, String?>>, val onChange: (String) -> Unit)
+
+/** The memory part of Options: Use and save, Use only, Off. */
+class MemoryOption(val value: MemoryMode, val onChange: (MemoryMode) -> Unit)
 
 /**
- * "Agent style" (design review #4): Agent, Chat and Plan, then a "More styles"
- * fold with Jury, Debate, Loop and Ultra where the session takes it ([onUltra]).
- * The fold starts open while one of those is on; a toggle by hand lasts until
- * the sheet closes.
+ * "Options" (design review #6): one chip in place of the agent, style and
+ * memory chips. Its sheet: Working style (Agent, Chat, Plan, then a "More
+ * styles" fold with Jury, Debate, Loop and Ultra, design review #4), the
+ * agent and memory. The chip says "Options" at the defaults, else the first
+ * change ("No memory" first) and how many more. The fold starts open while
+ * one of those is on; a toggle by hand lasts until the sheet closes.
  */
 @Composable
-fun ModeChip(mode: SessionMode, onMode: (SessionMode) -> Unit, ultra: Boolean = false, onUltra: ((Boolean) -> Unit)? = null, enabled: Boolean = true) {
+fun OptionsChip(style: StyleOption? = null, agent: AgentOption? = null, memory: MemoryOption? = null, enabled: Boolean = true) {
+    if (style == null && agent == null && memory == null) return
     val c = Conclave.colors
     var open by remember { mutableStateOf(false) }
     var fold by remember { mutableStateOf<Boolean?>(null) }
-    val more = fold ?: SessionModes.moreOpen(mode, ultra, onUltra != null)
-    val words = SessionModes.chipWords(mode, ultra, onUltra != null)
+    val memoryWord = memory?.value?.takeIf { it != MemoryMode.SAVE }?.let(::memoryWords)
+    val changes = SessionModes.optionsChanges(style?.mode, style?.ultra == true, style?.onUltra != null, agent?.value, agent?.agents?.firstOrNull()?.first, memoryWord)
     val close = {
         open = false
         fold = null
     }
-    QuietChip(words, onClickLabel = "Style, $words", onClick = { open = true }, enabled = enabled)
-    if (open) {
-        val row: @Composable (SessionMode) -> Unit = { m ->
-            ChoiceRow(SessionModes.label(m), selected = m == mode, detail = SessionModes.detail(m), onClick = {
-                close()
-                if (m != mode) onMode(m)
-            })
+    QuietChip(
+        SessionModes.optionsWords(changes),
+        onClickLabel = "Options, " + changes.ifEmpty { listOf("all at their defaults") }.joinToString(", "),
+        onClick = { open = true },
+        enabled = enabled,
+        strong = changes.isNotEmpty(),
+        maxWidth = 120.dp,
+    )
+    if (!open) return
+    OptionsSheet("Options", onDismiss = close) {
+        // a heading per part, with a rule over it after the first
+        val section: @Composable (String, Boolean) -> Unit = { title, rule ->
+            if (rule) HorizontalDivider(thickness = 1.dp, color = c.rule, modifier = Modifier.padding(top = 6.dp))
+            Text(title, style = ConclaveType.meta, color = c.fg3, modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 4.dp))
         }
-        OptionsSheet("Style", onDismiss = close) {
-            Text(SessionModes.HEADING, style = ConclaveType.meta, color = c.fg3, modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 4.dp, bottom = 4.dp))
+        if (style != null) {
+            val more = fold ?: SessionModes.moreOpen(style.mode, style.ultra, style.onUltra != null)
+            val row: @Composable (SessionMode) -> Unit = { m ->
+                ChoiceRow(SessionModes.label(m), selected = m == style.mode, detail = SessionModes.detail(m), onClick = {
+                    close()
+                    if (m != style.mode) style.onMode(m)
+                })
+            }
+            section(SessionModes.HEADING, false)
             SessionModes.EVERYDAY.forEach { row(it) }
             HorizontalDivider(thickness = 1.dp, color = c.rule, modifier = Modifier.padding(top = 6.dp))
             Row(
@@ -458,27 +471,28 @@ fun ModeChip(mode: SessionMode, onMode: (SessionMode) -> Unit, ultra: Boolean = 
             if (more) {
                 SessionModes.MORE_STYLES.forEach { row(it) }
                 // Ultra off keeps the fold open under the row just used
-                if (onUltra != null) SwitchRow("Ultra", ULTRA_LINE, ultra) { on ->
+                val onUltra = style.onUltra
+                if (onUltra != null) SwitchRow("Ultra", ULTRA_LINE, style.ultra) { on ->
                     fold = true
                     onUltra(on)
                 }
             }
         }
-    }
-}
-
-/** "Memory", "Memory, use only" or "No memory" (in fg-3): Use and save, Use only, Off. */
-@Composable
-fun MemoryChip(value: MemoryMode, onChange: (MemoryMode) -> Unit, enabled: Boolean = true) {
-    var open by remember { mutableStateOf(false) }
-    val words = memoryWords(value)
-    QuietChip(words, onClickLabel = "Memory, $words", onClick = { open = true }, enabled = enabled, strong = value != MemoryMode.OFF)
-    if (open) {
-        OptionsSheet("Memory", onDismiss = { open = false }) {
+        if (agent != null) {
+            section("Agent", style != null)
+            agent.agents.forEach { (name, detail) ->
+                ChoiceRow(name, selected = name == agent.value, detail = detail, onClick = {
+                    close()
+                    if (name != agent.value) agent.onChange(name)
+                })
+            }
+        }
+        if (memory != null) {
+            section("Memory", style != null || agent != null)
             MemoryMode.entries.forEach { m ->
-                ChoiceRow(m.label, selected = m == value, detail = m.detail, onClick = {
-                    open = false
-                    if (m != value) onChange(m)
+                ChoiceRow(m.label, selected = m == memory.value, detail = m.detail, onClick = {
+                    close()
+                    if (m != memory.value) memory.onChange(m)
                 })
             }
         }

@@ -6,7 +6,7 @@ import dev.conclave.client.model.LoopConfig
 import dev.conclave.client.model.ModeConfig
 import dev.conclave.client.model.SessionMode
 
-/** The composer's Style chip (the session mode), as on the web (features/chat/modes.ts MODES, chat/pickers.tsx modePatch). */
+/** The style in the composer's Options chip (the session mode), as on the web (features/chat/modes.ts MODES, chat/pickers.tsx modePatch). */
 object SessionModes {
     /** The sheet's heading, and the fold that holds Jury, Debate, Loop and Ultra (design review #4). */
     const val HEADING = "Working style"
@@ -41,9 +41,25 @@ object SessionModes {
         SessionMode.LOOP -> "Repeats until a check passes"
     }
 
-    /** The chip's words: "Agent style", ", Ultra" after it when Ultra is on where the session takes it. */
-    fun chipWords(m: SessionMode, ultra: Boolean, ultraOffered: Boolean): String =
-        "${label(m)} style" + if (ultraOffered && ultra) ", Ultra" else ""
+    /**
+     * What the Options chip (design review #6, web ComposerParts.tsx optionsChanges) has changed from the
+     * defaults: [memory] first (its words when not "Use and save", so "No memory" is never the part left
+     * out), then the style, Ultra, and an [agent] other than [defaultAgent]. Null [mode]: no style offered.
+     */
+    fun optionsChanges(mode: SessionMode?, ultra: Boolean, ultraOffered: Boolean, agent: String?, defaultAgent: String?, memory: String?): List<String> =
+        listOfNotNull(
+            memory,
+            mode?.takeIf { it != SessionMode.AGENT }?.let(::label),
+            "Ultra".takeIf { mode != null && ultraOffered && ultra },
+            agent?.takeIf { it.isNotBlank() && defaultAgent != null && it != defaultAgent },
+        )
+
+    /** The Options chip's words: "Options" at the defaults, else the first change and how many more ("No memory +1"). */
+    fun optionsWords(changes: List<String>): String = when {
+        changes.isEmpty() -> "Options"
+        changes.size == 1 -> changes[0]
+        else -> "${changes[0]} +${changes.size - 1}"
+    }
 
     val DEFAULT_JURY = JuryConfig(
         jurors = listOf("anthropic/claude-sonnet-5-5", "openai/gpt-5.5", "zai/glm-5", "google/gemini-3-pro"),
