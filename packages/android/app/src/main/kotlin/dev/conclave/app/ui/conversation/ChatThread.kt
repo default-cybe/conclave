@@ -344,8 +344,9 @@ fun ChatThreadScreen(
             if (loading && units.isEmpty() && pending == null) {
                 LoadingBox()
             } else {
-                // one column of at most 720dp, centered on tablets; its text at the Text size of Settings, Appearance
-                CompositionLocalProvider(LocalDensity provides chatDensity()) {
+                // one column of at most 720dp, centered on tablets; its text at the Text size of Settings, Appearance.
+                // The chat is a session on the hub: its shared files load from it (FileCards.kt, ToolFold.kt), as on the web.
+                CompositionLocalProvider(LocalDensity provides chatDensity(), LocalSessionWork provides SessionWork(s, progress = live.toolProgress)) {
                     LazyColumn(
                         state = listState,
                         reverseLayout = true,
