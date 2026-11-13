@@ -48,6 +48,34 @@ const prepRequests = () => t!.chores.map((c) => JSON.parse(c) as RequestBody).fi
 const mapRequests = () => t!.chores.map((c) => JSON.parse(c) as RequestBody).filter((b) => sys(b).includes(MAP_PROMPT.slice(0, 40)));
 const runPrep = (svc: ReturnType<typeof meetingsOf>, id: string) => (svc as unknown as { runPrep(id: string, a: boolean, b: boolean): Promise<void> }).runPrep(id, false, false);
 
+describe('Meetings turned off', () => {
+  test('on only for an account with meetings or that chose it; a prep job while off calls no model and is not left queued', async () => {
+    const { svc, engine } = await boot();
+    const owner = engine.people.get('owner')!;
+    // nothing saved and no meetings: off; a meeting recorded: on; a saved choice wins
+    engine.people.update('owner', { settings: { ...owner.settings, modes: { security: true, canvas: true } } });
+    expect(svc.enabled('owner')).toBe(false);
+    const m = await svc.create({ cwd: t!.cwd, title: 'Capstone defence', scheduledAt: Date.now() + 2 * 24 * HOUR }, 'owner');
+    expect(svc.enabled('owner')).toBe(true);
+    engine.people.update('owner', { settings: { ...owner.settings, modes: { security: true, canvas: true, meetings: false } } });
+    expect(svc.enabled('owner')).toBe(false);
+    await chat(engine, t!.cwd, 'Grid search');
+    svc.startPrep(m.id, 'owner');
+    // the harness leaves the scheduler stopped: run the due prep job here
+    const sched = engine.scheduler as JobScheduler;
+    sched.start();
+    for (let i = 0; i < 50 && svc.store.get(m.id)!.prepState === 'queued'; i++) await new Promise((r) => setTimeout(r, 10));
+    await sched.idle();
+    sched.stop();
+    await svc.settled();
+    expect(prepRequests()).toHaveLength(0);
+    expect(svc.store.get(m.id)!.prepState).toBe('cancelled');
+    // a new one can start once it is on
+    engine.people.update('owner', { settings: { ...owner.settings, modes: { security: true, canvas: true, meetings: true } } });
+    expect(svc.startPrep(m.id, 'owner')).toEqual({ state: 'queued' });
+  });
+});
+
 describe('scheduled meetings', () => {
   test('scheduling stores the row as scheduled, does not prepare, and enqueues its jobs; delete cancels them', async () => {
     const { svc, engine } = await boot();

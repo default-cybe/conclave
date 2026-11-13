@@ -139,7 +139,8 @@ export class MeetingService {
       const m = this.store.get(String(p.meetingId));
       return !m || this.enabled(m.accountId);
     };
-    s.handle(JOBS.prep, async (p) => (on(p) ? this.runPrep(String(p.meetingId), p.approve === true, p.auto === true) : undefined));
+    // a prep queued before Meetings went off: not left 'queued', which would block a new one
+    s.handle(JOBS.prep, async (p) => (on(p) ? this.runPrep(String(p.meetingId), p.approve === true, p.auto === true) : void this.setPrep(String(p.meetingId), { prepState: 'cancelled', prepProgress: undefined })));
     s.handle(JOBS.remind, async (p) => (on(p) ? this.remind(String(p.meetingId), Number(p.minutes)) : undefined));
     s.handle(JOBS.autoprep, async (p) => (on(p) ? this.autoPrep(String(p.meetingId)) : undefined));
     s.handle(JOBS.arm, async (p) => (on(p) ? this.armJob(String(p.meetingId)) : undefined));
@@ -148,9 +149,15 @@ export class MeetingService {
     // after a restart: nothing can still stream, and work that was half done runs again (not for an account that turned Meetings off)
     for (const m of this.store.withStatus(['preparing', 'ready', 'live', 'paused', 'ending'])) {
       this.store.failStreaming(m.id, 'the hub restarted');
-      if (!this.enabled(m.accountId)) continue;
-      if (m.status === 'preparing') this.track(this.prepare(m));
+      // the person ended it: its notes are finished even with Meetings off now
       if (m.status === 'ending') this.track(this.runWrapUp(m));
+      if (m.status !== 'preparing') continue;
+      if (this.enabled(m.accountId)) this.track(this.prepare(m));
+      else {
+        // no new work while off, and not stuck in 'preparing'
+        const f = this.store.move(m.id, 'failed', { error: 'Meetings is off' });
+        if (f) this.emit(f);
+      }
     }
   }
 

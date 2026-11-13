@@ -829,7 +829,6 @@ fn register_keys(app: &AppHandle) {
     }
 }
 
-/// The toggle key is there from the start: it opens the setup screen when no meeting runs.
 /// The tray's meeting items, from build_tray.
 pub fn keep_tray_items(items: Vec<MenuItem<Wry>>) {
     *TRAY_ITEMS.lock().unwrap() = items;
@@ -862,6 +861,7 @@ pub fn set_enabled(app: &AppHandle, on: bool) {
     }
 }
 
+/// The toggle key is there from the start: it opens the setup screen when no meeting runs.
 pub fn setup(app: &AppHandle) {
     first_registered(&[KEY_TOGGLE], |k| on_press(app, k, toggle));
     #[cfg(not(any(target_os = "windows", target_os = "macos")))]
