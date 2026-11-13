@@ -1,14 +1,22 @@
 import type { PermissionMode, SessionMode } from '@conclave/core/types';
 
-/** Session modes. Words only; modes carry no icons (spec 8.1). */
-export const MODES: Array<{ value: SessionMode; label: string; description: string }> = [
+/**
+ * Session modes, shown as the composer's "Style" (design review #4). Words
+ * only; modes carry no icons (spec 8.1). `more`: an expert style, folded
+ * under "More styles" with Ultra.
+ */
+export const MODES: Array<{ value: SessionMode; label: string; description: string; more?: boolean }> = [
   { value: 'agent', label: 'Agent', description: 'Tools on, works until done' },
   { value: 'chat', label: 'Chat', description: 'No tools, just talk' },
   { value: 'plan', label: 'Plan', description: 'Read only, proposes a plan' },
-  { value: 'jury', label: 'Jury', description: 'Several models answer, a judge decides' },
-  { value: 'debate', label: 'Debate', description: 'Two models argue, a judge concludes' },
-  { value: 'loop', label: 'Loop', description: 'Repeats until a check passes' },
+  { value: 'jury', label: 'Jury', description: 'Several models answer, a judge decides', more: true },
+  { value: 'debate', label: 'Debate', description: 'Two models argue, a judge concludes', more: true },
+  { value: 'loop', label: 'Loop', description: 'Repeats until a check passes', more: true },
 ];
+
+/** The heading over the styles, and the fold that holds Jury, Debate, Loop and Ultra. */
+export const STYLE_HEADING = 'Working style';
+export const MORE_STYLES = 'More styles';
 
 /** Permission modes as the composer and settings write them (spec 11.2.3). */
 export const PERMISSION_MODES: Array<{ value: PermissionMode; label: string; description: string }> = [

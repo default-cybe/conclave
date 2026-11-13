@@ -130,11 +130,11 @@ export function NewChatSheet() {
         <div>
           {mobile ? (
             <>
-              <div className="mb-1 text-[13px] font-medium text-fg-2">Mode</div>
+              <div className="mb-1 text-[13px] font-medium text-fg-2">Style</div>
               <ModePicker look="field" value={m} onChange={pickMode} />
             </>
           ) : (
-            <Segmented full size="md" label="Mode" value={m} onChange={pickMode} options={MODES.map((x) => ({ value: x.value, label: x.label, title: x.description }))} />
+            <Segmented full size="md" label="Style" value={m} onChange={pickMode} options={MODES.map((x) => ({ value: x.value, label: x.label, title: x.description }))} />
           )}
           <p className="mt-1.5 text-[12px] text-fg-3 phone:text-[13px]">{desc}.</p>
         </div>

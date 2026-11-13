@@ -38,7 +38,7 @@ import { windowApplies } from '@conclave/core/accounts/windows';
 import type { AccountDto } from '@conclave/core/client';
 import { STATE_WORD, markedName, rowWindows, sessionPlan, useAccounts, type PlanReason } from '@/lib/accounts';
 import { costWord, stateWord } from '@/features/chat/panel';
-import { MODES } from '@/features/chat/modes';
+import { MODES, MORE_STYLES, STYLE_HEADING } from '@/features/chat/modes';
 import { ULTRA_LINE } from '@/features/workflows/UltraSwitch';
 import { memoryItems, type MemoryMode } from './incognito';
 import { PickerButton, SelectMenu } from '@/components/ui/Select';
@@ -442,23 +442,24 @@ export function QuietRow({ left, right, wrap }: { left?: ReactNode; right: React
 }
 
 // ---------------------------------------------------------------------------
-// Chips: agent, mode and memory under the box (design PR #292)
+// Chips: agent, style (the session mode) and memory under the box (design PR #292)
 // ---------------------------------------------------------------------------
 
 /** The chips' size: the quiet row's on desktop, a 36px place to tap on phones. */
 export const CHIP = 'h-[24px] text-[12px] phone:h-9 phone:text-[13px]';
 
 /** A compact chip under the box that opens a menu (a sheet on phones). */
-export function ChipMenu({ label, words, items, width = 300, className }: { label: string; words: string; items: MenuItem[]; width?: number; className?: string }) {
+export function ChipMenu({ label, words, items, width = 300, className, onClose }: { label: string; words: string; items: MenuItem[]; width?: number; className?: string; onClose?: () => void }) {
   const ref = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
+  const close = () => (setOpen(false), onClose?.());
   return (
     <>
-      <PickerButton ref={ref} look="text" data-chip={label.toLowerCase()} aria-label={`${label}, ${words}`} aria-haspopup="menu" aria-expanded={open} className={cn(CHIP, className)} onClick={() => setOpen((o) => !o)}>
+      <PickerButton ref={ref} look="text" data-chip={label.toLowerCase()} aria-label={`${label}, ${words}`} aria-haspopup="menu" aria-expanded={open} className={cn(CHIP, className)} onClick={() => (open ? close() : setOpen(true))}>
         {words}
       </PickerButton>
-      <Popover anchor={ref} open={open} onClose={() => setOpen(false)} placement="top-end" width={width} maxHeight={520} label={label} sheetTitle={label}>
-        <MenuList items={items} onDone={() => setOpen(false)} label={label} />
+      <Popover anchor={ref} open={open} onClose={close} placement="top-end" width={width} maxHeight={520} label={label} sheetTitle={label}>
+        <MenuList items={items} onDone={close} label={label} />
       </Popover>
     </>
   );
@@ -470,15 +471,28 @@ export function AgentChip({ value, agents, onChange }: { value: string | undefin
   return <ChipMenu label="Agent" words={value ?? 'Agent'} items={items} />;
 }
 
-/** "Agent mode": the six modes, and Ultra under a rule where the session takes it (`onUltra`). */
+/**
+ * "Agent style" (design review #4): Agent, Chat and Plan, then a "More styles"
+ * fold with Jury, Debate, Loop and Ultra (where the session takes it,
+ * `onUltra`). The fold starts open while one of those is on; a toggle by
+ * hand lasts until the menu closes.
+ */
 export function ModeChip({ mode, onMode, ultra, onUltra }: { mode: SessionMode; onMode: (m: SessionMode) => void; ultra?: boolean; onUltra?: (on: boolean) => void }) {
   const cur = MODES.find((m) => m.value === mode) ?? MODES[0];
+  const ultraOn = !!onUltra && !!ultra;
+  const [fold, setFold] = useState<boolean>();
+  const more = fold ?? (!!cur.more || ultraOn);
+  const row = (m: (typeof MODES)[number]): MenuItem => ({ label: m.label, detail: m.description, checked: m.value === mode, onSelect: () => m.value !== mode && onMode(m.value) });
   const items: MenuItem[] = [
-    { group: true, label: 'Mode' },
-    ...MODES.map((m) => ({ label: m.label, detail: m.description, checked: m.value === mode, onSelect: () => m.value !== mode && onMode(m.value) })),
-    ...(onUltra ? [{ separator: true, label: '' }, { label: 'Ultra', detail: ULTRA_LINE, checked: !!ultra, keep: true, onSelect: () => onUltra(!ultra) }] : []),
+    { group: true, label: STYLE_HEADING },
+    ...MODES.filter((m) => !m.more).map(row),
+    { separator: true, label: '' },
+    { label: MORE_STYLES, hint: <ChevronDown size={14} className={cn('transition-transform', more && 'rotate-180')} aria-hidden />, expanded: more, keep: true, onSelect: () => setFold(!more) },
+    ...(more ? MODES.filter((m) => m.more).map(row) : []),
+    // Ultra off keeps the fold open under the row just used
+    ...(more && onUltra ? [{ label: 'Ultra', detail: ULTRA_LINE, checked: !!ultra, keep: true, onSelect: () => (setFold(true), onUltra(!ultra)) }] : []),
   ];
-  return <ChipMenu label="Mode" words={`${cur.label} mode${onUltra && ultra ? ', Ultra' : ''}`} items={items} />;
+  return <ChipMenu label="Style" words={`${cur.label} style${ultraOn ? ', Ultra' : ''}`} items={items} onClose={() => setFold(undefined)} />;
 }
 
 export const MEMORY_WORDS: Record<MemoryMode, string> = { save: 'Memory', use: 'Memory, use only', off: 'No memory' };
