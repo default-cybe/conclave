@@ -13,6 +13,7 @@ like `## [0.4.16] - 2026-10-24`.
 
 - Android: shared pictures show as clean thumbnails that open on tap, without the boxed card and Open/Save buttons, and never twice
 - The composer's "Mode" chip is now called "Style" ("Agent style"), on the web and on Android. Its menu shows Agent, Chat and Plan; Jury, Debate, Loop and Ultra sit under "More styles", which opens by itself while one of them is on. The New session dialog, the phone Options sheet and Ctrl K say Style too; searching "mode" still finds it
+- Home's "Waiting on you" lists only the requests of the mode you are in, so a Chat Home no longer shows a Code session's command to approve. The other modes' requests become one line, "3 more in Inbox", that opens the Inbox
 
 ## [0.4.96] - 2026-11-13
 
