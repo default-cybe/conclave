@@ -44,7 +44,7 @@ use tauri::{
     menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
     webview::NewWindowResponse,
-    AppHandle, Manager, Url, WebviewUrl, WebviewWindow, WebviewWindowBuilder, WindowEvent, Wry,
+    AppHandle, Manager, Url, UserAttentionType, WebviewUrl, WebviewWindow, WebviewWindowBuilder, WindowEvent, Wry,
 };
 use tauri_plugin_autostart::{MacosLauncher, ManagerExt as _};
 use tauri_plugin_deep_link::DeepLinkExt;
@@ -249,6 +249,8 @@ fn grant_hub_ipc(app: &AppHandle, base: &Url) -> Result<(), String> {
             .permission("allow-paste-files")
             // text to the clipboard for a copy button the webview refused (Linux), only while the window has focus
             .permission("allow-copy-text")
+            // Dock bounce / taskbar flash and badge while an approval waits (attention)
+            .permission("allow-attention")
             // the hub page may open the meeting overlay, never start capture (MEETING-MODE.md 2.1.1)
             .permission("allow-meeting-open")
             .permission("allow-meeting-status")
@@ -432,6 +434,22 @@ fn copy_text(window: WebviewWindow, text: String) -> Result<(), String> {
         let _ = text;
         Err("The app copies only on Linux.".into())
     }
+}
+
+/// An approval or a question waits on the owner (web lib/attention.ts): `on`
+/// bounces the Dock until the app is focused (macOS) or flashes the taskbar
+/// button (Windows, Linux), off stops it. `count` goes on the app's badge on
+/// macOS and Linux (Unity launcher API), 0 clears it; Windows has no badge count
+/// in Tauri (only an overlay icon to draw), so it only flashes.
+#[tauri::command]
+fn attention(app: AppHandle, on: bool, count: u32) {
+    let Some(win) = app.get_webview_window(MAIN) else { return };
+    if !on {
+        let _ = win.request_user_attention(None);
+    } else if !win.is_focused().unwrap_or(false) {
+        let _ = win.request_user_attention(Some(UserAttentionType::Critical));
+    }
+    let _ = win.set_badge_count((count > 0).then_some(i64::from(count)));
 }
 
 fn focus(win: &WebviewWindow) {
@@ -1830,7 +1848,8 @@ fn main() {
             login_cancel,
             read_dropped,
             paste_files,
-            copy_text
+            copy_text,
+            attention
         ])
         .on_window_event(|window, event| {
             // Closing a window hides it. Quit lives in the tray menu.

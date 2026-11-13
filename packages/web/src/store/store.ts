@@ -38,6 +38,7 @@ import { reportHubError } from '@/lib/identity';
 import { clientLog } from '@/lib/clientLog';
 import { followMove, recoverAddress, rememberAddresses } from '@/lib/remote';
 import { appInUse, deviceNotice, isDesktopApp, syncDeviceNotify, watchPresence } from '@/lib/notify';
+import { watchAttention } from '@/lib/attention';
 import { registerModelNames } from '@/lib/models';
 import { afterHubList, newPendingId, pendingIdsOf, shownQueue, withoutIds, type Sending } from './queue';
 
@@ -752,8 +753,11 @@ export function startLive() {
   // the hub holds notifications while Conclave is in use somewhere
   const stopPresence = watchPresence((active) => live.setActive(active));
   syncDeviceNotify();
+  // desktop app: the Dock bounces / the taskbar flashes while an approval or a question waits
+  const stopAttention = watchAttention(useHub);
   disconnect = () => {
     stopPresence();
+    stopAttention();
     live();
   };
 }
