@@ -39,7 +39,7 @@ import { Markdown } from './Markdown';
 import { hostOf, resultText } from './util';
 import { WorkflowRow } from '../workflows/WorkflowCard';
 import { MapsCard } from '../maps/MapsCard';
-import { FileCard } from '../files/FileCard';
+import { FileCard, FileCards } from '../files/FileCard';
 import { fileCardOf } from '../files/words';
 import { ToolImages, toolImageItems } from './ToolImages';
 import { isMapsTool, mapsCardOf, mapsDoneWords, mapsRowTarget } from '../maps/words';
@@ -501,6 +501,8 @@ function CallGroup({ entries, sessionId, depth, live, thought }: { entries: Work
         <>
           {held.length > 0 && <div className={GROUP_BODY}>{held.map((c) => row({ type: 'call', name: c.tool.name, item: c }))}</div>}
           <ToolImages items={images} className="mb-2.5 ml-[76px] phone:ml-0" />
+          {/* closed, the files the calls shared stay in view too; open, each ShareFile row draws its own (maps and watch calls never group) */}
+          <FileCards calls={calls.map((c) => ({ name: c.tool.name, result: c.result ?? c.run?.result }))} sessionId={sessionId} className="mb-2.5 ml-[76px] phone:ml-0" />
           {/* a marker per call, so the session's file list and links find a call in a closed group (revealToolRow) */}
           {calls.map((c) => {
             const info = toolInfo(c.tool);

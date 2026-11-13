@@ -12,6 +12,7 @@ like `## [0.4.16] - 2026-10-24`.
 ### Fixed
 
 - An approval that expired or was cancelled (for example while a chat waited out a usage limit) no longer stays on screen as 'Waiting' with 'approval is not pending' when pressed
+- Files the agent shares show under the collapsed work row in Code sessions, instead of only inside it
 
 ## [0.4.94] - 2026-11-13
 

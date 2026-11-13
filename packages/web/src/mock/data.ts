@@ -463,11 +463,21 @@ function authTranscript(): Message[] {
     msg(
       S,
       'assistant',
-      [text('`pair.ts` gets the same treatment with `SignJWT`. Now the tests:'), { type: 'tool_use', id: 'tu_bash1', name: 'Bash', input: { command: 'bun test packages/server', description: 'Run the server tests' } }],
+      [text('`pair.ts` gets the same treatment with `SignJWT`. Now the tests:'), { type: 'tool_use', id: 'tu_bash1', name: 'Bash', input: { command: 'bun test packages/server', description: 'Run the server tests' } }, { type: 'tool_use', id: 'tu_share1', name: 'ShareFile', input: { path: '~/code/conclave/jose-migration.md' } }],
       { model: 'anthropic/claude-sonnet-5-5', agent: 'coder', usage: { inputTokens: 23_400, outputTokens: 380, cacheReadTokens: 21_000 } },
       t0 + 140_000,
     ),
-    msg(S, 'user', [{ type: 'tool_result', toolUseId: 'tu_bash1', content: BUN_TEST, meta: { durationMs: 2_840, exitCode: 0 } }], {}, t0 + 146_000),
+    msg(
+      S,
+      'user',
+      [
+        { type: 'tool_result', toolUseId: 'tu_bash1', content: BUN_TEST, meta: { durationMs: 2_840, exitCode: 0 } },
+        // a shared file in a closed group: its card stays in view under the group row
+        { type: 'tool_result', toolUseId: 'tu_share1', content: 'Shared jose-migration.md', meta: { durationMs: 40, file: { name: 'jose-migration.md', mediaType: 'text/markdown', size: 2_431 } } },
+      ],
+      {},
+      t0 + 146_000,
+    ),
     msg(
       S,
       'assistant',
