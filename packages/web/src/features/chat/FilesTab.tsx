@@ -180,7 +180,7 @@ function Section({ files, sessionId, messages, title }: { files: SessionFile[]; 
                 <MediaButton item={it} label={`Open ${f.name}`} className="block w-full p-0">
                   <Thumb item={it} video={f.mediaType.startsWith('video/')} />
                 </MediaButton>
-                <DownloadIcon name={f.name} onClick={() => void download(it)} over className="top-1 right-1 size-7 phone:size-8" />
+                <DownloadIcon name={f.name} onClick={() => void download(it)} over small />
               </li>
             );
           })}
@@ -236,7 +236,7 @@ export function FilesTab({ session }: { session: Session }) {
         value={group}
         onChange={setGroup}
         className="mb-3"
-        options={[{ value: 'all', label: 'All' }, ...GROUPS.map((g) => ({ value: g.id, label: `${g.label}${count(g.id) ? ` ${count(g.id)}` : ''}`, disabled: !count(g.id) }))]}
+        options={[{ value: 'all', label: 'All' }, ...GROUPS.map((g) => ({ value: g.id, label: g.label, disabled: !count(g.id) }))]}
       />
       {files.length === 0 && <p className="m-0 px-1 py-1 text-[13px] leading-[1.45] text-fg-3">Files shared in this chat, pictures from tools and what you attach show up here.</p>}
       {group === 'all'

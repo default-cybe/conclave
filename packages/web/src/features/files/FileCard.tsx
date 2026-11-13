@@ -105,7 +105,7 @@ export function FileIcon({ mediaType, name, className }: { mediaType: string; na
  * on hover or focus and always on touch, light on a dark disc so it reads on
  * any picture.
  */
-export function DownloadIcon({ name, onClick, over, className }: { name: string; onClick: () => void; over?: boolean; className?: string }) {
+export function DownloadIcon({ name, onClick, over, small, className }: { name: string; onClick: () => void; over?: boolean; small?: boolean; className?: string }) {
   return (
     <button
       type="button"
@@ -118,7 +118,7 @@ export function DownloadIcon({ name, onClick, over, className }: { name: string;
       className={cn(
         'inline-flex shrink-0 items-center justify-center transition-[opacity,color,background-color] duration-[var(--dur-1)] focus-visible:opacity-100 [&_svg]:size-4 [&_svg]:stroke-[1.75]',
         over
-          ? 'absolute top-2 right-2 size-8 rounded-full bg-black/55 text-white/90 opacity-0 group-hover/card:opacity-100 hov:bg-black/75 hov:text-white coarse:opacity-100 phone:size-9'
+          ? cn('absolute rounded-full bg-black/55 text-white/90 opacity-0 group-hover/card:opacity-100 hov:bg-black/75 hov:text-white coarse:opacity-100', small ? 'top-1 right-1 size-6 [&_svg]:!size-3.5' : 'top-2 right-2 size-8 phone:size-9')
           : 'size-8 rounded-[var(--r-1)] text-fg-3 hov:bg-hover hov:text-fg phone:size-10',
         className,
       )}
