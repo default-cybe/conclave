@@ -45,8 +45,9 @@ import { LoadingRows } from '@/components/ui/EmptyState';
 import { ModelList } from '@/components/pickers/ModelPicker';
 import { Elapsed, GapList, Knot, LiveStatus, usePresence } from '@/components/motion';
 import { BubbleText } from '@/components/ui/Bubble';
-import { ImageThumb } from '@/components/ui/ImageViewer';
-import { ToolImages, toolImageItems } from './ToolImages';
+import { ImageThumb, type MediaItem } from '@/components/ui/ImageViewer';
+import { useUi } from '@/store/ui';
+import { pictureRow, pictureRows, ToolImages } from './ToolImages';
 import { Attachments, chipsOf, filesOf, receiptsOf } from '@/features/conversation/UserMessage';
 import { BlockView, SecondOpinion, turnPieces } from './Turn';
 import { Markdown } from './Markdown';
@@ -351,20 +352,23 @@ export function PhoneWork({ entries, sessionId, live }: { entries: WorkItem[]; s
   const segs = useMemo(() => segment(entries), [entries]);
   const calls = entries.flatMap((e) => (e.type === 'call' ? [{ name: e.item.tool.name, result: e.item.result ?? e.item.run?.result }] : []));
   const results = calls.map((c) => c.result);
+  const tools = useUi((s) => s.toolImages);
+  // one picture row per group or lone call, each picture once (ToolImages.tsx pictureRows)
+  const rows = useMemo(() => pictureRows(segs.map((g) => (g.kind === 'one' ? [g.item] : g.kind === 'group' ? g.entries.flatMap((e) => (e.type === 'call' ? [e.item] : [])) : []).map((c) => ({ tool: c.tool, result: c.result ?? c.run?.result }))), sessionId, tools), [segs, sessionId, tools]);
   return (
     <div className="-my-0.5">
       {segs.map((g, i) =>
         g.kind === 'fanout' ? (
           <FanOutCard key={`f:${g.items[0].tool.id}`} items={g.items} sessionId={sessionId} />
         ) : g.kind === 'one' ? (
-          <OneCall key={g.item.tool.id} item={g.item} sessionId={sessionId} />
+          <OneCall key={g.item.tool.id} item={g.item} sessionId={sessionId} pictures={rows[i]} />
         ) : g.kind === 'thought' ? (
           <PhoneThought key={g.item.key} item={g.item} />
         ) : (
-          <PhoneGroup key={g.entries.find((e) => e.type === 'call')?.item.tool.id ?? i} entries={g.entries} sessionId={sessionId} live={live && i === segs.length - 1} />
+          <PhoneGroup key={g.entries.find((e) => e.type === 'call')?.item.tool.id ?? i} entries={g.entries} sessionId={sessionId} live={live && i === segs.length - 1} pictures={rows[i]} />
         ),
       )}
-      {/* places, routes, maps and shared files sit under the calls, open or not */}
+      {/* places, routes, maps and the other shared files sit under the calls, open or not */}
       <MapsCards results={results} className="mt-0.5 mb-1.5" />
       <WatchCards results={results} sessionId={sessionId} className="mt-0.5 mb-1.5" />
       <FileCards calls={calls} sessionId={sessionId} className="mt-0.5 mb-1.5" />
@@ -373,7 +377,7 @@ export function PhoneWork({ entries, sessionId, live }: { entries: WorkItem[]; s
 }
 
 /** Two or more thoughts and calls as one sentence with their state and a chevron; open, them in order. */
-function PhoneGroup({ entries, sessionId, live }: { entries: WorkItem[]; sessionId: string; live: boolean }) {
+function PhoneGroup({ entries, sessionId, live, pictures }: { entries: WorkItem[]; sessionId: string; live: boolean; pictures: MediaItem[] }) {
   const calls = useMemo(() => entries.flatMap((e) => (e.type === 'call' ? [e.item] : [])), [entries]);
   const ids = useMemo(() => calls.map((c) => c.tool.id), [calls]);
   const waitingKey = useWaitingKey(ids);
@@ -385,8 +389,6 @@ function PhoneGroup({ entries, sessionId, live }: { entries: WorkItem[]; session
   const [chosen, setChosen] = useState<boolean | null>(null);
   const open = chosen ?? false;
   const held = open ? [] : calls.filter((_, i) => pinned(statuses[i]));
-  // closed, the group's pictures stay in view under its line (Appearance > Show pictures from tools)
-  const images = useMemo(() => (open ? [] : toolImageItems(calls.map((c) => ({ tool: c.tool, result: c.result ?? c.run?.result })))), [open, calls]);
   const stat =
     state.state === 'waiting' ? (
       <span className="text-warn">waiting</span>
@@ -423,21 +425,22 @@ function PhoneGroup({ entries, sessionId, live }: { entries: WorkItem[]; session
               ))}
         </ul>
       )}
-      <ToolImages items={images} className="mb-2" />
+      {/* the group's pictures, once, open or closed: its rows draw none */}
+      <ToolImages items={pictures} className="mb-2" />
     </div>
   );
 }
 
 /** A call on its own: a workflow's or a subagent's live row, else its row that opens a sheet. */
-function OneCall({ item, sessionId }: { item: ToolItem; sessionId: string }) {
+function OneCall({ item, sessionId, pictures }: { item: ToolItem; sessionId: string; pictures: MediaItem[] }) {
   const kind = workName(item.tool.name, item.tool.input);
   if (kind === 'Workflow') return <WorkflowRow tool={item.tool} result={item.result ?? item.run?.result} sessionId={sessionId} startedAt={item.run?.startedAt} layout="phone" />;
   if (kind === 'Task') return <FanOutCard items={[item]} sessionId={sessionId} />;
-  return <CallRow item={item} sessionId={sessionId} />;
+  return <CallRow item={item} sessionId={sessionId} pictures={pictures} />;
 }
 
-/** One call: the verb, the file name or the command, and what came of it ("+2 −0", "failed"). A tap opens what it did. */
-function CallRow({ item, sessionId }: { item: ToolItem; sessionId: string }) {
+/** One call: the verb, the file name or the command, and what came of it ("+2 −0", "failed"). A tap opens what it did. `pictures`: the row under it; none in a group. */
+function CallRow({ item, sessionId, pictures = [] }: { item: ToolItem; sessionId: string; pictures?: MediaItem[] }) {
   const [open, setOpen] = useState(false);
   const { tool } = item;
   const { res, status } = useToolState(item);
@@ -457,7 +460,8 @@ function CallRow({ item, sessionId }: { item: ToolItem; sessionId: string }) {
   else if (status === 'denied') stat = 'denied';
   else if (files.length) stat = changeWords(files.reduce((n, f) => n + f.added, 0), files.reduce((n, f) => n + f.removed, 0));
   const output = res ? resultText(res) : (item.run?.progress ?? '');
-  const images = useMemo(() => toolImageItems([{ tool, result: res }]), [tool, res]);
+  // the sheet shows the call's own pictures, the tool's too when they are off in the transcript
+  const images = useMemo(() => pictureRow([{ tool, result: res }], sessionId, true), [tool, res, sessionId]);
   const opens = !task && (files.length > 0 || !!output.trim());
   const row = (
     <>
@@ -468,7 +472,7 @@ function CallRow({ item, sessionId }: { item: ToolItem; sessionId: string }) {
     </>
   );
   const cls = 'flex min-h-11 w-full items-center gap-3 text-left tx-15';
-  const pics = <ToolImages items={images} className="mb-2" />;
+  const pics = <ToolImages items={pictures} className="mb-2" />;
   if (!opens)
     return (
       <>
@@ -484,7 +488,7 @@ function CallRow({ item, sessionId }: { item: ToolItem; sessionId: string }) {
       {pics}
       <Sheet open={open} onClose={() => setOpen(false)} title={<CallTitle tool={tool} />}>
         <div className="px-4 pb-4">
-          <ToolImages items={images} always className="mb-3" />
+          <ToolImages items={images} className="mb-3" />
           <CallBody item={item} files={files} output={output} sessionId={sessionId} />
         </div>
       </Sheet>

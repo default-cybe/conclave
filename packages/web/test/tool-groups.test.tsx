@@ -18,6 +18,7 @@ import { groupState, pinned, segment, standsAlone, troubleWords, workName, type 
 import { AssistantTurn, turnPieces } from '../src/features/chat/Turn';
 import { ToolGroup, asWork, callStatus, groupNow, revealOnMount, type ToolItem, type WorkItem } from '../src/features/chat/ToolRows';
 import { PhoneWork } from '../src/features/chat/PhoneTranscript';
+import { pictureRows, sameFile } from '../src/features/chat/ToolImages';
 import { linkedCall } from '../src/features/chat/MessageList';
 import { useUi } from '../src/store/ui';
 
@@ -395,10 +396,17 @@ describe('pictures from tools in the transcript', () => {
     expect(html([shot])).toContain('data-tool-images="1"');
   });
 
+  const shareOf = (id: string, path: string, mediaType: string, title?: string): ToolItem => {
+    const name = path.split('/').pop()!;
+    return { tool: { type: 'tool_use', id, name: 'ShareFile', input: { path } }, result: { type: 'tool_result', toolUseId: id, content: `Shared ${name}`, meta: { file: { name, mediaType, size: 2048, ...(title ? { title } : {}) } } } };
+  };
+  const cards = (h: string) => (h.match(/data-file-card=/g) ?? []).length;
+  const thumbs = (h: string) => (h.match(/data-media=""/g) ?? []).length;
+  const phone = (items: ToolItem[]) => renderToStaticMarkup(<Router ssrPath="/s/s1"><PhoneWork entries={asWork(items)} sessionId="s1" live={false} /></Router>);
+
   test('a file the agent shares shows under a closed group, and once in an open one', () => {
     // found by the owner: the ShareFile card was only inside the fold
-    const share: ToolItem = { tool: { type: 'tool_use', id: 'sf', name: 'ShareFile', input: { path: 'out/report.pdf' } }, result: { type: 'tool_result', toolUseId: 'sf', content: 'Shared report.pdf', meta: { file: { name: 'report.pdf', mediaType: 'application/pdf', size: 2048 } } } };
-    const cards = (h: string) => (h.match(/data-file-card=/g) ?? []).length;
+    const share = shareOf('sf', 'out/report.pdf', 'application/pdf');
     const closed = html([ls, share]);
     expect(closed).toContain('data-group-toggle="" aria-expanded="false"');
     expect(cards(closed)).toBe(1);
@@ -407,16 +415,96 @@ describe('pictures from tools in the transcript', () => {
     expect(open).toContain('data-group-toggle="" aria-expanded="true"');
     expect(cards(open)).toBe(1);
     // the phone transcript: its rows draw no card, so the card sits under the work once
-    expect(cards(renderToStaticMarkup(<Router ssrPath="/s/s1"><PhoneWork entries={asWork([ls, share])} sessionId="s1" live={false} /></Router>))).toBe(1);
+    expect(cards(phone([ls, share]))).toBe(1);
   });
 
-  test('off: no thumbnails outside the fold', () => {
+  test('a shared picture is a thumbnail in the row, never a card, once closed and once open', () => {
+    const pic = shareOf('sp', 'out/chart.png', 'image/png', 'Uptime for October');
+    const closed = html([ls, shot, pic]);
+    expect(cards(closed)).toBe(0);
+    expect(closed).toContain('data-tool-images="2"');
+    expect(thumbs(closed)).toBe(2);
+    // the caption under it, as it says more than the name
+    expect(closed).toContain('Uptime for October</p>');
+    revealOnMount('sp');
+    const open = html([ls, shot, pic]);
+    expect(open).toContain('data-group-toggle="" aria-expanded="true"');
+    expect(cards(open)).toBe(0);
+    expect(thumbs(open)).toBe(2);
+    expect(thumbs(phone([ls, shot, pic]))).toBe(2);
+    expect(cards(phone([ls, shot, pic]))).toBe(0);
+    // a lone ShareFile call: its picture under its row, no card
+    const one = html([shareOf('sq', 'out/one.png', 'image/png')]);
+    expect(cards(one)).toBe(0);
+    expect(thumbs(one)).toBe(1);
+  });
+
+  test('off: no tool thumbnails outside the fold, and the shared pictures still show', () => {
     pref(false);
     try {
       expect(html([ls, shot])).not.toContain('data-tool-images');
       expect(html([shot])).not.toContain('data-tool-images');
+      const h = html([ls, shot, shareOf('so', 'out/chart.png', 'image/png')]);
+      expect(h).toContain('data-tool-images="1"');
+      expect(h).not.toContain('browser_screenshot');
+      expect(phone([ls, shot, shareOf('so', 'out/chart.png', 'image/png')])).toContain('data-tool-images="1"');
     } finally {
       pref(true);
     }
+  });
+});
+
+describe('one picture row: tool pictures, then shared ones, each file once (Android Media.rows)', () => {
+  const png = 'iVBORw0KGgo=';
+  const readOf = (id: string, file_path: string) => ({ tool: { name: 'Read', input: { file_path } }, result: { type: 'tool_result' as const, toolUseId: id, content: [{ type: 'image' as const, mediaType: 'image/png', data: png }] } });
+  const shotOf = (id: string) => ({ tool: { name: 'browser_screenshot', input: {} }, result: { type: 'tool_result' as const, toolUseId: id, content: [{ type: 'image' as const, mediaType: 'image/png', data: png }] } });
+  const shareOf = (id: string, path: string, mediaType = 'image/png', title?: string, name = path.split('/').pop()!) => {
+    return { tool: { name: 'ShareFile', input: { path } }, result: { type: 'tool_result' as const, toolUseId: id, content: `Shared ${name}`, meta: { file: { name, mediaType, size: 4096, ...(title ? { title } : {}) } } } };
+  };
+  const names = (rows: ReturnType<typeof pictureRows>) => rows.map((r) => r.map((it) => it.name));
+
+  test('the tool pictures first, then the shared pictures and videos; other files are not in the row', () => {
+    const rows = pictureRows([[shareOf('s1', '/out/a.png'), shotOf('t1'), shareOf('s2', '/out/clip.webm', 'video/webm'), shareOf('s3', '/out/r.pdf', 'application/pdf')]], 's', true);
+    expect(names(rows)).toEqual([['browser_screenshot-1.png', 'a.png', 'clip.webm']]);
+    // a shared item opens the real file from the hub
+    expect(rows[0][1].src).toBeUndefined();
+    expect(typeof rows[0][1].load).toBe('function');
+  });
+
+  test('a Read of the shared file is one thumbnail, the shared one, at the tool picture\'s place: by name, any case', () => {
+    const rows = pictureRows([[readOf('r', '/out/chart.png'), shotOf('t'), shareOf('s', '/out/chart.png', 'image/png', 'Real bar, right half', 'Chart.PNG')]], 's', true);
+    expect(names(rows)).toEqual([['Chart.PNG', 'browser_screenshot-1.png']]);
+    expect(rows[0][0]).toMatchObject({ key: 's/s/', size: 4096, caption: 'Real bar, right half' });
+  });
+
+  test('a relative Read matches an absolute share by the end of its path', () => {
+    expect(names(pictureRows([[readOf('r', 'chart.png'), shareOf('s', '/out/chart.png')]], 's', true))).toEqual([['chart.png']]);
+    expect(names(pictureRows([[readOf('r', 'docs/chart.png'), shareOf('s', '/home/kai/docs/chart.png')]], 's', true))).toEqual([['chart.png']]);
+    expect(names(pictureRows([[readOf('r', './docs/./chart.png'), shareOf('s', '/home/kai/docs/chart.png')]], 's', true))).toEqual([['chart.png']]);
+    expect(sameFile({ name: 'chart.png', path: 'chart.png' }, { name: 'chart.png', path: '/out/chart.png' })).toBe(true);
+    // the end of a path only at a folder boundary
+    expect(sameFile({ name: 'chart.png', path: 'xchart.png' }, { name: 'chart.png', path: '/out/chart.png' })).toBe(false);
+  });
+
+  test('two files of one name in different folders both show; the same file read twice shows once', () => {
+    expect(names(pictureRows([[readOf('r', '/a/chart.png'), shareOf('s', '/b/chart.png')]], 's', true))).toEqual([['chart.png', 'chart.png']]);
+    // folders that differ in case are different folders, as on Android
+    expect(names(pictureRows([[readOf('r', '/w/Out/chart.png'), shareOf('s', '/w/out/chart.png')]], 's', true))).toEqual([['chart.png', 'chart.png']]);
+    expect(names(pictureRows([[readOf('r1', '/a/chart.png'), readOf('r2', '/a/chart.png')]], 's', true))).toEqual([['chart.png']]);
+    // the same picture shared twice is one thumbnail
+    expect(names(pictureRows([[shareOf('s1', '/out/a.png'), shareOf('s2', '/out/a.png')]], 's', true))).toEqual([['a.png']]);
+  });
+
+  test('across the groups of a stretch: a file read in one group and shared in the next shows once, in the first', () => {
+    expect(names(pictureRows([[readOf('r', 'out/a.png')], [shareOf('s', '/x/out/a.png'), shotOf('t')]], 's', true))).toEqual([['a.png'], ['browser_screenshot-1.png']]);
+  });
+
+  test('the setting off: no tool pictures, every shared one', () => {
+    expect(names(pictureRows([[readOf('r', 'chart.png'), shotOf('t'), shareOf('s', '/out/chart.png'), shareOf('v', '/out/v.webm', 'video/webm')]], 's', false))).toEqual([['chart.png', 'v.webm']]);
+  });
+
+  test('a picture GenerateImage made stays in its grid', () => {
+    const gen = { tool: { name: 'GenerateImage', input: {} }, result: { type: 'tool_result' as const, toolUseId: 'g', content: 'Saved', meta: { images: ['/outputs/fox.png'] } } };
+    expect(names(pictureRows([[gen, shareOf('s', '/outputs/fox.png')]], 's', true))).toEqual([[]]);
   });
 });

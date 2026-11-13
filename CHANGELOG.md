@@ -7,6 +7,12 @@ from the section of its version (`scripts/releases/notes.ts`); a release
 without one fails. At tag time, rename `[Unreleased]` to the version and date,
 like `## [0.4.16] - 2026-10-24`.
 
+## [Unreleased]
+
+### Changed
+
+- Web and desktop: shared pictures join the tool pictures as one clean thumbnail row, without big cards and never twice (as on Android)
+
 ## [0.4.98] - 2026-11-13
 
 ### Changed

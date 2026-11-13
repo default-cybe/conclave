@@ -1,7 +1,8 @@
 /**
  * File cards in the chat: a file a ShareFile call handed the owner (core
- * files/share.ts). Name, type and size, an inline picture for a PNG, JPEG,
- * GIF or SVG (a generated chart or graph), and Download. The bytes come from
+ * files/share.ts). Name, type and size, and Download. A shared picture or
+ * video is no card: it is a thumbnail in its work's picture row
+ * (chat/ToolImages.tsx pictureRows), as on Android. The bytes come from
  * GET /api/sessions/:id/files/:toolUseId with the token, as a Blob, the way
  * a map card's picture does (MapsCard.tsx). Text, code, PDF and the rest stay
  * a card. An SVG only ever draws as an <img> (the browser runs no script and
@@ -23,7 +24,7 @@ import { useIsMobile } from '@/lib/hooks';
 import { saveFile } from '@/lib/saveFile';
 import { toast } from '@/store/store';
 import { MediaButton, mediaKind, type MediaItem } from '@/components/ui/ImageViewer';
-import { fileCardOf, fileFacts, generatedCards, generatedNames, previewOf, shareCards, SVG_PREVIEW_MAX, type FileCardData } from './words';
+import { fileCardOf, fileFacts, generatedCards, generatedNames, previewOf, shareCards, sharedThumb, type FileCardData } from './words';
 
 const BOX = 'rounded-[var(--r-2)] border border-rule-2 bg-raise';
 
@@ -70,21 +71,15 @@ export function mediaItem(sessionId: string, card: FileCardData, src?: string): 
   };
 }
 
-function usePreview(sessionId: string, card: FileCardData): { src?: string; svg?: string; error?: string } {
+/** A generated picture's bytes for its grid cell. */
+function usePreview(sessionId: string, card: FileCardData): { src?: string; error?: string } {
   const kind = previewOf(card);
-  const [state, setState] = useState<{ src?: string; svg?: string; error?: string }>({});
+  const [state, setState] = useState<{ src?: string; error?: string }>({});
   useEffect(() => {
-    // a PDF, video or text file loads only when the viewer opens it
-    if (!kind) return;
+    if (kind !== 'image') return;
     let alive = true;
     fileBlob(sessionId, card)
-      .then(async ({ url, blob }) => {
-        if (kind === 'svg') {
-          if (blob.size > SVG_PREVIEW_MAX) return; // the file grew since it was shared: a card only
-          const svg = await dataUrl(blob);
-          if (alive) setState({ svg });
-        } else if (alive) setState({ src: url });
-      })
+      .then(({ url }) => alive && setState({ src: url }))
       .catch((e: unknown) => alive && setState({ error: e instanceof Error ? e.message : String(e) }));
     return () => {
       alive = false;
@@ -138,10 +133,8 @@ export function downloadCard(sessionId: string, card: FileCardData): Promise<voi
 const ROW = 'flex min-w-0 flex-1 items-center gap-3 px-3.5 py-3 text-left phone:px-4';
 
 export function FileCard({ card, sessionId, className }: { card: FileCardData; sessionId: string; className?: string }) {
-  const kind = previewOf(card);
-  const { src, svg, error } = usePreview(sessionId, card);
   const alt = card.title ?? card.name;
-  const item = mediaItem(sessionId, card, kind === 'svg' ? svg : src);
+  const item = mediaItem(sessionId, card);
   const viewable = mediaKind(card.mediaType, card.name) !== 'other';
   const mobile = useIsMobile();
   const download = () => void downloadCard(sessionId, card);
@@ -152,24 +145,9 @@ export function FileCard({ card, sessionId, className }: { card: FileCardData; s
         {card.title ? `${card.name}, ` : ''}
         {fileFacts(card)}
       </span>
-      {error && kind && <span className="block truncate text-[12.5px] text-fault">Could not load the preview. {error}</span>}
     </span>
   );
-  const picture = (kind === 'image' && src) || (kind === 'svg' && svg);
-  if (picture)
-    return (
-      <div className={cn(BOX, 'group/card relative max-w-[420px] overflow-hidden', className)} data-file-card={card.mediaType}>
-        <MediaButton item={item} label={`Open ${alt}`} className="block w-full p-0 text-left">
-          <img src={picture} alt={alt} className="block max-h-96 w-full bg-sunk object-contain" draggable={false} loading="lazy" decoding="async" referrerPolicy="no-referrer" />
-          <span className="flex items-baseline gap-2 px-3 py-2 text-[12.5px] phone:text-[13.5px]">
-            <span className="min-w-0 truncate text-fg-2">{alt}</span>
-            <span className="ml-auto shrink-0 text-fg-3">{fileFacts(card)}</span>
-          </span>
-        </MediaButton>
-        <DownloadIcon name={card.name} onClick={download} over />
-      </div>
-    );
-  // a picture still loading or too big shows as a row too: the row opens it
+  // a picture too big to preview is a row too: the row opens it
   const row: ReactNode = (
     <>
       <FileIcon mediaType={card.mediaType} name={card.name} />
@@ -222,11 +200,11 @@ export function ImageGrid({ cards, sessionId, className }: { cards: FileCardData
   );
 }
 
-/** The cards of a turn's ShareFile calls, in order: what sits under a phone's folded tool line. Generated pictures go in one grid instead. */
+/** The cards of a turn's ShareFile calls, in order: what sits under a phone's folded tool line. Generated pictures go in one grid instead; shared pictures and videos are in the picture row (sharedThumb). */
 export function FileCards({ calls, sessionId, className }: { calls: Array<{ name: string; result?: ToolResultBlock }>; sessionId: string; className?: string }) {
   const made = generatedNames(calls);
   const pics = generatedCards(calls);
-  const cards = shareCards(calls).filter((c) => !made.has(c.name));
+  const cards = shareCards(calls).filter((c) => !made.has(c.name) && !sharedThumb(c));
   if (!cards.length && !pics.length) return null;
   return (
     <div className={cn('flex flex-col gap-2', className)}>
@@ -252,7 +230,7 @@ export function FileLine({ tool, result, sessionId, card = true }: { tool: ToolU
   return (
     <div className="py-0.5">
       <div className="flex min-h-[25px] items-center text-[12.5px] text-fg-3 phone:text-[13.5px]">Shared {c?.name ?? String(tool.input?.path ?? 'a file').split('/').pop()}</div>
-      {card && !mobile && c && <FileCard card={c} sessionId={sessionId} className="mt-1 mb-1.5" />}
+      {card && !mobile && c && !sharedThumb(c) && <FileCard card={c} sessionId={sessionId} className="mt-1 mb-1.5" />}
     </div>
   );
 }
