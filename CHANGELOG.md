@@ -11,11 +11,17 @@ like `## [0.4.16] - 2026-10-24`.
 
 ### Changed
 
+- Android: shared pictures show as clean thumbnails that open on tap, without the boxed card and Open/Save buttons, and never twice
+
+## [0.4.96] - 2026-11-13
+
+### Changed
+
 - Meetings is an optional feature next to Security and Canvas, in setup and in Settings, Appearance, Modes (web, desktop and Android). It starts off on a new hub and for new people; an account that already has meetings keeps it on. Off hides its sidebar row, its Settings section, the desktop tray items and the Ctrl+Alt+M overlay key, and the hub skips its background work. A link to /meetings says it is off, with a way to turn it on
 - The sidebar shows Routines in Assistant mode only; Search (Ctrl K), G R and its link still reach it in every mode. The Android side panel does the same
 - Workflows, Memory and Extensions moved into the sidebar's More menu, in that order; their G W, G M and G E keys still work. The phone drawer gained a More row that lists every page
 - Android Settings has a Modes list (Security, Canvas, Meetings), saved on the account like the web's
-- Android: shared pictures show as clean thumbnails that open on tap, without the boxed card and Open/Save buttons, and never twice
+- In Chat the Details column on the right starts closed, so a chat gets the full width. Its toggle (and Ctrl Shift \) opens it, and the choice is kept for chats on this device apart from sessions, which still open with Details shown
 
 ### Fixed
 

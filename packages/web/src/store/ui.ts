@@ -27,6 +27,8 @@ interface Prefs {
   showArchived: boolean;
   pinnedOnly: boolean;
   contextOpen: boolean;
+  /** The same column in Chat: its own choice, closed until opened (sessions keep theirs open). */
+  chatContextOpen: boolean;
   juryLayout: 'tabs' | 'columns';
   /** The sidebar's Code sessions: by project, device or time. */
   sideGroup: SideGroup;
@@ -60,6 +62,8 @@ interface UiState extends Prefs {
   panelTab: 'details' | 'files';
   /** Phones: the side panel is open (components/PhoneFrame.tsx). */
   panelOpen: boolean;
+  /** A chat page is open (features/conversation/ChatPage.tsx), so the panel toggle uses chatContextOpen. Not persisted. */
+  onChat: boolean;
   /** The notes strip at the top of a conversation (features/chat/NotesStrip.tsx): one line, open, or open with the add box focused. */
   notes: 'closed' | 'open' | 'add';
   newChatPreset?: { agent?: string; model?: string; taskId?: string; prompt?: string; device?: string; mode?: SessionMode };
@@ -83,6 +87,7 @@ function loadPrefs(): Prefs {
     showArchived: false,
     pinnedOnly: false,
     contextOpen: true,
+    chatContextOpen: false,
     juryLayout: 'columns',
     sideGroup: 'project',
     foldedGroups: [],
@@ -117,17 +122,18 @@ export const useUi = create<UiState>((set) => ({
   drawerOpen: false,
   panelTab: 'details',
   panelOpen: false,
+  onChat: false,
   notes: 'closed',
   set: (p) => set(p),
 }));
 
 // persist prefs on change
 useUi.subscribe((s, prev) => {
-  const keys: Array<keyof Prefs> = ['theme', 'logos', 'density', 'motion', 'textSize', 'toolImages', 'listGroup', 'showArchived', 'pinnedOnly', 'contextOpen', 'juryLayout', 'sideGroup', 'foldedGroups', 'cards'];
+  const keys: Array<keyof Prefs> = ['theme', 'logos', 'density', 'motion', 'textSize', 'toolImages', 'listGroup', 'showArchived', 'pinnedOnly', 'contextOpen', 'chatContextOpen', 'juryLayout', 'sideGroup', 'foldedGroups', 'cards'];
   if (!keys.some((k) => s[k] !== prev[k])) return;
   try {
-    const { theme, logos, density, motion, textSize, toolImages, listGroup, showArchived, pinnedOnly, contextOpen, juryLayout, sideGroup, foldedGroups, cards } = s;
-    localStorage.setItem(PREFS_KEY, JSON.stringify({ listGroup, showArchived, pinnedOnly, contextOpen, juryLayout, sideGroup, foldedGroups, cards }));
+    const { theme, logos, density, motion, textSize, toolImages, listGroup, showArchived, pinnedOnly, contextOpen, chatContextOpen, juryLayout, sideGroup, foldedGroups, cards } = s;
+    localStorage.setItem(PREFS_KEY, JSON.stringify({ listGroup, showArchived, pinnedOnly, contextOpen, chatContextOpen, juryLayout, sideGroup, foldedGroups, cards }));
     localStorage.setItem(APPEARANCE_KEY, JSON.stringify({ theme, logos, density, motion, textSize, toolImages }));
   } catch {
     /* private mode: keep it in memory */
@@ -174,10 +180,10 @@ export function closePalette() {
   useUi.setState({ paletteOpen: false, paletteQuery: undefined });
 }
 
-/** Toggle the context panel: docked on wide screens, a drawer elsewhere. */
+/** Toggle the context panel: docked on wide screens, a drawer elsewhere. A chat keeps its own docked choice. */
 export function toggleContext() {
   const s = useUi.getState();
-  if (window.matchMedia('(min-width: 1280px)').matches) s.set({ contextOpen: !s.contextOpen });
+  if (window.matchMedia('(min-width: 1280px)').matches) s.set(s.onChat ? { chatContextOpen: !s.chatContextOpen } : { contextOpen: !s.contextOpen });
   else s.set({ drawerOpen: !s.drawerOpen });
 }
 
