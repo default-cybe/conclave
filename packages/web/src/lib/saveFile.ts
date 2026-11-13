@@ -14,6 +14,26 @@
 import { desktop } from '@/overlay/desktop';
 import { toast } from '@/store/store';
 
+/**
+ * The most the page hands the app in one call (desktop download.rs MAX_BYTES):
+ * the bytes go over IPC as base64, a third bigger, and the webview holds both.
+ */
+export const APP_SAVE_MAX = 100 * 1024 * 1024;
+
+/**
+ * A file over APP_SAVE_MAX: the hub serves files only with the token in a
+ * header, never in a URL, so there is no link to hand the system browser.
+ * Instead the toast opens this chat in the browser (the app sends http links
+ * there, main.rs new_window), where a normal download works.
+ */
+function tooBig(name: string) {
+  toast({
+    title: `${name} is too big to save from the app (over ${APP_SAVE_MAX / 1024 / 1024} MB). Download it from Conclave in your web browser.`,
+    level: 'error',
+    action: { label: 'Open in browser', run: () => void window.open(location.href, '_blank') },
+  });
+}
+
 async function base64(blob: Blob): Promise<string> {
   const bytes = new Uint8Array(await blob.arrayBuffer());
   let bin = '';
@@ -45,6 +65,7 @@ export async function saveFile(name: string, file: Blob | string): Promise<void>
   let path: string;
   try {
     const blob = typeof file === 'string' ? await (await fetch(file)).blob() : file;
+    if (blob.size > APP_SAVE_MAX) return tooBig(name);
     path = await app.invoke<string>('save_download', { name, data: await base64(blob) });
   } catch (e) {
     // the app answers with a sentence (download.rs), the page with an Error
@@ -58,6 +79,10 @@ export async function saveFile(name: string, file: Blob | string): Promise<void>
 export async function openInApp(name: string, blob: Blob): Promise<boolean> {
   const app = desktop();
   if (!app) return false;
+  if (blob.size > APP_SAVE_MAX) {
+    tooBig(name);
+    return true;
+  }
   await app.invoke('open_download', { name, data: await base64(blob) });
   return true;
 }

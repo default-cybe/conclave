@@ -11,8 +11,9 @@ use std::{
     path::{Path, PathBuf},
 };
 
-/// The most the page may hand over at once, as decoded bytes.
-pub const MAX_BYTES: usize = 512 * 1024 * 1024;
+/// The most the page may hand over at once, as decoded bytes (web lib/saveFile.ts
+/// APP_SAVE_MAX): base64 over IPC is a third bigger and the webview holds it too.
+pub const MAX_BYTES: usize = 100 * 1024 * 1024;
 
 /// Kinds the app opens in their default app: documents and media, never a
 /// program, script, shortcut or installer a hub page could have written.
@@ -155,5 +156,11 @@ mod tests {
     fn the_bytes_decode_and_junk_is_refused() {
         assert_eq!(decode("aGk=").unwrap(), b"hi");
         assert!(decode("not base64!").is_err());
+    }
+
+    #[test]
+    fn over_the_cap_is_refused_before_decoding() {
+        let over = "A".repeat((MAX_BYTES / 3 + 2) * 4);
+        assert!(decode(&over).unwrap_err().contains("over 100 MB"));
     }
 }

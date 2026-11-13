@@ -454,7 +454,8 @@ async fn save_download(window: WebviewWindow, name: String, data: String) -> Res
     let dir = app.path().download_dir().or_else(|_| app.path().home_dir()).map_err(|e| format!("No Downloads folder: {e}"))?;
     let bytes = download::decode(&data)?;
     let path = download::write_unique(&dir, &name, &bytes)?;
-    let mut saved = state(app).saved.lock().unwrap();
+    let st = state(app);
+    let mut saved = st.saved.lock().unwrap();
     saved.push(path.clone());
     // the last 50 are enough for a toast's Show in folder
     if saved.len() > 50 {
