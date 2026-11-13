@@ -16,7 +16,8 @@ import type { ContentBlock, Message, Session } from '@conclave/core/types';
 import { callPhrase, groupSummary, thoughtTime, workSummary, type ToolCall } from '../src/lib/toolLine';
 import { groupState, pinned, segment, standsAlone, troubleWords, workName, type WorkEntry } from '../src/features/chat/toolGroups';
 import { AssistantTurn, turnPieces } from '../src/features/chat/Turn';
-import { ToolGroup, asWork, callStatus, groupNow, type ToolItem, type WorkItem } from '../src/features/chat/ToolRows';
+import { ToolGroup, asWork, callStatus, groupNow, revealOnMount, type ToolItem, type WorkItem } from '../src/features/chat/ToolRows';
+import { PhoneWork } from '../src/features/chat/PhoneTranscript';
 import { linkedCall } from '../src/features/chat/MessageList';
 import { useUi } from '../src/store/ui';
 
@@ -392,6 +393,21 @@ describe('pictures from tools in the transcript', () => {
     expect(h).toContain('loading="lazy"');
     // a call on its own shows it under its row too
     expect(html([shot])).toContain('data-tool-images="1"');
+  });
+
+  test('a file the agent shares shows under a closed group, and once in an open one', () => {
+    // found by the owner: the ShareFile card was only inside the fold
+    const share: ToolItem = { tool: { type: 'tool_use', id: 'sf', name: 'ShareFile', input: { path: 'out/report.pdf' } }, result: { type: 'tool_result', toolUseId: 'sf', content: 'Shared report.pdf', meta: { file: { name: 'report.pdf', mediaType: 'application/pdf', size: 2048 } } } };
+    const cards = (h: string) => (h.match(/data-file-card=/g) ?? []).length;
+    const closed = html([ls, share]);
+    expect(closed).toContain('data-group-toggle="" aria-expanded="false"');
+    expect(cards(closed)).toBe(1);
+    revealOnMount('sf');
+    const open = html([ls, share]);
+    expect(open).toContain('data-group-toggle="" aria-expanded="true"');
+    expect(cards(open)).toBe(1);
+    // the phone transcript: its rows draw no card, so the card sits under the work once
+    expect(cards(renderToStaticMarkup(<Router ssrPath="/s/s1"><PhoneWork entries={asWork([ls, share])} sessionId="s1" live={false} /></Router>))).toBe(1);
   });
 
   test('off: no thumbnails outside the fold', () => {

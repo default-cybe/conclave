@@ -6,6 +6,7 @@ import dev.conclave.app.data.CodeDefaults
 import dev.conclave.app.data.HubRepository
 import dev.conclave.app.data.SettingsStore
 import dev.conclave.app.ui.common.ComposerDraft
+import dev.conclave.app.ui.common.EXPIRED
 import dev.conclave.app.ui.common.HubViewModel
 import dev.conclave.app.ui.common.errorText
 import dev.conclave.app.ui.motion.Motion
@@ -394,8 +395,9 @@ class ChatThreadViewModel(
 
     /** Answer an approval at the end of the chat, its own or a subagent's: the hub resolves it where it was asked. */
     fun resolveApproval(id: String, response: ApprovalResponse) = action {
-        hub.resolveApproval(id, response)
+        val taken = hub.resolveApproval(id, response)
         transcript.update { t -> t.copy(approvals = t.approvals.filterNot { it.id == id }) }
+        if (!taken) say(EXPIRED)
     }
 
     fun answer(questionId: String, answers: Map<String, String>) = action {

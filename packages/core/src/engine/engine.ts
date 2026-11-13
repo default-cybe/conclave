@@ -17,6 +17,7 @@ import type {
   Session,
   SessionStatus,
   Todo,
+  ToolUseBlock,
   Usage,
   UsageRecord,
 } from '../types';
@@ -94,7 +95,7 @@ import type { HarnessAdapter } from '../acp/types';
 import { harnessOffWords } from '../acp/harness-off';
 import type { Tool } from '../tools/types';
 import { builtinTools, filterTools } from '../tools';
-import { QUEUE_KEY, SessionRunner, canResumeStopped, type StoredQueued } from '../session/runner';
+import { INTERRUPTED, QUEUE_KEY, SessionRunner, canResumeStopped, type StoredQueued } from '../session/runner';
 import { fallbackPolicyFor } from '../session/limit-tree';
 import { RunnerExtensions } from '../session/runner-ext';
 import { OfflineMachine, isOfflineError, waitForReturn } from '../projects/offline';
@@ -392,8 +393,17 @@ export class Engine implements EngineApi {
       if (s.status === 'running' || s.status === 'waiting_approval' || s.status === 'waiting_input') {
         // the cut turn can go on with Resume (resumeSession)
         this.repos.sessions.update({ ...s, status: 'idle', meta: canResumeStopped(s) ? { ...s.meta, stoppedTurn: true } : s.meta, updatedAt: Date.now() });
+        // a call cut by the restart (one waiting on an approval too) ends as interrupted, as a Stop ends it, so its row stops running
+        const msgs = this.repos.messages.list(s.id);
+        const answered = new Set(msgs.flatMap((m) => m.content.flatMap((b) => (b.type === 'tool_result' ? [b.toolUseId] : []))));
+        // the turn's own reply: a notice or an aside is stored as an assistant message too
+        const last = msgs.findLast((m) => m.role === 'assistant' && m.kind === 'normal');
+        const cut = (last?.content ?? []).filter((b) => b.type === 'tool_use' && !answered.has(b.id)) as ToolUseBlock[];
+        if (cut.length) this.repos.messages.insert({ id: newId('msg'), sessionId: s.id, seq: this.repos.messages.nextSeq(s.id), createdAt: Date.now(), role: 'user', kind: 'normal', content: cut.map((u) => ({ type: 'tool_result', toolUseId: u.id, content: INTERRUPTED, isError: true, meta: { interrupted: true } })) });
       }
     }
+    // open approvals lived in memory: none survives a restart, and clients refetch the open ones when they reconnect
+    this.logApproval(() => this.repos.approvals.expireOpen());
     // Failed-inference boundaries live only in runners; never advertise replay after a restart.
     const retryNotices = this.repos.db.query("SELECT id FROM messages WHERE kind = 'notice' AND json_extract(meta, '$.type') = 'provider_error' AND json_extract(meta, '$.canRetry') = 1").all() as { id: string }[];
     for (const { id } of retryNotices) {

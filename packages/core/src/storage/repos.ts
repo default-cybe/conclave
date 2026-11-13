@@ -928,6 +928,11 @@ export class ApprovalLogRepo {
     this.db.query('UPDATE approvals SET resolved_at = ?, decision = ? WHERE id = ? AND resolved_at IS NULL').run(at, decision, id);
   }
 
+  /** Every approval still open, answered as expired: open approvals live in memory and a restart ends them. */
+  expireOpen(at = Date.now()): number {
+    return this.db.query("UPDATE approvals SET resolved_at = ?, decision = 'expired' WHERE resolved_at IS NULL").run(at).changes;
+  }
+
   list(q: { from?: number; to?: number; limit?: number; accountId?: string } = {}): ApprovalLogEntry[] {
     const rows = this.db
       .query('SELECT * FROM approvals WHERE (? IS NULL OR session_id IN (SELECT id FROM sessions WHERE account_id = ?)) AND requested_at >= ? AND requested_at < ? ORDER BY requested_at DESC LIMIT ?')

@@ -19,7 +19,9 @@ like `## [0.4.16] - 2026-10-24`.
 
 ### Fixed
 
-- Open and Download did nothing in the Linux desktop app: WebKitGTK drops an `<a download>` of a blob: or data: URL and the app refuses window.open of anything but web links. In the desktop app, on every OS, downloads now go through the app, which saves to Downloads under a name that replaces nothing and shows "Saved to ~/Downloads/..." with Show in folder; Open in app hands pictures, video, PDF and text to their default app.
+- Open and Download did nothing in the Linux desktop app: WebKitGTK drops an `<a download>` of a blob: or data: URL and the app refuses window.open of anything but web links. In the desktop app, on every OS, downloads now go through the app, which saves to Downloads under a name that replaces nothing and shows "Saved to ~/Downloads/..." with Show in folder; Open in app hands pictures, video, PDF and text to their default app. A file over 100 MB is not saved through the app; a toast offers to open the chat in the web browser instead.
+- An approval that expired or was cancelled (for example while a chat waited out a usage limit) no longer stays on screen as 'Waiting' with 'approval is not pending' when pressed
+- Files the agent shares show under the collapsed work row in Code sessions, instead of only inside it
 
 ## [0.4.94] - 2026-11-13
 
