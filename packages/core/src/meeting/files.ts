@@ -6,24 +6,13 @@
  * tools/office.ts; PDFs through pdftotext on the hub when it is installed.
  */
 import { isZip, mediaTypeFor } from '../attachments/limits';
+import { pdftotext } from '../attachments/pdf';
 import { redactSecrets } from '../memory/secrets';
 import { isTextMediaType } from '../providers/common';
 import { OFFICE_EXT, officeToMarkdown } from '../tools/office';
 import { MEETING_FILE_TEXT_MAX } from './wire';
 
 const utf8 = new TextDecoder('utf-8', { fatal: true });
-
-async function pdfText(bytes: Uint8Array): Promise<string | undefined> {
-  try {
-    const p = Bun.spawn(['pdftotext', '-layout', '-', '-'], { stdin: bytes, stdout: 'pipe', stderr: 'ignore' });
-    const timer = setTimeout(() => p.kill(), 30_000);
-    const out = await new Response(p.stdout).text();
-    clearTimeout(timer);
-    return (await p.exited) === 0 ? out : undefined;
-  } catch {
-    return undefined; // no pdftotext on the hub
-  }
-}
 
 /** The file's text (secrets redacted, capped) and a note when some or all of it is missing. */
 export async function fileText(name: string, mediaType: string | undefined, bytes: Uint8Array): Promise<{ mediaType: string; text: string; note?: string }> {
@@ -32,7 +21,7 @@ export async function fileText(name: string, mediaType: string | undefined, byte
   let text: string | undefined;
   let note: string | undefined;
   if (type === 'application/pdf' || ext === 'pdf') {
-    text = await pdfText(bytes);
+    text = (await pdftotext(bytes)) ?? undefined;
     if (text === undefined) note = 'PDF text could not be read (pdftotext is not on the hub). Paste the text as a .txt file.';
     else if (!text.trim()) note = 'The PDF has no text layer (probably scanned).';
   } else if (OFFICE_EXT.has(ext)) {

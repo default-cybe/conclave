@@ -3,6 +3,8 @@ import {
   classifyHttpError,
   classifyStreamError,
   isThinkingBoundError,
+  isUnreadableImageError,
+  isUnreadablePdfError,
   modelRefusal,
   nextMidnightIn,
   parseRateLimitHeaders,
@@ -319,5 +321,23 @@ describe('parseRateLimitHeaders', () => {
 
   test('no headers, no windows', () => {
     expect(parseRateLimitHeaders('x', new Headers({ 'content-type': 'text/event-stream' }))).toEqual([]);
+  });
+});
+
+describe('a PDF the API could not open', () => {
+  const anthropic = (message: string) => JSON.stringify({ type: 'error', error: { type: 'invalid_request_error', message } });
+  test('Anthropic, CLIProxyAPI wrapping it, and OpenAI: a bad request marked pdf_unreadable, so no other account or model', () => {
+    const direct = classifyHttpError('cliproxy', 400, undefined, anthropic('messages.12.content.7.pdf.source.base64.data: The PDF specified was not valid.'));
+    expect(direct.kind).toBe('bad_request');
+    expect(direct.code).toBe('pdf_unreadable');
+    expect(isUnreadablePdfError(direct)).toBe(true);
+    expect(isUnreadableImageError(direct)).toBe(false);
+    // CLIProxyAPI's Vertex route puts the upstream body inside the message
+    const wrapped = classifyHttpError('cliproxy', 400, undefined, anthropic(anthropic('messages.2.content.7.pdf.source.base64.data: The PDF specified was not valid.')));
+    expect(isUnreadablePdfError(wrapped)).toBe(true);
+    const openai = classifyHttpError('openai', 400, undefined, JSON.stringify({ error: { message: "Invalid file data: 'messages[1].content[0].file.file_data'.", type: 'invalid_request_error' } }));
+    expect(isUnreadablePdfError(openai)).toBe(true);
+    expect(isUnreadablePdfError(classifyHttpError('cliproxy', 400, undefined, anthropic('Could not process image')))).toBe(false);
+    expect(isUnreadablePdfError(classifyHttpError('cliproxy', 400, undefined, anthropic('max_tokens too large')))).toBe(false);
   });
 });

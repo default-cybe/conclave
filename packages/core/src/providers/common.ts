@@ -1,6 +1,7 @@
 import type { ContentBlock, DocumentBlock, ImageBlock, TextBlock, ToolResultBlock } from '../types';
 import { isZip, mediaTypeFor } from '../attachments/limits';
 import { imageLeftOutNote, isModelImage, SNIFF_BYTES, sniffImageType } from '../attachments/image';
+import { pdfLeftOutNote, pdfProblem } from '../attachments/pdf';
 import type { ProviderConfig } from '../config/schema';
 import { catalogEntries, familyForProvider, findCatalogEntry, lookupModel, normalizeModelId, type CatalogEntry } from './catalog';
 import { DEFAULT_IDLE_TIMEOUT_MS, type FetchFn, type HttpOptions } from './http';
@@ -168,7 +169,9 @@ export function base64Head(data: string): Uint8Array {
  * MESSAGE_DOCS_MAX_BYTES together; PDFs stay document blocks when the wire
  * reads them (`pdf`); anything else (a binary, an archive, a PDF the wire
  * cannot read) becomes a one-line note, so the model always learns what was
- * attached. Base64 of a binary is never sent as text. Images become a note
+ * attached. A PDF whose bytes are no PDF or are encrypted becomes a note too
+ * (attachments/pdf.ts: the API would refuse the whole request). Base64 of a
+ * binary is never sent as text. Images become a note
  * for a model without vision, and for any model when their bytes are not a
  * JPEG, PNG, GIF or WebP (the API would refuse the whole request); a declared
  * type the bytes contradict is corrected. Tool results' content takes the
@@ -189,7 +192,11 @@ export function documentsForWire(content: ContentBlock[], pdf: boolean, vision =
     if (b.type !== 'document') return b;
     const name = (b.title ?? '').replace(/["\r\n\t]+/g, ' ').trim() || 'document';
     const type = mediaTypeFor(b.mediaType, b.title);
-    if (type === 'application/pdf') return pdf && (b.data || b.url) ? { ...b, mediaType: type } : note(`[PDF ${name} not readable by this model]`);
+    if (type === 'application/pdf') {
+      if (!pdf || !(b.data || b.url)) return note(`[PDF ${name} not readable by this model]`);
+      const why = b.data ? pdfProblem(Buffer.from(b.data.replace(/^data:[^,]*,/, ''), 'base64')) : undefined;
+      return why ? note(pdfLeftOutNote(name, why)) : { ...b, mediaType: type };
+    }
     if (!b.data) return note(b.url ? `[Attached ${name} (${type}): ${b.url}]` : `[Attached ${name} (${type}): empty]`);
     const bytes = Buffer.from(b.data, 'base64');
     if (isZip(type, b.title) || bytes.subarray(0, 4).equals(ZIP_MAGIC)) return note(`[archive ${name}, ${bytes.length} bytes: not opened]`);

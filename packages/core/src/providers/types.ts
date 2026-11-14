@@ -157,7 +157,7 @@ export type ProviderErrorKind =
   | 'server'
   | 'unknown';
 
-export type ProviderErrorCode = 'spend_cap' | 'budget' | 'access' | 'fallback_policy' | 'image_unreadable' | 'thinking_bound' | 'short_limit' | 'plan_window';
+export type ProviderErrorCode = 'spend_cap' | 'budget' | 'access' | 'fallback_policy' | 'image_unreadable' | 'pdf_unreadable' | 'thinking_bound' | 'short_limit' | 'plan_window';
 
 export class ProviderError extends Error {
   kind: ProviderErrorKind;
@@ -168,8 +168,10 @@ export class ProviderError extends Error {
   resetAt?: number;
   provider?: string;
   body?: string;
-  /** spend_cap: the provider's own spend limit (Anthropic enforced_spend_limit_reached). budget: the owner's budget in Conclave (or a member's monthly budget on the hub's key). access: a member may not use this provider. fallback_policy: the task's fallback policy (session/limit-tree.ts) denied the call. image_unreadable: the API could not decode a picture in the request (providers/errors.ts). short_limit: a per-minute rate limit, retried in place and never parked. plan_window: the plan's 5 hour or weekly window is spent (providers/errors.ts). */
+  /** spend_cap: the provider's own spend limit (Anthropic enforced_spend_limit_reached). budget: the owner's budget in Conclave (or a member's monthly budget on the hub's key). access: a member may not use this provider. fallback_policy: the task's fallback policy (session/limit-tree.ts) denied the call. image_unreadable: the API could not decode a picture in the request (providers/errors.ts). pdf_unreadable: the API could not open a PDF in the request (providers/errors.ts). short_limit: a per-minute rate limit, retried in place and never parked. plan_window: the plan's 5 hour or weekly window is spent (providers/errors.ts). */
   code?: ProviderErrorCode;
+  /** pdf_unreadable: the base64 data of the PDF block the error names (messages.N.content.M), when the request had one there (providers/anthropic.ts). */
+  pdfData?: string;
 
   constructor(
     kind: ProviderErrorKind,

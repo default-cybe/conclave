@@ -9,8 +9,8 @@
 import { afterEach, describe, expect, test } from 'bun:test';
 import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { PNG, b64 } from '../attachments/zipkit';
-import { startTestEngine, type TestEngine } from './harness';
+import { PNG, b64, makePdf } from '../attachments/zipkit';
+import { startTestEngine, type RequestBody, type TestEngine } from './harness';
 
 let t: TestEngine | undefined;
 afterEach(async () => {
@@ -78,5 +78,74 @@ describe('a picture the model could not read', () => {
     ]);
     expect(t.requests.length).toBe(2);
     expect(notices(t, s.id)).toEqual(['An image could not be read by the model and was left out: b.png.']);
+  });
+});
+
+/**
+ * Answers Anthropic's "The PDF specified was not valid" for the first of `bad` a request carries, naming its
+ * place (messages.N.content.M) the way the API does, while `on()` says so.
+ */
+function refusePdfs(bad: string[], on = () => true) {
+  return (body: RequestBody) => {
+    if (!on()) return undefined;
+    for (const [i, m] of ((body.messages ?? []) as Array<{ content: unknown }>).entries()) {
+      if (!Array.isArray(m.content)) continue;
+      const j = m.content.findIndex((b: { source?: { data?: string } }) => b.source?.data !== undefined && bad.includes(b.source.data));
+      if (j >= 0) return { status: 400, error: `messages.${i}.content.${j}.pdf.source.base64.data: The PDF specified was not valid.` };
+    }
+    return undefined;
+  };
+}
+
+const pdfNotices = (t: TestEngine, id: string) => t.engine.repos.messages.list(id).flatMap((m) => m.content).flatMap((b) => (b.type === 'text' && b.text.startsWith('A PDF could not be opened') ? [b.text] : []));
+const modelOf = (req: string) => (JSON.parse(req) as { model: string }).model;
+
+describe('a PDF the model could not open', () => {
+  const BAD1 = b64(makePdf('first broken'));
+  const BAD2 = b64(makePdf('second broken'));
+  const GOOD = b64(makePdf('fine'));
+  const pdfs = (...names: Array<[string, string]>) => names.map(([name, data]) => ({ mediaType: 'application/pdf', data, name }));
+
+  test('the PDF the error names is replaced in the history, a good newer one stays, and the same model answers', async () => {
+    t = await startTestEngine({ models: ['claude-sonnet-5-5'], script: [[{ text: 'Read the rest.' }]], route: refusePdfs([BAD1]) });
+    const s = await t.engine.createSession({ title: 'pdf', agent: 'coder', cwd: t.cwd, model: 'mock/claude-sonnet-5-5' });
+    await send(t, s.id, 'Summarise these', pdfs(['803-2 INQUIRY.pdf', BAD1], ['Terms.pdf', GOOD]));
+
+    expect(t.requests.length).toBe(2);
+    expect(t.requests[0]).toContain(BAD1);
+    expect(t.requests[1]).not.toContain(BAD1);
+    expect(t.requests[1]).toContain(GOOD);
+    expect(t.requests[1]).toContain('[803-2 INQUIRY.pdf could not be sent as a PDF (the model could not open it)');
+    expect(t.requests.map(modelOf)).toEqual(['claude-sonnet-5-5', 'claude-sonnet-5-5']);
+    expect(pdfNotices(t, s.id)).toEqual(['A PDF could not be opened by the model and was sent as text: 803-2 INQUIRY.pdf.']);
+    expect(t.engine.repos.messages.list(s.id).filter((m) => m.role === 'assistant').at(-1)?.stopReason).not.toBe('error');
+  });
+
+  test('two bad PDFs: each failed send fixes one, so the turn converges on the same model', async () => {
+    t = await startTestEngine({ models: ['claude-sonnet-5-5'], script: [[{ text: 'Done.' }], [{ text: 'Next.' }]], route: refusePdfs([BAD1, BAD2]) });
+    const s = await t.engine.createSession({ title: 'pdf', agent: 'coder', cwd: t.cwd, model: 'mock/claude-sonnet-5-5' });
+    await send(t, s.id, 'Summarise these', pdfs(['a.pdf', BAD1], ['b.pdf', BAD2], ['ok.pdf', GOOD]));
+
+    expect(t.requests.length).toBe(3);
+    expect(t.requests[2]).not.toContain(BAD1);
+    expect(t.requests[2]).not.toContain(BAD2);
+    expect(t.requests[2]).toContain(GOOD);
+    expect(new Set(t.requests.map(modelOf))).toEqual(new Set(['claude-sonnet-5-5']));
+    expect(pdfNotices(t, s.id)).toHaveLength(2);
+    await send(t, s.id, 'And now?');
+    expect(t.requests.length).toBe(4);
+    expect(t.requests[3]).toContain(GOOD);
+  });
+
+  test('a chat already stuck on a stored PDF recovers on its next plain send', async () => {
+    let refusing = false;
+    t = await startTestEngine({ models: ['claude-sonnet-5-5'], script: [[{ text: 'Got it.' }], [{ text: 'Unstuck.' }]], route: refusePdfs([BAD1], () => refusing) });
+    const s = await t.engine.createSession({ title: 'pdf', agent: 'coder', cwd: t.cwd, model: 'mock/claude-sonnet-5-5' });
+    await send(t, s.id, 'Here', pdfs(['old.pdf', BAD1]));
+    refusing = true;
+    await send(t, s.id, 'What does it say?');
+    expect(t.requests.length).toBe(3);
+    expect(t.requests[2]).not.toContain(BAD1);
+    expect(pdfNotices(t, s.id)).toEqual(['A PDF could not be opened by the model and was sent as text: old.pdf.']);
   });
 });

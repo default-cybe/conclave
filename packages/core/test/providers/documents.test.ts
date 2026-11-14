@@ -9,6 +9,7 @@ import { SplitWireProvider } from '../../src/providers/split';
 import type { ChatRequest } from '../../src/providers/types';
 import type { ContentBlock } from '../../src/types';
 import { mockServer, sseResponse } from './mock';
+import { makePdf } from '../attachments/zipkit';
 
 const b64 = (s: string | Uint8Array) => Buffer.from(s).toString('base64');
 const PDF = b64('%PDF-1.4 fake');
@@ -241,5 +242,19 @@ describe('mediaTypeFor', () => {
     expect(mediaTypeFor('image/png', 'x.png')).toBe('image/png');
     expect(mediaTypeFor('', 'x.constructor')).toBe('application/octet-stream');
     expect(mediaTypeFor(undefined, undefined)).toBe('application/octet-stream');
+  });
+});
+
+describe('a PDF the API would refuse', () => {
+  test('an encrypted PDF and a non-PDF named .pdf go as a note naming the file and why; a valid PDF goes as it is', () => {
+    const valid: ContentBlock = { type: 'document', mediaType: 'application/pdf', data: b64(makePdf('hello')), title: 'ok.pdf' };
+    const out = documentsForWire([
+      { type: 'document', mediaType: 'application/pdf', data: b64(makePdf('secret', ' /Encrypt 5 0 R')), title: 'locked.pdf' },
+      { type: 'document', mediaType: 'application/pdf', data: b64('<html>not a pdf</html>'), title: 'page.pdf' },
+      valid,
+    ], true);
+    expect(out[0]).toEqual({ type: 'text', text: '[locked.pdf could not be sent as a PDF (encrypted) and no text could be read from it]' });
+    expect(out[1]).toEqual({ type: 'text', text: '[page.pdf could not be sent as a PDF (not a PDF file) and no text could be read from it]' });
+    expect(out[2]).toEqual(valid);
   });
 });

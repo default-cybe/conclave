@@ -7,6 +7,12 @@ from the section of its version (`scripts/releases/notes.ts`); a release
 without one fails. At tag time, rename `[Unreleased]` to the version and date,
 like `## [0.4.16] - 2026-10-24`.
 
+## [Unreleased]
+
+### Fixed
+
+- A PDF the model cannot open (encrypted or damaged) no longer fails the chat on every model; its text is sent instead
+
 ## [0.4.100] - 2026-11-14
 
 ### Fixed

@@ -7,7 +7,7 @@ import { sanitizeToolId } from '../util/ids';
 import { normalizeModelId } from './catalog';
 import { BaseProvider, budgetOf, documentsForWire, effortOf, parseToolInput } from './common';
 import { clampEffort, claudeEffort, claudeThinkingOff, type Effort } from './effort';
-import { classifyStreamError, parseRateLimitHeaders } from './errors';
+import { classifyStreamError, isUnreadablePdfError, parseRateLimitHeaders } from './errors';
 import { getJson, hostOf, openStream, postJson, trimSlash } from './http';
 import { isTaggedSignature } from './signatures';
 import { parseSse, parseSseJson } from './sse';
@@ -561,6 +561,12 @@ export class AnthropicProvider extends BaseProvider {
           sameLastAssistantTypeOrder: previous?.lastAssistant && current.lastAssistant ? previous.lastAssistant.typeOrderHash === current.lastAssistant.typeOrderHash : null,
           suspectMatchesPreviousLastAssistant: previous?.lastAssistant && suspect?.index === previous.lastAssistant.index ? suspect.hash === previous.lastAssistant.hash : null,
         });
+      }
+      // the PDF the error names, by its bytes: the runner finds it in the stored history (session/bad-image.ts dropPdf)
+      if (isUnreadablePdfError(error)) {
+        const at = /messages\.(\d+)\.content\.(\d+)\.pdf\b/.exec((error as Error).message);
+        const block = at ? (body.messages as Array<{ content?: Array<{ type?: string; source?: { data?: string } }> }>)[Number(at[1])]?.content?.[Number(at[2])] : undefined;
+        if (block?.type === 'document' && block.source?.data) (error as ProviderError).pdfData = block.source.data;
       }
       throw error;
     }
