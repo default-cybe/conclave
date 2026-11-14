@@ -234,6 +234,27 @@ describe('a model the plan refused', () => {
     expect(mythos.model?.unavailable).toBe('Your plan refused it (HTTP 404)');
     expect(rows.find((r) => r.ref === 'cliproxy/claude-opus-5-5')!.disabled).toBe(false);
   });
+
+  test('one Claude plan without it (Mythos not on neu): that plan\'s row waits in Not available with the reason, the model stays on the other plan', () => {
+    // as the hub merges it (providers/merge.ts): neu's row is not folded into the model, personal's is a route of it
+    const models = [
+      group('cliproxy', [
+        model('cliproxy', 'claude-mythos-5-1', 'Claude Mythos 5.1', { via: 'your Claude plan', refs: ['cliproxy/claude-mythos-5-1', 'cliproxy/personal/claude-mythos-5-1', 'cliproxy/neu/claude-mythos-5-1'], choices: ['cliproxy/personal/claude-mythos-5-1'] }),
+        model('cliproxy', 'personal/claude-mythos-5-1', 'Claude Mythos 5.1', { sameAs: 'cliproxy/claude-mythos-5-1' }),
+        model('cliproxy', 'neu/claude-mythos-5-1', 'Claude Mythos 5.1', { unavailable: 'Not on the neu plan' }),
+        model('cliproxy', 'claude-opus-5-5', 'Claude Opus 5.5'),
+      ]),
+    ];
+    const p = buildPicker(input({ models, sessions: {} }));
+    const rows = allRows(p);
+    expect(rows.find((r) => r.ref === 'cliproxy/neu/claude-mythos-5-1')).toMatchObject({ disabled: true, model: { unavailable: 'Not on the neu plan' } });
+    const mythos = rows.find((r) => r.ref === 'cliproxy/claude-mythos-5-1')!;
+    expect(mythos.disabled).toBe(false);
+    expect(mythos.routes?.map((r) => r.ref)).toEqual(['cliproxy/claude-mythos-5-1', 'cliproxy/personal/claude-mythos-5-1']);
+    const items = lines(pickerItems(p, '', 'anthropic', [], null, true));
+    expect(items.slice(-2)).toEqual(['+ Not available (1)', 'cliproxy/neu/claude-mythos-5-1']);
+    expect(items.indexOf('cliproxy/claude-mythos-5-1')).toBeLessThan(items.indexOf('+ Not available (1)'));
+  });
 });
 
 describe('a custom provider', () => {

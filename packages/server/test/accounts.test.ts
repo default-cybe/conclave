@@ -15,6 +15,7 @@ import { renderConfig } from '../src/cliproxy/config';
 import { ProviderRegistry } from '@conclave/core/providers/registry.ts';
 import { ProviderError } from '@conclave/core/providers/types.ts';
 import { modelRefusal } from '@conclave/core/providers/errors.ts';
+import { mergeModelGroups } from '@conclave/core/providers/merge.ts';
 import { accountsOf } from '@conclave/core/accounts/attached.ts';
 import { WindowStarter, sendStarter } from '@conclave/core/accounts/starter.ts';
 import type { UsageInput } from '@conclave/core/usage/readers/common.ts';
@@ -887,6 +888,85 @@ describe('builtin: a ChatGPT plan\'s own models reach CLIProxyAPI through its ca
     await hub.api('/api/models/refresh', { method: 'POST' });
     expect(hub.engine.config.get().providers.cliproxy.modelMeta?.['claude-mythos-5-1']).toBeUndefined();
   }, 20_000);
+
+  test('a Claude plan without a model (Mythos on neu): only that plan stops offering it, routing skips it; a day or a new sign in asks again', async () => {
+    const meta = () => hub.engine.config.get().providers.cliproxy.modelMeta ?? {};
+    const svc = accountsOf(hub.engine)!;
+    const later = new Date(Date.now() + 12 * 3600_000).toISOString();
+    write('claude-me@example.test.json', { type: 'claude', email: 'claude@example.test', prefix: 'personal' });
+    // other cooldowns on neu say nothing about what its plan has: a limit, an overload
+    write('claude-neu@example.test.json', { type: 'claude', email: 'neu@example.test', prefix: 'neu', cooldowns: [{ scope: 'model', model_key: 'claude-opus-5-5', reason: 'quota', retry_at: later }, { scope: 'model', model_key: 'claude-sonnet-5-5', reason: 'transient_error', retry_at: later }] });
+    await hub.api('/api/models/refresh', { method: 'POST' });
+    await until(async () => (await accountModels('claude-neu@example.test')).includes('claude-mythos-5-1') && (await accountModels('claude-me@example.test')).includes('claude-mythos-5-1'), 8000, 'both plans with Mythos');
+    await until(() => svc.status().accounts.find((a) => a.id === 'claude-neu@example.test')?.prefix === 'neu', 8000, 'the neu prefix');
+    expect(Object.entries(meta()).filter(([, v]) => v.unavailable)).toEqual([]);
+    // the old "Claude Code version" 400, a rate limit and an overload are no refusal
+    expect(modelRefusal(new ProviderError('bad_request', "cliproxy 400 invalid_request_error: Claude Code 2.1.280 does not support this model; version 2.1.290 or newer is required. Run 'claude update', or update the Claude desktop app, then try again.", { status: 400 }))).toBeUndefined();
+    expect(modelRefusal(new ProviderError('rate_limit', 'cliproxy 429 rate_limit_error: Number of requests has exceeded your rate limit', { status: 429 }))).toBeUndefined();
+    expect(modelRefusal(new ProviderError('overloaded', 'cliproxy 529 overloaded_error: Overloaded', { status: 529 }))).toBeUndefined();
+
+    // CLIProxyAPI cooled Mythos on neu alone as not supported there (sdk/cliproxy/auth/cooldown_view.go model_not_supported)
+    write('claude-neu@example.test.json', { type: 'claude', email: 'neu@example.test', prefix: 'neu', cooldowns: [{ scope: 'model', model_key: 'claude-mythos-5-1', reason: 'model_not_supported', retry_at: later }] });
+    await until(() => meta()['neu/claude-mythos-5-1']?.unavailable, 8000, 'neu/claude-mythos-5-1 unavailable');
+    expect(meta()['neu/claude-mythos-5-1']).toEqual({ unavailable: 'Not on the neu plan' });
+    // the hub-wide model stays: personal runs it
+    expect(meta()['claude-mythos-5-1']?.unavailable).toBeUndefined();
+    expect(meta()['personal/claude-mythos-5-1']?.unavailable).toBeUndefined();
+    expect(await accountModels('claude-neu@example.test')).not.toContain('claude-mythos-5-1');
+    expect(await accountModels('claude-me@example.test')).toContain('claude-mythos-5-1');
+    // the picker data: neu's row waits under Not available as a row of its own, the model reads "your Claude plan" (one)
+    const fresh = new ProviderRegistry(hub.engine.config);
+    const rows = mergeModelGroups(await fresh.groups(), (m) => svc.routeOf(m)).find((g) => g.provider === 'cliproxy')!.models;
+    fresh.dispose();
+    expect(rows.find((m) => m.ref === 'cliproxy/claude-mythos-5-1')?.via).toBe('your Claude plan');
+    expect(rows.find((m) => m.ref === 'cliproxy/neu/claude-mythos-5-1')).toMatchObject({ unavailable: 'Not on the neu plan' });
+    expect(rows.find((m) => m.ref === 'cliproxy/neu/claude-mythos-5-1')?.sameAs).toBeUndefined();
+    const head = rows.find((m) => m.ref === 'cliproxy/claude-mythos-5-1')!;
+    expect(head.unavailable).toBeUndefined();
+    expect(head.choices ?? []).not.toContain('cliproxy/neu/claude-mythos-5-1');
+    // routing: neu is not ready for it, the next plan is named so CLIProxyAPI cannot send the bare id to neu
+    expect(svc.readyAccounts('claude-mythos-5-1').map((a) => a.id)).not.toContain('claude-neu@example.test');
+    expect(svc.planWire('claude-mythos-5-1')).toMatchObject({ wire: 'personal/claude-mythos-5-1', account: 'claude-me@example.test' });
+    // Opus, which neu runs, still goes by its bare id
+    expect(svc.planWire('claude-opus-5-5')?.wire).toBe('claude-opus-5-5');
+
+    // kept on disk: the hub forgets neu (as a restart does) and reads it again without the cooldown; Mythos stays off it
+    const saved = () => hub.engine.repos.kv.get<Record<string, Record<string, number>>>('cliproxy.notOn', {});
+    expect(Object.keys(saved()['claude-neu@example.test.json'] ?? {})).toEqual(['claude-mythos-5-1']);
+    const neuFile = join(authDir(), 'claude-neu@example.test.json');
+    rmSync(neuFile);
+    await until(() => !svc.status().accounts.some((a) => a.id === 'claude-neu@example.test'), 8000, 'neu gone');
+    write('claude-neu@example.test.json', { type: 'claude', email: 'neu@example.test', prefix: 'neu' });
+    await until(async () => (await accountModels('claude-neu@example.test')).includes('claude-opus-5-5'), 8000, 'neu back');
+    expect(await accountModels('claude-neu@example.test')).not.toContain('claude-mythos-5-1');
+    expect(meta()['neu/claude-mythos-5-1']).toEqual({ unavailable: 'Not on the neu plan' });
+
+    // a day later (the cooldown gone too): asked again
+    write('claude-neu@example.test.json', { type: 'claude', email: 'neu@example.test', prefix: 'neu' });
+    const real = Date.now;
+    const clock = spyOn(Date, 'now').mockImplementation(() => real() + 25 * 3600_000);
+    try {
+      await hub.api('/api/accounts/refresh', { method: 'POST' });
+      // the full suite is slow: read the credentials until the day-old entry goes
+      await until(async () => (await hub.api('/api/accounts/refresh', { method: 'POST' }), !meta()['neu/claude-mythos-5-1']?.unavailable), 20_000, 'cleared after a day');
+    } finally {
+      clock.mockRestore();
+    }
+    expect(svc.readyAccounts('claude-mythos-5-1').map((a) => a.id)).toContain('claude-neu@example.test');
+
+    // a refused turn on a pinned or prefixed call names neu: recorded at once, without a cooldown
+    svc.noteRefusal('cliproxy', 'neu/claude-mythos-5-1', 'Your plan refused it (HTTP 404)', 'claude-neu@example.test');
+    expect(meta()['neu/claude-mythos-5-1']).toEqual({ unavailable: 'Not on the neu plan' });
+    expect(meta()['claude-mythos-5-1']?.unavailable).toBeUndefined();
+    // signed in again (a plan upgrade): offered again at once
+    const start = await hub.api('/api/subscriptions/signin', { method: 'POST', json: { provider: 'claude' } });
+    const s = (await start.json()) as { state: string; callbackHost: string };
+    const done = await hub.api(`/api/subscriptions/signin/${s.state}/callback`, { method: 'POST', json: { url: `http://${s.callbackHost}/callback?code=ok:neu@example.test:neu&state=${s.state}` } });
+    expect(((await done.json()) as { status: string }).status).toBe('ok');
+    await until(() => !meta()['neu/claude-mythos-5-1']?.unavailable, 8000, 'cleared by the sign in');
+    expect(saved()['claude-neu@example.test.json']).toBeUndefined();
+    expect(svc.readyAccounts('claude-mythos-5-1').map((a) => a.id)).toContain('claude-neu@example.test');
+  }, 40_000);
 });
 
 void appendFileSync;
