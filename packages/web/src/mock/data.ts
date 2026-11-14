@@ -17,7 +17,7 @@ import type {
   Todo,
   UsageRecord,
 } from '@conclave/core/types';
-import type { GatewayKeyDto, McpStatus, ModelGroup } from '@conclave/core/client';
+import type { GatewayKeyDto, McpStatus, ModelEntry, ModelGroup } from '@conclave/core/client';
 import type { AgentDef, InstalledPlugin } from '@conclave/core/extensions/types';
 import type { ModelInfo } from '@conclave/core/providers/types';
 import { EFFORTS, modelEffort, type Effort } from '@conclave/core/providers/effort';
@@ -42,7 +42,7 @@ function rand() {
 // Models
 // ---------------------------------------------------------------------------
 
-function model(provider: string, id: string, name: string, ctx: number, inP: number, outP: number, extra: Partial<ModelInfo> = {}): ModelInfo {
+function model(provider: string, id: string, name: string, ctx: number, inP: number, outP: number, extra: Partial<ModelEntry> = {}): ModelEntry {
   return {
     id,
     ref: `${provider}/${id}`,
@@ -72,7 +72,10 @@ export const modelGroups: ModelGroup[] = [
     models: [
       // the hub's catalog prices (core providers/catalog.ts): 5 minute writes 1.25x input, 1 hour writes 2x
       model('anthropic', 'claude-mythos-5-2', 'Claude Mythos 5.2', 1_000_000, 8, 40, { tier: 'deep', cacheReadPrice: 0.2, cacheWrite1hPrice: 16, unavailable: 'Your plan refused it (HTTP 404)' }),
-      model('anthropic', 'claude-fable-5-2', 'Claude Fable 5.2', 1_000_000, 8, 40, { tier: 'deep', cacheReadPrice: 0.2, cacheWrite1hPrice: 16 }),
+      model('anthropic', 'claude-fable-5-2', 'Claude Fable 5.2', 1_000_000, 8, 40, { tier: 'deep', cacheReadPrice: 0.2, cacheWrite1hPrice: 16, via: 'your Claude plan', choices: ['anthropic/personal/claude-fable-5-2'] }),
+      // two Claude plans: personal runs Fable 5.2, the neu plan does not (its row waits under Not available)
+      model('anthropic', 'personal/claude-fable-5-2', 'Claude Fable 5.2', 1_000_000, 8, 40, { tier: 'deep', sameAs: 'anthropic/claude-fable-5-2' }),
+      model('anthropic', 'neu/claude-fable-5-2', 'Claude Fable 5.2', 1_000_000, 8, 40, { tier: 'deep', unavailable: 'Not on the neu plan' }),
       model('anthropic', 'claude-mythos-5-1', 'Claude Mythos 5.1', 1_000_000, 15, 75, { tier: 'deep', unavailable: 'Your plan refused it (HTTP 404)' }),
       model('anthropic', 'claude-fable-5-1', 'Claude Fable 5.1', 1_000_000, 10, 50, { tier: 'deep' }),
       model('anthropic', 'claude-opus-4-6', 'Claude Opus 4.6', 1_000_000, 5, 25, { tier: 'deep' }),
