@@ -5,10 +5,16 @@
  * picture in the request (a user's attachment or a tool result's image) out
  * of the stored history, puts a note in its place and retries once. Each
  * send of a chat that is stuck this way drops one more, so it frees itself.
+ *
+ * A PDF the API could not open ("The PDF specified was not valid") is the same:
+ * dropPdf replaces the one the error names (found by its bytes), else the
+ * newest, with its text or a note (attachments/pdf.ts), one per failed send.
  */
 import { basename } from 'node:path';
-import type { AttachmentReceipt, ContentBlock, Message } from '../types';
+import type { AttachmentReceipt, ContentBlock, DocumentBlock, Message } from '../types';
 import { imageLeftOutNote } from '../attachments/image';
+import { mediaTypeFor } from '../attachments/limits';
+import { pdfAsText, pdfProblem } from '../attachments/pdf';
 
 /** The picked names of a message's pictures, in the order its image blocks come. */
 function attachedImageNames(m: Message): string[] {
@@ -60,4 +66,44 @@ export function dropNewestImage(messages: Message[], update: (id: string, conten
     }
   }
   return undefined;
+}
+
+const isPdf = (b: ContentBlock): b is DocumentBlock => b.type === 'document' && !!b.data && mediaTypeFor(b.mediaType, b.title) === 'application/pdf';
+
+/**
+ * Replace one PDF in `messages` (the active ones, oldest first) with its text
+ * or a note, in the stored message: the newest whose data is `data` (the
+ * block the error named, ProviderError.pdfData; wire indexes do not match the
+ * stored history, which the wire merges and reorders), else the newest PDF,
+ * attached or in a tool result. Its name, or undefined when none is left.
+ */
+export async function dropPdf(messages: Message[], update: (id: string, content: ContentBlock[]) => void, data?: string): Promise<string | undefined> {
+  const text = async (b: DocumentBlock): Promise<{ name: string; block: ContentBlock }> => {
+    const name = b.title?.trim() || 'attached PDF';
+    const bytes = Buffer.from(b.data!.replace(/^data:[^,]*,/, ''), 'base64');
+    return { name, block: { type: 'text', text: await pdfAsText(name, bytes, pdfProblem(bytes) ?? 'the model could not open it') } };
+  };
+  const users = messages.filter((m) => m.role === 'user').reverse();
+  const replace = async (wanted: (b: ContentBlock) => boolean): Promise<string | undefined> => {
+    for (const m of users) {
+      for (let j = m.content.length - 1; j >= 0; j--) {
+        const b = m.content[j];
+        if (wanted(b)) {
+          const { name, block } = await text(b as DocumentBlock);
+          update(m.id, m.content.map((x, i) => (i === j ? block : x)));
+          return name;
+        }
+        if (b.type === 'tool_result' && typeof b.content !== 'string' && !b.meta?.cleared) {
+          const k = b.content.findLastIndex((c) => wanted(c as ContentBlock));
+          if (k < 0) continue;
+          const { name, block } = await text(b.content[k] as DocumentBlock);
+          const content = b.content.map((c, i) => (i === k ? block : c));
+          update(m.id, m.content.map((x, i) => (i === j ? { ...b, content } : x)) as ContentBlock[]);
+          return name;
+        }
+      }
+    }
+    return undefined;
+  };
+  return (data !== undefined ? await replace((b) => isPdf(b) && b.data === data) : undefined) ?? replace(isPdf);
 }

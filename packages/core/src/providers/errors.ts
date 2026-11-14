@@ -504,13 +504,16 @@ export function classifyHttpError(
   // a picture the API could not decode: the request's content, never a limit, a refusal or the server, so no wait and no other account
   const badImage = isUnreadableImageText(`${message} ${info.code ?? ''} ${info.type ?? ''}`);
   if (badImage) kind = 'bad_request';
+  // a PDF the API could not open: the same, the file is the problem, so no other account and no other model
+  const badPdf = !badImage && isUnreadablePdfText(message);
+  if (badPdf) kind = 'bad_request';
   // replayed thinking whose prefix changed (Fable and Mythos 5.2): the request's history, not the account
   const bound = !badImage && THINKING_BOUND_RE.test(message);
   if (bound) kind = 'bad_request';
 
   let retryAfterMs = parseRetryAfter(headers, now);
   let resetAt: number | undefined;
-  let code: ProviderErrorCode | undefined = spendCap ? 'spend_cap' : badImage ? 'image_unreadable' : bound ? 'thinking_bound' : undefined;
+  let code: ProviderErrorCode | undefined = spendCap ? 'spend_cap' : badImage ? 'image_unreadable' : badPdf ? 'pdf_unreadable' : bound ? 'thinking_bound' : undefined;
 
   if (kind === 'rate_limit' || kind === 'quota' || kind === 'overloaded') {
     const gem = geminiRetry(info);
@@ -596,6 +599,21 @@ export function isUnreadableImageText(text: string): boolean {
 /** The API could not read a picture in the request (classifyHttpError marked it). */
 export function isUnreadableImageError(err: unknown): boolean {
   return err instanceof ProviderError && err.code === 'image_unreadable';
+}
+
+/**
+ * Anthropic's "The PDF specified was not valid" (an encrypted, damaged or fake PDF) and OpenAI's
+ * "Invalid file data: 'input[1].content[1].file_data'" (a file part it could not read).
+ */
+const UNREADABLE_PDF_RE = /the pdf specified was not valid|invalid file data: \S*file_data/i;
+
+export function isUnreadablePdfText(text: string): boolean {
+  return UNREADABLE_PDF_RE.test(text);
+}
+
+/** The API could not open a PDF in the request (classifyHttpError marked it). */
+export function isUnreadablePdfError(err: unknown): boolean {
+  return err instanceof ProviderError && err.code === 'pdf_unreadable';
 }
 
 /** Anthropic's 400 for a thinking block replayed after an edit to the request before it. */

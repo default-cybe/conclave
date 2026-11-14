@@ -26,8 +26,8 @@ import { delegateCatalog } from '../engine/delegate';
 import { flattenLastToolTurn, isTranscriptShapeError } from './pairing';
 import { dropThinking, streamCompletion, takeCallTimings, type Served } from './stream';
 import { isTextOnlyImageError, transcribeImages } from './image-text';
-import { dropNewestImage } from './bad-image';
-import { isThinkingBoundError, isUnreadableImageError } from '../providers/errors';
+import { dropNewestImage, dropPdf } from './bad-image';
+import { isThinkingBoundError, isUnreadableImageError, isUnreadablePdfError } from '../providers/errors';
 import { seesImages } from '../providers/common';
 import { pickedName } from '../attachments/prepare';
 import { refusalPlanFor } from './member-fallbacks';
@@ -1166,6 +1166,8 @@ export class SessionRunner {
     let textOnly = false;
     /** One retry per turn after the API could not decode a picture: the newest one leaves the history first (session/bad-image.ts). */
     let imageRetried = false;
+    /** Retries this turn after the API could not open a PDF: each replaces one PDF in the history with its text first (session/bad-image.ts). */
+    let pdfRetries = 0;
     /**
      * Set once the API said replayed thinking is bound to another prefix (Fable and Mythos 5.2): the messages
      * the failed request had go without thinking for the rest of the turn; newer ones keep theirs, as a tool loop needs.
@@ -1341,6 +1343,17 @@ export class SessionRunner {
               this.meter = undefined;
               log.warn(`${currentModel} in ${this.id} could not read an image; left out ${name} and retrying: ${oneLine(err.message, 160)}`);
               engine.notice(this.id, `An image could not be read by the model and was left out: ${name}.`, 'warning');
+              continue;
+            }
+          }
+          // a PDF the API could not open stays in every later request: replace it in the history with its text and retry the same model, one PDF per failed send
+          if (pdfRetries < 5 && isUnreadablePdfError(err)) {
+            pdfRetries++;
+            const name = await dropPdf(activeMessages(activeStored(engine.repos.messages, this.id)), (id, content) => engine.updateMessage(id, { content }), err.pdfData);
+            if (name) {
+              this.meter = undefined;
+              log.warn(`${currentModel} in ${this.id} could not open a PDF; sent ${name} as text and retrying: ${oneLine(err.message, 160)}`);
+              engine.notice(this.id, `A PDF could not be opened by the model and was sent as text: ${name}.`, 'warning');
               continue;
             }
           }

@@ -23,12 +23,15 @@
  * Every other file is checked by its bytes (attachments/image.ts): a declared
  * type the bytes contradict is corrected, and a picture no model reads (HEIC,
  * AVIF, TIFF, BMP) refuses the message with the reason, so it never lands in
- * the history where every later turn would resend it.
+ * the history where every later turn would resend it. A PDF the model API
+ * cannot open (encrypted, damaged, not a PDF: attachments/pdf.ts) goes as its
+ * text, or a note when it has none, for the same reason.
  */
 import type { Attachment } from '../client/index';
 import type { AttachmentReceipt } from '../types';
 import { EngineError } from '../engine/errors';
 import { checkPicture, isModelImage, SNIFF_BYTES } from './image';
+import { checkPdf, pdfAsText } from './pdf';
 import { base64Head } from '../providers/common';
 import { ATTACHMENTS_MAX_TOTAL_BYTES, isZip, mediaTypeFor } from './limits';
 import { checkAll, listingNote, openZip, readForChat, ZipRefused } from './zip';
@@ -168,6 +171,13 @@ export async function prepareAttachments(list: Attachment[] | undefined, host: Z
     if ('refused' in r) throw new EngineError(400, r.refused);
     return r.mediaType === a.mediaType ? a : { ...a, mediaType: r.mediaType };
   };
+  // a PDF the model API cannot open is stored as its text, checked once here and never on each request
+  const pdfChecked = async (a: Attachment): Promise<Attachment> => {
+    if (mediaTypeFor(a.mediaType, a.name ?? a.path) !== 'application/pdf') return a;
+    const bytes = a.data ? bytesOf(a.data) : a.path ? await host.read(a.path).catch(() => undefined) : undefined;
+    const why = bytes && (await checkPdf(bytes));
+    return bytes && why ? textDoc(pickedName(a), await pdfAsText(pickedName(a), bytes, why)) : a;
+  };
   const take = (a: Attachment, as?: Attachment[]): AttachmentReceipt => ({ name: pickedName(a), state: 'prepared', ...(as?.length ? { as: as.map((x) => x.name ?? pickedName(x)) } : {}), ...(as?.length ? { parts: as.map(partOf) } : { parts: [partOf(a)] }) });
   // 1. what each picked file is: a file on the device (by path, read as before), a zip, or a file the budget places
   type Slot = { kind: 'path'; a: Attachment } | { kind: 'zip'; a: Attachment; bytes?: Uint8Array } | { kind: 'item'; item: Item };
@@ -208,11 +218,12 @@ export async function prepareAttachments(list: Attachment[] | undefined, host: Z
   try {
     for (const s of slots) {
       if (s.kind === 'path') {
-        const file = await checked(s.a);
-        if (!file) {
+        const read = await checked(s.a);
+        if (!read) {
           receipts.push(unreadable(pickedName(s.a)));
           continue;
         }
+        const file = await pdfChecked(read);
         out.push(file);
         receipts.push(take(file));
         continue;
@@ -223,7 +234,7 @@ export async function prepareAttachments(list: Attachment[] | undefined, host: Z
           const data = it.hubPath ? Buffer.from(await readFile(it.hubPath)).toString('base64') : it.a.data!;
           // sniffed as text or a PDF under a type that says nothing (a .rs, a Dockerfile): sent as what it is
           const mediaType = it.part === 'pdf' ? 'application/pdf' : it.part === 'text' && !isTextMediaType(mediaTypeFor(it.mediaType, it.name)) ? 'text/plain' : it.mediaType;
-          const a = !it.hubPath && mediaType === it.a.mediaType ? it.a : { ...it.a, mediaType, data };
+          const a = await pdfChecked(!it.hubPath && mediaType === it.a.mediaType ? it.a : { ...it.a, mediaType, data });
           out.push(a);
           receipts.push(take(a));
           continue;
