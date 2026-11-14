@@ -533,7 +533,8 @@ async function streamCall(
       }
       // a plan that refuses this one model: its picker row greys out with the reason, so the next turn is not sent to it again
       const refused = paidBy === 'hub' && accounts ? modelRefusal(e) : undefined;
-      if (refused) accounts!.noteRefusal(resolved.provider, resolved.model, refused);
+      // the plan it went to, when the call named one (a pin, a prefixed id); a bare id's plan CLIProxyAPI's cooldown names
+      if (refused) accounts!.noteRefusal(resolved.provider, resolved.model, refused, (target.pin?.provider === resolved.provider ? target.pin.account : undefined) ?? (splitAccount(resolved.model).account ? accounts!.accountFor(resolved.provider, resolved.model) : undefined));
       // a plan signed out, or a key refused: the next route in the owner's order takes the call (providers/merge.ts)
       if (e.kind === 'auth' && paidBy === 'hub' && accounts && !begun && fallback(resolved.provider, `${engine.providerLabel(resolved.provider)} refused the sign in.`)) {
         fullRef = `${resolved.provider}/${resolved.model}`;

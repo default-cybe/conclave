@@ -7,6 +7,12 @@ from the section of its version (`scripts/releases/notes.ts`); a release
 without one fails. At tag time, rename `[Unreleased]` to the version and date,
 like `## [0.4.16] - 2026-10-24`.
 
+## [Unreleased]
+
+### Fixed
+
+- Claude models a plan can't run (for example Fable or Mythos on a plan without them) no longer show as available on that account. The hub learns it from the plan's refusal or CLIProxyAPI's "not supported" cooldown on that account, lists that account's row under Not available ("Not on the neu plan"), and routes the model to an account that can run it. It asks again after a day, or as soon as the account is signed in again.
+
 ## [0.4.99] - 2026-11-13
 
 ### Changed

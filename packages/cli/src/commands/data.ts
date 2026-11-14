@@ -149,7 +149,7 @@ export async function modelsCommand(args: ParsedArgs): Promise<number> {
       '  ' + p.fg(modelColor(m.ref))('●') + ' ' + (m.name || m.ref),
       p.dim(m.ref),
       p.dim(m.contextWindow ? formatTokens(m.contextWindow) + ' ctx' : ''),
-      p.dim(m.via ?? (m.inputPrice || m.outputPrice ? `$${m.inputPrice}/$${m.outputPrice} per M` : '')),
+      m.unavailable ? p.yellow(m.unavailable) : p.dim(m.via ?? (m.inputPrice || m.outputPrice ? `$${m.inputPrice}/$${m.outputPrice} per M` : '')),
       p.dim([m.vision ? 'vision' : '', m.thinking ? 'thinking' : '', m.tier ?? ''].filter(Boolean).join(' ')),
     ]);
     print(table(rows));

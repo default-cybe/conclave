@@ -114,7 +114,7 @@ export function mergeModelGroups(groups: ModelGroup[], routeOf: (model: string) 
     // a ref that names a route of its own: one plan's prefix, or a provider outside the order (a ref on a provider in it
     // still follows the order, registry routed()). Only usable ones: a choice that cannot answer is no choice
     const inOrder = new Set((all ?? []).map((s) => s.provider));
-    const choices = others.filter((s) => usable.has(s.provider) && (s.m.id.includes('/') || !inOrder.has(s.provider))).map((s) => s.m.ref);
+    const choices = others.filter((s) => usable.has(s.provider) && !s.m.unavailable && (s.m.id.includes('/') || !inOrder.has(s.provider))).map((s) => s.m.ref);
     const mark: Partial<ModelEntry> = {
       ...(steps.length && vendor ? { via: routeWords(steps, vendor, opts) } : {}),
       ...(others.length ? { refs: [keep.m.ref, ...others.map((s) => s.m.ref)] } : {}),
@@ -122,7 +122,8 @@ export function mergeModelGroups(groups: ModelGroup[], routeOf: (model: string) 
       ...(listedVendor ? { vendor: listedVendor } : {}),
     };
     if (Object.keys(mark).length) marks.set(keep.m.ref, mark);
-    for (const s of others) marks.set(s.m.ref, { sameAs: keep.m.ref, ...(listedVendor ? { vendor: listedVendor } : {}) });
+    // one plan's row it cannot run stays a row of its own, so the pickers list it under Not available with the reason
+    for (const s of others) marks.set(s.m.ref, { ...(s.m.unavailable && s.m.id.includes('/') ? {} : { sameAs: keep.m.ref }), ...(listedVendor ? { vendor: listedVendor } : {}) });
   }
   if (!marks.size) return groups;
   return groups.map((g) => (g.models.some((m) => marks.has(m.ref)) ? { ...g, models: g.models.map((m) => (marks.has(m.ref) ? { ...m, ...marks.get(m.ref) } : m)) } : g));

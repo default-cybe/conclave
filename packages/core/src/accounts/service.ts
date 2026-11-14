@@ -58,8 +58,10 @@ export interface CliproxyCredentialFacts {
   /** Merged from the last response's signals and the usage endpoint. */
   windows: LimitWindow[];
   cooldowns: Array<{ model?: string; reason: string; until: number }>;
-  /** Undefined until read. */
+  /** Undefined until read. Without the models in notOn. */
   models?: Array<{ id: string; name?: string }>;
+  /** Models CLIProxyAPI still gives this plan that it cannot run (its plan refused them): a bare id must not reach it. */
+  notOn?: string[];
   /** A ChatGPT plan approved for Daybreak: the programs whose alias its own model list has. */
   daybreak?: CyberProgram[];
   observedAt?: number;
@@ -113,7 +115,7 @@ export class AccountsService {
   private spent = new Map<string, number>();
   private sticky = new Map<string, { account: string; at: number }>();
   private hitListeners = new Set<(vendor: string) => void>();
-  private refusalListeners = new Set<(provider: string, model: string, reason: string) => void>();
+  private refusalListeners = new Set<(provider: string, model: string, reason: string, account?: string) => void>();
   private changeListeners = new Set<() => void>();
   private lastEvent = '';
   private lastLimits = new Map<string, string>();
@@ -591,7 +593,12 @@ export class AccountsService {
       // the owner's order puts a key here: the key's turn comes first
       if (a.cfg.kind !== 'subscription' || a.provider !== gw) return undefined;
       const label = this.label(a, all);
-      if (bareReaches(a)) return { wire: model, account: a.cfg.id, label, covers: this.forVendor(vendor, model).filter(bareReaches).map((x) => x.cfg.id) };
+      if (bareReaches(a)) {
+        // a plan that cannot run it still has it in CLIProxyAPI's shared list: name this plan, so the bare id is not sent there
+        const stray = all.some((x) => x.cfg.id !== a.cfg.id && x.provider === gw && x.facts?.notOn?.includes(bareModel(model)));
+        if (stray && a.facts?.prefix) return { wire: `${a.facts.prefix}/${bareModel(model)}`, account: a.cfg.id, label, covers: [a.cfg.id] };
+        return { wire: model, account: a.cfg.id, label, covers: this.forVendor(vendor, model).filter(bareReaches).map((x) => x.cfg.id) };
+      }
       const own = a.facts?.prefix && a.facts.models ? ownModel(a.facts.models.map((m) => m.id), model) : undefined;
       if (own) return { wire: `${a.facts!.prefix}/${bareModel(own)}`, account: a.cfg.id, label, covers: [a.cfg.id] };
     }
@@ -779,14 +786,14 @@ export class AccountsService {
   }
 
   /** A plan refused one model (providers/errors.ts modelRefusal): the cliproxy manager marks it unavailable. Returns the unsubscribe. */
-  onModelRefused(fn: (provider: string, model: string, reason: string) => void): () => void {
+  onModelRefused(fn: (provider: string, model: string, reason: string, account?: string) => void): () => void {
     this.refusalListeners.add(fn);
     return () => this.refusalListeners.delete(fn);
   }
 
-  /** Tell the listeners a plan refused this model (the id as called, prefixed for one plan). */
-  noteRefusal(provider: string, model: string, reason: string): void {
-    for (const fn of this.refusalListeners) fn(provider, model, reason);
+  /** Tell the listeners a plan refused this model (the id as called, prefixed for one plan). `account`: the plan the call went to, when it is known. */
+  noteRefusal(provider: string, model: string, reason: string, account?: string): void {
+    for (const fn of this.refusalListeners) fn(provider, model, reason, account);
   }
 
   /** The list or the order changed (the cliproxy manager writes priorities). */

@@ -64,6 +64,25 @@ class PickerTabsTest {
     }
 
     @Test
+    fun oneClaudePlanWithoutAModelHasItsRowInTheFoldTheOtherPlanKeepsIt() {
+        // as the hub merges it (providers/merge.ts): neu's row is its own and unavailable, personal's a route of the model
+        val bare = ModelInfo(id = "claude-mythos-5-1", ref = "cliproxy/claude-mythos-5-1", provider = "cliproxy", name = "Claude Mythos 5.1", via = "your Claude plan", choices = listOf("cliproxy/personal/claude-mythos-5-1"))
+        val personal = ModelInfo(id = "personal/claude-mythos-5-1", ref = "cliproxy/personal/claude-mythos-5-1", provider = "cliproxy", name = "Claude Mythos 5.1", sameAs = "cliproxy/claude-mythos-5-1")
+        val neu = ModelInfo(id = "neu/claude-mythos-5-1", ref = "cliproxy/neu/claude-mythos-5-1", provider = "cliproxy", name = "Claude Mythos 5.1", unavailable = "Not on the neu plan")
+        val list = PickerTabs.entries(ModelPicks.groups(listOf(g("cliproxy", bare, personal, neu, m("cliproxy", "claude-opus-5-5", "Claude Opus 5.5")))))
+        val open = PickerTabs.items(list, "", Tab.ANTHROPIC, unavailable = true)
+        val row = open.filterIsInstance<Item.Model>().last()
+        assertEquals("cliproxy/neu/claude-mythos-5-1", row.entry.row.ref)
+        assertEquals("Not on the neu plan", row.entry.row.model.unavailable)
+        assertEquals(Item.Fold(PickerTabs.NOT_AVAILABLE, 1, open = true), open[open.size - 2])
+        // the model itself is still offered, through personal
+        val shut = PickerTabs.items(list, "", Tab.ANTHROPIC)
+        val mythos = shut.filterIsInstance<Item.Model>().first { it.entry.row.ref == "cliproxy/claude-mythos-5-1" }
+        assertEquals(null, mythos.entry.row.model.unavailable)
+        assertEquals(listOf("cliproxy/claude-mythos-5-1", "cliproxy/personal/claude-mythos-5-1"), mythos.entry.row.routes.map { it.ref })
+    }
+
+    @Test
     fun eachModelInItsTabLocalByServerAndCodingAgentsApart() {
         val tabOf = entries.associate { it.row.ref to it.tab }
         assertEquals(Tab.ANTHROPIC, tabOf["anthropic/claude-opus-5-5"])
