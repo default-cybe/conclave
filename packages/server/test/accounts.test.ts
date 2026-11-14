@@ -930,6 +930,17 @@ describe('builtin: a ChatGPT plan\'s own models reach CLIProxyAPI through its ca
     // Opus, which neu runs, still goes by its bare id
     expect(svc.planWire('claude-opus-5-5')?.wire).toBe('claude-opus-5-5');
 
+    // kept on disk: the hub forgets neu (as a restart does) and reads it again without the cooldown; Mythos stays off it
+    const saved = () => hub.engine.repos.kv.get<Record<string, Record<string, number>>>('cliproxy.notOn', {});
+    expect(Object.keys(saved()['claude-neu@example.test.json'] ?? {})).toEqual(['claude-mythos-5-1']);
+    const neuFile = join(authDir(), 'claude-neu@example.test.json');
+    rmSync(neuFile);
+    await until(() => !svc.status().accounts.some((a) => a.id === 'claude-neu@example.test'), 8000, 'neu gone');
+    write('claude-neu@example.test.json', { type: 'claude', email: 'neu@example.test', prefix: 'neu' });
+    await until(async () => (await accountModels('claude-neu@example.test')).includes('claude-opus-5-5'), 8000, 'neu back');
+    expect(await accountModels('claude-neu@example.test')).not.toContain('claude-mythos-5-1');
+    expect(meta()['neu/claude-mythos-5-1']).toEqual({ unavailable: 'Not on the neu plan' });
+
     // a day later (the cooldown gone too): asked again
     write('claude-neu@example.test.json', { type: 'claude', email: 'neu@example.test', prefix: 'neu' });
     const real = Date.now;
@@ -953,6 +964,7 @@ describe('builtin: a ChatGPT plan\'s own models reach CLIProxyAPI through its ca
     const done = await hub.api(`/api/subscriptions/signin/${s.state}/callback`, { method: 'POST', json: { url: `http://${s.callbackHost}/callback?code=ok:neu@example.test:neu&state=${s.state}` } });
     expect(((await done.json()) as { status: string }).status).toBe('ok');
     await until(() => !meta()['neu/claude-mythos-5-1']?.unavailable, 8000, 'cleared by the sign in');
+    expect(saved()['claude-neu@example.test.json']).toBeUndefined();
     expect(svc.readyAccounts('claude-mythos-5-1').map((a) => a.id)).toContain('claude-neu@example.test');
   }, 40_000);
 });

@@ -91,6 +91,8 @@ export const CLIENT_SECRET = 'cliproxy.clientKey';
 export const EXT_KEY_SECRET = 'cliproxy.external.key';
 export const EXT_MGMT_SECRET = 'cliproxy.external.managementKey';
 const KV_PORT = 'cliproxy.port';
+/** Per credential, the models its plan cannot run and until when (index.ts notEntitled). */
+const KV_NOT_ON = 'cliproxy.notOn';
 export const PROVIDER_ID = 'cliproxy';
 /** Models that go over the Anthropic Messages wire. */
 export const ANTHROPIC_MODELS = ['claude-*', '*/claude-*'];
@@ -1041,7 +1043,9 @@ export class CliproxyManager {
   private learnNotOn(): void {
     const now = Date.now();
     // a day-old entry goes: the plan is asked again
-    for (const s of this.creds.values()) for (const [m, until] of s.notOn ?? []) if (until <= now) s.notOn!.delete(m);
+    let gone = false;
+    for (const s of this.creds.values()) for (const [m, until] of s.notOn ?? []) if (until <= now) (s.notOn!.delete(m), (gone = true));
+    if (gone) this.saveNotOn();
     for (const c of this.raw) {
       for (const cd of c.cooldowns ?? []) {
         if (cd.scope === 'model' && cd.model && NOT_ON_PLAN.has(cd.reason) && cd.retryAt && cd.retryAt > now) this.notEntitled(c.name, splitAccount(cd.model).model, false);
@@ -1061,12 +1065,26 @@ export class CliproxyManager {
     const s = this.cred(cred);
     if (notOnNow(s).has(model)) return false;
     (s.notOn ??= new Map()).set(model, Date.now() + REFUSED_MS);
+    this.saveNotOn();
     log.warn(`${PROVIDER_ID}: ${this.planName(c)} cannot run ${model}; it stays off that plan for a day or until it is signed in again`);
     if (apply) {
       this.feedAccounts();
       this.applyProvider();
     }
     return true;
+  }
+
+  /** Keep what each plan cannot run across a restart (an update), so its next turn does not fail again. */
+  private saveNotOn(): void {
+    try {
+      // an account not read yet keeps its entry; one that is gone loses it
+      const out = Object.fromEntries(Object.entries(this.engine.repos.kv.get<Record<string, Record<string, number>>>(KV_NOT_ON, {})).filter(([name]) => !this.creds.has(name) && this.raw.some((c) => c.name === name)));
+      for (const [name, s] of this.creds) if (s.notOn?.size) out[name] = Object.fromEntries(s.notOn);
+      if (Object.keys(out).length) this.engine.repos.kv.set(KV_NOT_ON, out);
+      else this.engine.repos.kv.delete(KV_NOT_ON);
+    } catch (err) {
+      log.warn(`could not save the models a plan cannot run: ${(err as Error).message}`);
+    }
   }
 
   /** A plan's name in the pickers' words: its short name, else its label. */
@@ -1081,8 +1099,9 @@ export class CliproxyManager {
   private cred(name: string): CredState {
     let s = this.creds.get(name);
     if (!s) {
-      // a new account: its usage and models are read on the next pass
-      s = { windows: [], usageNext: 0, backoff: 0 };
+      // a new account: its usage and models are read on the next pass; what it could not run before a restart still holds
+      const saved = Object.entries(this.engine.repos.kv.get<Record<string, Record<string, number>>>(KV_NOT_ON, {})[name] ?? {}).filter(([, until]) => until > Date.now());
+      s = { windows: [], usageNext: 0, backoff: 0, ...(saved.length ? { notOn: new Map(saved) } : {}) };
       this.creds.set(name, s);
     }
     return s;
@@ -1894,7 +1913,7 @@ export class CliproxyManager {
       if (c.authIndex && s.mgmt.apiVersion === 'v8') await s.mgmt.resetCooldown(c.authIndex).catch((err) => log.debug(`cooldown reset after a sign-in: ${(err as Error).message}`));
       log.info(`${PROVIDER_ID}: ${this.planName(c)} was signed in again; the models it could not run are offered again`);
     }
-    if (again) (this.feedAccounts(), this.applyProvider());
+    if (again) (this.saveNotOn(), this.feedAccounts(), this.applyProvider());
     const added = this.accounts.filter((a) => !s.before.has(a.name));
     s.account = added.find((a) => a.provider === (SIGN_IN_VIA[s.provider] ?? s.provider)) ?? added[0];
     // the new account's models, plan usage and place in the order
