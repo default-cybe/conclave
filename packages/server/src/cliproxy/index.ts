@@ -181,8 +181,8 @@ interface SignIn {
   mgmt: Management;
   /** Who started it, for the audit log. */
   actor: string;
-  /** When it started: a credential written since is the one signed in again. */
-  at: number;
+  /** Each credential's last write when it started: one of the same type written since is the one signed in again. */
+  stamps: Map<string, number | undefined>;
   done?: number;
 }
 
@@ -217,6 +217,8 @@ interface CredState {
   usageError?: string;
   /** Models this plan cannot run (its plan refused them, or CLIProxyAPI cooled them as not supported here): until when. */
   notOn?: Map<string, number>;
+  /** Cooldowns (model and retry time) that were there when it was signed in again: they say nothing about the new sign-in. */
+  stale?: Set<string>;
 }
 
 /** The models a plan cannot run now (a day-old entry no longer counts). */
@@ -374,6 +376,8 @@ export class CliproxyManager {
   private refused = new Map<string, { reason: string; until: number }>();
   /** What every plan could not run at the last credentials read: a change applies the provider again. */
   private notOnSig = '';
+  /** Bare ids a plan refused while several plans list them: which one the next credentials read must say, else every plan greys them out. */
+  private pendingBare = new Map<string, { reason: string; at: number }>();
   private catalogRun?: Promise<void>;
   private offAccounts: Array<() => void> = [];
   readonly files: CliproxyFiles;
@@ -474,8 +478,10 @@ export class CliproxyManager {
         const cred = account ? this.accountService.credentialOf(account)?.name : undefined;
         if (cred) return void this.notEntitled(cred, splitAccount(model).model);
         // a bare id several plans list: CLIProxyAPI's cooldown names the plan that refused it (learnNotOn), read soon
-        if (!model.includes('/') && this.raw.filter((c) => !c.disabled && this.creds.get(c.name)?.models?.some((m) => m.id === model)).length > 1) {
+        const listers = this.raw.filter((c) => !c.disabled && this.creds.get(c.name)?.models?.some((m) => m.id === model) && !notOnNow(this.creds.get(c.name)).has(model));
+        if (!model.includes('/') && listers.length > 1) {
           log.warn(`${PROVIDER_ID}/${model}: ${reason}; reading which plan refused it`);
+          this.pendingBare.set(model, { reason, at: Date.now() });
           this.soon();
           return;
         }
@@ -1048,8 +1054,20 @@ export class CliproxyManager {
     if (gone) this.saveNotOn();
     for (const c of this.raw) {
       for (const cd of c.cooldowns ?? []) {
-        if (cd.scope === 'model' && cd.model && NOT_ON_PLAN.has(cd.reason) && cd.retryAt && cd.retryAt > now) this.notEntitled(c.name, splitAccount(cd.model).model, false);
+        if (cd.scope !== 'model' || !cd.model || !NOT_ON_PLAN.has(cd.reason) || !cd.retryAt || cd.retryAt <= now) continue;
+        const model = splitAccount(cd.model).model;
+        if (this.creds.get(c.name)?.stale?.has(`${model}@${cd.retryAt}`)) continue;
+        this.notEntitled(c.name, model, false);
+        this.pendingBare.delete(model);
       }
+    }
+    // a refused bare id no plan's cooldown named after a read: grey it out everywhere, as before
+    for (const [model, p] of this.pendingBare) {
+      // shortcut: a read already under way may predate the refusal, so give it 3 s; a slower read would grey it out early
+      if (now - p.at < 3_000) continue;
+      this.pendingBare.delete(model);
+      this.refused.set(model, { reason: p.reason, until: now + REFUSED_MS });
+      log.warn(`${PROVIDER_ID}/${model}: ${p.reason}; no plan was named, the pickers show it as unavailable`);
     }
   }
 
@@ -1828,7 +1846,7 @@ export class CliproxyManager {
       this.wrap(err);
     }
     const ttl = start.expiresIn ? start.expiresIn * 1000 : 10 * 60_000;
-    const s: SignIn = { state: start.state, provider: id, flow: start.flow, url: start.url, userCode: start.userCode, expiresAt: Date.now() + ttl, status: 'wait', before: new Set(this.accounts.map((a) => a.name)), caught: false, mgmt, actor, at: Date.now() };
+    const s: SignIn = { state: start.state, provider: id, flow: start.flow, url: start.url, userCode: start.userCode, expiresAt: Date.now() + ttl, status: 'wait', before: new Set(this.accounts.map((a) => a.name)), caught: false, mgmt, actor, stamps: new Map(this.raw.map((c) => [c.name, c.updatedAt])) };
     if (start.flow === 'redirect') {
       const r = redirectOf(start.url);
       if (r) {
@@ -1903,14 +1921,17 @@ export class CliproxyManager {
     }
     await this.syncModels().catch(() => undefined);
     await this.syncAccounts();
-    // signed in again: what it could not run is asked again (a plan upgrade), CLIProxyAPI's cooldowns on it too
+    // signed in again (its file written since, same type): what it could not run is asked again (a plan upgrade).
+    // shortcut: a token refresh of a same-type plan during the sign-in looks the same; it costs one refused turn
     let again = false;
+    const type = SIGN_IN_VIA[s.provider] ?? s.provider;
     for (const c of this.raw) {
       const st = this.creds.get(c.name);
-      if (!st?.notOn?.size || !(c.updatedAt && c.updatedAt >= s.at)) continue;
+      if (!st?.notOn?.size || c.provider !== type || !s.stamps.has(c.name) || c.updatedAt === s.stamps.get(c.name)) continue;
       st.notOn.clear();
+      // its old not-supported cooldowns stay in the proxy (a reset would clear its quota ones too): they are not read again
+      st.stale = new Set((c.cooldowns ?? []).filter((cd) => cd.scope === 'model' && cd.model && NOT_ON_PLAN.has(cd.reason)).map((cd) => `${splitAccount(cd.model!).model}@${cd.retryAt}`));
       again = true;
-      if (c.authIndex && s.mgmt.apiVersion === 'v8') await s.mgmt.resetCooldown(c.authIndex).catch((err) => log.debug(`cooldown reset after a sign-in: ${(err as Error).message}`));
       log.info(`${PROVIDER_ID}: ${this.planName(c)} was signed in again; the models it could not run are offered again`);
     }
     if (again) (this.saveNotOn(), this.feedAccounts(), this.applyProvider());
