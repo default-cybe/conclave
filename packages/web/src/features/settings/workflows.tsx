@@ -45,7 +45,8 @@ export function WorkflowsBody({ values }: { values: Partial<Record<LimitKey, num
       help="Only workflow agents count here. A Task subagent started from a chat is not held by these caps. Extra calls wait in a queue and still finish. A higher number can hit a plan's rate limits sooner."
     >
       {ROWS.map((r) => (
-        <LimitRow key={r.key} row={r} saved={values[r.key] ?? undefined} />
+        // keyed on the saved value: a config that loads late or changes elsewhere replaces what the field shows
+        <LimitRow key={`${r.key}:${values[r.key] ?? 'default'}`} row={r} saved={values[r.key] ?? undefined} />
       ))}
     </Group>
   );
