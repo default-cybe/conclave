@@ -82,6 +82,7 @@ const SETTINGS_SECTIONS: Array<[string, string, string]> = [
   ['remote', 'Remote access', 'phone away from home anywhere tunnel cloudflare tailscale address url network wifi'],
   ['friends', 'Friends', 'friend invite link qr code safety code verify notes other hubs people share'],
   ['about', 'About', 'version hub client connection'],
+  ['workflows', 'Workflows and subagents', 'subagents agents parallel concurrency limit per provider workflow max queue hub at once'],
 ];
 
 /** The settings a member has (docs/design/ACCOUNTS.md 10); the rest are the hub owner's. */

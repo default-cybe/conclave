@@ -86,14 +86,14 @@ describe("the index's groups and search", () => {
     expect(g[2].items.map((x) => x.id)).toEqual(['remote', 'about']);
   });
 
-  test("the report's tree: all 30 section ids once each, every one a real section, and only Advanced folded", () => {
+  test("the report's tree: all 31 section ids once each, every one a real section, and only Advanced folded", () => {
     const ids = SETTINGS_GROUPS.flatMap((g) => g.ids);
-    expect(ids.length).toBe(30);
-    expect(new Set(ids).size).toBe(30);
+    expect(ids.length).toBe(31);
+    expect(new Set(ids).size).toBe(31);
     const src = readFileSync(join(import.meta.dir, '../src/features/settings/SettingsPage.tsx'), 'utf8');
     for (const id of ids) expect(src).toContain(`id: '${id}',`);
     expect(SETTINGS_GROUPS.filter((g) => g.folded).map((g) => g.label)).toEqual(['Advanced']);
-    expect(SETTINGS_GROUPS.find((g) => g.label === 'Advanced')!.ids).toEqual(['accounts', 'refusal', 'usage', 'security', 'gateway', 'secrets', 'logs']);
+    expect(SETTINGS_GROUPS.find((g) => g.label === 'Advanced')!.ids).toEqual(['accounts', 'refusal', 'usage', 'security', 'gateway', 'secrets', 'workflows', 'logs']);
     expect(groupSections([{ id: 'logs' }]).map((g) => [g.label, g.folded])).toEqual([['Advanced', true]]);
     // usage keeps its id and address; its name says what it does
     expect(src).toContain("label: 'Limit fallback'");
@@ -123,6 +123,18 @@ describe("the index's groups and search", () => {
     expect(searchSections(sections, 'update').map((x) => x.id)).toEqual(['about']);
     expect(searchSections(sections, 'KEYS hub').map((x) => x.id)).toEqual(['providers']);
     expect(searchSections(sections, 'nothing like this')).toEqual([]);
+  });
+
+  test('Workflows and subagents is under Advanced, owner-only, and both searches find it', () => {
+    const wf = { id: 'workflows', label: 'Workflows and subagents', desc: 'How many workflow agents run at once.' };
+    expect(groupSections([...sections, wf]).find((g) => g.label === 'Advanced')!.items.map((x) => x.id)).toEqual(['workflows']);
+    for (const q of ['subagents', 'concurrency', 'per provider', 'advanced', 'parallel']) expect(searchSections([...sections, wf], q).map((x) => x.id)).toEqual(['workflows']);
+    const page = readFileSync(join(import.meta.dir, '../src/features/settings/SettingsPage.tsx'), 'utf8');
+    expect(page).toMatch(/id: 'workflows',[\s\S]*?owner: true,\n  \},/);
+    // Ctrl K lists it for the owner only (not in MEMBER_SETTINGS)
+    const palette = readFileSync(join(import.meta.dir, '../src/components/CommandPalette.tsx'), 'utf8');
+    expect(palette).toMatch(/\['workflows', 'Workflows and subagents', '[^']*subagents/);
+    expect(palette).not.toMatch(/MEMBER_SETTINGS = new Set\([^)]*'workflows'/);
   });
 
   test('Import & export opens the Data group, and search finds it', () => {

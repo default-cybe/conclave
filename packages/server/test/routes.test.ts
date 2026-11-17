@@ -265,6 +265,11 @@ describe('other routes', () => {
     expect(await status(client.request('PATCH', '/api/config', { browser: { profiles: { stealth: { engine: 'firefox' } } } }))).toBe(400);
     expect(await status(client.request('PATCH', '/api/config', { browser: { cloak: { sha256: 'abc' } } }))).toBe(400);
     expect(hub.engine.config.get().browser.cloak?.sha256).toBe('a'.repeat(64));
+    // workflow caps (Settings > Advanced > Workflows and subagents): whole numbers in range only
+    await client.updateConfig({ workflows: { hubMax: 24 } } as never);
+    expect(hub.engine.config.get().workflows?.hubMax).toBe(24);
+    for (const bad of [0, -1, 2.5, 65]) expect(await status(client.request('PATCH', '/api/config', { workflows: { hubMax: bad } }))).toBe(400);
+    expect(hub.engine.config.get().workflows?.hubMax).toBe(24);
 
     expect(await client.notifyChannels()).toEqual([{ id: 'webpush', enabled: true }]);
     await client.testNotify();

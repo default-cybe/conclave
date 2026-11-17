@@ -43,4 +43,13 @@ describe('conclave config set', () => {
     expect(r.code).toBe(0);
     expect(JSON.parse(readFileSync(join(home, 'config.json'), 'utf8'))).toEqual({ server: { port: 7799 } });
   });
+
+  test('a workflow cap out of range is refused with the range before it is sent, with or without a hub, and never written', async () => {
+    for (const port of [new URL(hub.url).port, '1']) {
+      const r = await run(port, OWNER, 'workflows.concurrency', '0');
+      expect(r.code).not.toBe(0);
+      expect(r.stderr).toContain('workflows.concurrency must be a whole number from 1 to 16.');
+    }
+    expect(JSON.parse(readFileSync(join(home, 'config.json'), 'utf8'))).toEqual({ server: { port: 7799 } });
+  });
 });

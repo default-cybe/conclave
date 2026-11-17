@@ -256,11 +256,15 @@ stopped at its budget gives it a fresh budget.
 
 | Setting | Default | What it limits |
 | --- | --- | --- |
-| `workflows.concurrency` | 8 (16 at most) | Agents at once in one run. |
-| `workflows.perProvider` | 6 | Agents at once on one provider, across runs. |
-| `workflows.hubMax` | 16 | Workflow agents at once on the hub. |
-| `workflows.maxAgents` | 1000 | Agents in one run. |
+| `workflows.concurrency` | 8 (1 to 16) | Agents at once in one run. |
+| `workflows.perProvider` | 6 (1 to 32) | Agents at once on one provider, across runs. |
+| `workflows.hubMax` | 16 (1 to 64) | Workflow agents at once on the hub. |
+| `workflows.maxAgents` | 1000 (1 to 10,000) | Agents in one run. |
 | `workflows.autoApproveTokens` | 2,000,000 | The largest estimate Ultra starts without asking. |
+
+The owner sets the first four in Settings > Advanced > Workflows and
+subagents, or with `conclave config set`; the hub refuses a value out of
+range. A Task subagent started from a chat does not count against them.
 
 When a cap holds calls back, the run log says which one, once.
 
