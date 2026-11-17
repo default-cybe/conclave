@@ -172,6 +172,7 @@ export class WorkflowService {
   caps: RunCaps = {};
   private offBus?: () => void;
   private offExt?: () => void;
+  private offConfig?: () => void;
   private stallTimer?: ReturnType<typeof setInterval>;
 
   constructor(
@@ -183,6 +184,8 @@ export class WorkflowService {
     this.registry = new WorkflowRegistry({ ...deps, home, claudeCodeCompat: () => !!engine.config.get().compat?.claudeCode });
     const cfg = () => engine.config.get().workflows ?? {};
     this.hubSemaphore = new Semaphore(cfg().hubMax ?? DEFAULTS.hubMax);
+    // a new hubMax applies at once: a higher one starts calls that wait, a lower one holds new calls
+    this.offConfig = engine.config.onChange(() => this.hubSemaphore.setLimit(cfg().hubMax ?? DEFAULTS.hubMax));
     this.providerSemaphores = new SemaphoreMap(() => cfg().perProvider ?? DEFAULTS.perProvider);
     this.worktreeSemaphores = new SemaphoreMap(() => DEFAULTS.worktreesPerDevice);
     setWorkflows(engine, this);
@@ -276,6 +279,7 @@ export class WorkflowService {
     await Promise.race([Promise.all([...this.live.values()].map((r) => r.done)), new Promise((r) => setTimeout(r, 3000))]);
     this.offBus?.();
     this.offExt?.();
+    this.offConfig?.();
     if (this.stallTimer) clearInterval(this.stallTimer);
   }
 

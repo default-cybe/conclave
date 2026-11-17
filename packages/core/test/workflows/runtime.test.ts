@@ -114,6 +114,26 @@ test('budget.total is null and remaining() Infinity without a target', async () 
   expect(run.result).toEqual({ total: null, inf: true });
 });
 
+test('a new workflows.hubMax applies without a restart: a raise starts a waiting call', async () => {
+  const hub = svcOf(t.engine).hubSemaphore;
+  t.engine.config.update({ workflows: { hubMax: 1 } });
+  try {
+    const first = await hub.acquire();
+    expect(hub.full).toBe(true);
+    let started = false;
+    const second = hub.acquire().then((r) => ((started = true), r));
+    await Bun.sleep(0);
+    expect(started).toBe(false);
+    t.engine.config.update({ workflows: { hubMax: 2 } });
+    (await second)();
+    expect(started).toBe(true);
+    first();
+  } finally {
+    t.engine.config.update({ workflows: { hubMax: null } } as never);
+  }
+  expect(hub.full).toBe(false);
+});
+
 test('the agent cap error starts with the text scan.js matches', async () => {
   t.engine.config.update({ workflows: { maxAgents: 3 } });
   try {

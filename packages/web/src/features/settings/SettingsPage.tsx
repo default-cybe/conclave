@@ -62,6 +62,7 @@ import { MemberProvidersSection, PeopleSection, YourAccountSection } from './peo
 import { useIsOwner } from '@/lib/people';
 import { useModeOn } from '@/features/home/modes';
 import { LogsSection } from './logs';
+import { WorkflowsSection } from './workflows';
 import { FriendsSection } from '@/features/friends/FriendsSection';
 import { FriendPage } from '@/features/friends/FriendPage';
 import { ImportExportTab } from '@/features/memory/ImportExport';
@@ -293,6 +294,14 @@ const ALL_SECTIONS: SectionDef[] = [
     label: 'About',
     desc: 'This hub, this client and the connection between them.',
     C: AboutSection,
+  },
+  {
+    id: 'workflows',
+    label: 'Workflows and subagents',
+    desc: 'How many workflow agents run at once, per run, per provider and on the hub, and how many one run may start.',
+    C: WorkflowsSection,
+    // hub-wide caps (PATCH /api/config is the owner's)
+    owner: true,
   },
   {
     id: 'logs',

@@ -17,7 +17,7 @@ export const SETTINGS_GROUPS: Array<{ label: string; ids: string[]; folded?: boo
   { label: 'Tools and apps', ids: ['websearch', 'github', 'browser', 'apps'] },
   { label: 'Hub and people', ids: ['people', 'friends', 'remote', 'computer', 'about'] },
   { label: 'Data', ids: ['data', 'audit'] },
-  { label: 'Advanced', ids: ['accounts', 'refusal', 'usage', 'security', 'gateway', 'secrets', 'logs'], folded: true },
+  { label: 'Advanced', ids: ['accounts', 'refusal', 'usage', 'security', 'gateway', 'secrets', 'workflows', 'logs'], folded: true },
 ];
 
 /** The group names before the regroup: docs and old habits still use them, so search finds their sections. */
@@ -70,6 +70,7 @@ const KEYWORDS: Record<string, string> = {
   computer: 'files shells desktop app',
   about: 'version update updates startup hub client connection backup setup run setup again set up later extension packs coding agents past chats starter routines',
   logs: 'debug download errors',
+  workflows: 'subagents agents parallel concurrency limit per provider workflow max queue hub at once rate',
 };
 
 /** The sections whose name, line or keywords hold every word typed. */

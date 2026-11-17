@@ -1,5 +1,6 @@
 import type { PermissionMode, JuryConfig, RemoteMode } from '../types';
 import type { BrowserProxyConfig } from '../browser/proxy-provider';
+import { DEFAULTS as WF } from '../workflows/limits';
 
 /**
  * Provider wire types.
@@ -947,3 +948,31 @@ export const DEFAULT_CONFIG: ConclaveConfig = {
   updates: { auto: true, window: 'idle', check: true },
   ui: { theme: 'system' },
 };
+
+/**
+ * The workflow caps Settings > Advanced > Workflows and subagents edits, with
+ * their defaults and the most each may be. 0 or less would stall every run,
+ * and the hub is small (2 cores), so each has a ceiling.
+ */
+export const WORKFLOW_LIMITS = {
+  concurrency: { default: WF.concurrency, max: WF.maxConcurrency },
+  perProvider: { default: WF.perProvider, max: 32 },
+  hubMax: { default: WF.hubMax, max: 64 },
+  maxAgents: { default: WF.maxAgents, max: 10_000 },
+} as const;
+
+/**
+ * What is wrong with a config patch's `workflows` part, or undefined. Each
+ * cap is a whole number from 1 to its max; null resets it to the default.
+ * PATCH /api/config (so `conclave config set` too) refuses a patch with one.
+ */
+export function workflowsProblem(workflows: unknown): string | undefined {
+  if (workflows === undefined || workflows === null) return undefined;
+  if (typeof workflows !== 'object' || Array.isArray(workflows)) return 'workflows must be an object.';
+  for (const [key, { max }] of Object.entries(WORKFLOW_LIMITS)) {
+    const v = (workflows as Record<string, unknown>)[key];
+    if (v === undefined || v === null) continue;
+    if (typeof v !== 'number' || !Number.isInteger(v) || v < 1 || v > max) return `workflows.${key} must be a whole number from 1 to ${max}.`;
+  }
+  return undefined;
+}

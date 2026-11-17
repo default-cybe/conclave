@@ -19,7 +19,7 @@ const notice = (meta: Record<string, unknown>): Message => ({ id: 'n1', sessionI
 
 describe('Refusal fallback in Settings', () => {
   test('it sits under Advanced, and "safety priority" finds it', () => {
-    expect(SETTINGS_GROUPS.find((g) => g.label === 'Advanced')!.ids).toEqual(['accounts', 'refusal', 'usage', 'security', 'gateway', 'secrets', 'logs']);
+    expect(SETTINGS_GROUPS.find((g) => g.label === 'Advanced')!.ids).toEqual(['accounts', 'refusal', 'usage', 'security', 'gateway', 'secrets', 'workflows', 'logs']);
     const sections = [
       { id: 'accounts', label: 'Accounts', desc: 'Which plan or key takes each call.' },
       { id: 'refusal', label: 'Refusal fallback', desc: 'When a model refuses, the same messages go to the next model on your list. Your words are never changed.' },

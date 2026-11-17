@@ -590,7 +590,7 @@ export class LiveRun {
       if (this.semaphore.full) this.logCap('run', `concurrency cap: ${this.semaphore.inUse} calls in flight, more wait (workflows.concurrency)`);
       releases.push(await this.semaphore.acquire(callController.signal));
       const hub = this.svc.hubSemaphore;
-      if (hub.full) this.logCap('hub', 'hub cap: 16 workflow calls in flight across the hub, more wait (workflows.hubMax)');
+      if (hub.full) this.logCap('hub', `hub cap: ${this.engine.config.get().workflows?.hubMax ?? DEFAULTS.hubMax} workflow calls in flight across the hub, more wait (workflows.hubMax)`);
       releases.push(await hub.acquire(callController.signal));
       const provider = this.providerOf(spec);
       const ps = this.svc.providerSemaphores.get(provider);

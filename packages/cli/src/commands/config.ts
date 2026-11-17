@@ -1,7 +1,7 @@
 /** `conclave config`, `conclave secret`, `conclave pair-phone`, `conclave web`. */
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
-import { parseJsonc, DEFAULT_CONFIG, deepMerge, SECRET_NAME, secretPrefix } from '@conclave/core/config/index.ts';
+import { parseJsonc, DEFAULT_CONFIG, deepMerge, SECRET_NAME, secretPrefix, workflowsProblem } from '@conclave/core/config/index.ts';
 import { formatFingerprint, type SearchKeyDto } from '@conclave/core/client/index.ts';
 import { out as p } from '../ansi';
 import { bool, str, type ParsedArgs } from '../args';
@@ -112,6 +112,9 @@ export async function configCommand(args: ParsedArgs): Promise<number> {
     if (!raw) throw new CliError('Missing value. Usage: conclave config set <path> <json>');
     const value = parseValue(raw);
     const patch = patchFor(path, value);
+    // the hub refuses it too; checked here so a hub that is down does not get it in the file
+    const bad = workflowsProblem(patch.workflows);
+    if (bad) throw new CliError(bad);
     try {
       // connectHub, not getClient: getClient turns HubUnavailableError into a CliError
       const { client } = await connectHub({ flags: hubFlags(args), autostart: false });
