@@ -32,7 +32,7 @@ import { seesImages } from '../providers/common';
 import { pickedName } from '../attachments/prepare';
 import { refusalPlanFor } from './member-fallbacks';
 import { refusalStepOf, refusalWords, RefusalWalk, servedLabel, stepOfTarget, type FallbackTarget } from './refusal-fallback';
-import { checkPermission, dangerousCommand } from './permissions';
+import { checkPermission, dangerousCommand, machineShell } from './permissions';
 import { ReadTool } from '../tools/read';
 import { maybeCompact, estimateRequestTokens, meteredTokens, partHash, type TokenMeter } from './compaction';
 import { applyClearing } from './context-edit';
@@ -1975,6 +1975,8 @@ export class SessionRunner {
     const home = (await engine.machineHome(machine)) ?? '/';
     // a moved session's file tools map old paths to the current folder, so rules judge the path the tool will touch
     const oldRoots = engine.runnerExtensions.toolContext(session).pathMap?.roots;
+    // cmd.exe reads quotes and separators unlike bash, so a command is judged in the shell it runs in
+    const shell = machineShell(machine);
     const judge = (inp: Record<string, any>) => {
       let content: string | undefined;
       try {
@@ -1992,6 +1994,7 @@ export class SessionRunner {
         cwd: session.cwd,
         home,
         workspaceRoots: [session.cwd, ...cfg.permissions.additionalDirectories],
+        shell,
       });
     };
     let decision: { decision: 'allow' | 'ask' | 'deny'; reason: string };
@@ -2111,6 +2114,11 @@ export class SessionRunner {
 
     // follow the shell's working directory
     if (tool.name === 'Bash' && typeof output.meta?.cwd === 'string') this.shellCwd = output.meta.cwd;
+    // a followed folder that is gone (deleted, or a path from an older shell) would fail every later call: start over in the session's folder
+    else if (tool.name === 'Bash' && output.isError && this.shellCwd && this.shellCwd !== session.cwd && typeof output.content === 'string' && output.content.includes('Working directory does not exist:')) {
+      this.shellCwd = session.cwd;
+      output = { ...output, content: `${output.content}\n\nThe shell's working directory is reset to ${session.cwd}. Run the command again.` };
+    }
 
     // offload large text output
     const meta = { ...(output.meta ?? {}), durationMs: Date.now() - started, ...callMeta };

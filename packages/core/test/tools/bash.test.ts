@@ -1,7 +1,7 @@
 import { afterAll, describe, expect, test } from 'bun:test';
 import { mkdirSync, realpathSync } from 'node:fs';
 import { join } from 'node:path';
-import { BashTool, isBlockingWait, windowsCwd, wrapCmdCommand, wrapCommand } from '../../src/tools/bash';
+import { BashTool, isBlockingWait, wrapCmdCommand, wrapCommand } from '../../src/tools/bash';
 import type { Machine } from '../../src/machine/types';
 import { BashOutputTool } from '../../src/tools/bash-output';
 import { KillShellTool } from '../../src/tools/kill-shell';
@@ -180,30 +180,29 @@ describe('Bash', () => {
     expect(other.isError).toBe(true);
   });
 
-  test('a Git Bash cwd on a Windows session comes back in Windows form', () => {
-    expect(windowsCwd('/c/Users/me/src', 'C:\\Users\\me')).toBe('C:\\Users\\me\\src');
-    expect(windowsCwd('/d', 'C:\\Users\\me')).toBe('D:\\');
-    expect(windowsCwd('/c/Users/me', '/home/me')).toBe('/c/Users/me');
-    expect(windowsCwd('/home/me/src', '/home/me')).toBe('/home/me/src');
-  });
-
   test('a cmd.exe device gets the cmd wrapper; the cwd marker and exit code come back', async () => {
     const sent: Array<{ command: string; env?: Record<string, string> }> = [];
+    let script = '';
+    let removed = '';
     const machine = {
       id: 'win',
       lastInfo: { shell: 'C:\\WINDOWS\\system32\\cmd.exe' },
+      writeFile: async (_path: string, data: string) => { script = data; },
+      remove: async (path: string) => { removed = path; },
       exec: async (command: string, opts: { env?: Record<string, string> }) => {
         sent.push({ command, env: opts.env });
-        const marker = /(__CONCLAVE_CWD_\w+__)/.exec(command)![1];
+        if (command === 'chcp 65001 >nul & set TEMP') return { exitCode: 0, stdout: 'TEMP=C:\\Temp\r\n', stderr: '' };
+        const marker = /(__CONCLAVE_CWD_\w+__)/.exec(script)![1];
         return { exitCode: 2, stdout: 'File Not Found\r\n', stderr: `nope\r\n${marker}D:\\proj\\sub \r\n`, timedOut: false, aborted: false, durationMs: 5 };
       },
     } as unknown as Machine;
     const out = await BashTool.run({ command: 'cd sub\ndir x' }, makeCtx({ cwd: 'D:\\proj', machine }));
-    const { command } = sent[0]!;
-    const marker = /(__CONCLAVE_CWD_\w+__)/.exec(command)![1]!;
-    expect(command).toBe(wrapCmdCommand(marker, 'cd sub\ndir x'));
-    expect(command).toBe(`(cd sub & dir x) & call set __cc_ec=%^errorlevel%& call echo ${marker}%^CD% 1>&2 & call exit %^__cc_ec%`);
-    expect(command).not.toContain('exec 3>&2');
+    const { command, env } = sent[1]!;
+    const marker = /(__CONCLAVE_CWD_\w+__)/.exec(script)![1]!;
+    expect(script).toBe(wrapCmdCommand(marker, 'cd sub\ndir x'));
+    expect(command).toBe('"%__CONCLAVE_SCRIPT%"');
+    expect(env?.__CONCLAVE_CMD).toBe('cd sub\ndir x');
+    expect(removed).toBe(env!.__CONCLAVE_SCRIPT!);
     expect(out.isError).toBe(true);
     expect(out.meta?.exitCode).toBe(2);
     expect(out.meta?.cwd).toBe('D:\\proj\\sub');
@@ -212,10 +211,35 @@ describe('Bash', () => {
     expect(text(out)).toContain('nope');
   });
 
-  test('the cmd wrapper joins lines so an if, a block, rem and a trailing & keep the marker', () => {
-    const tail = ' & call set __cc_ec=%^errorlevel%& call echo M%^CD% 1>&2 & call exit %^__cc_ec%';
-    expect(wrapCmdCommand('M', 'if exist x echo y')).toBe(`(if exist x echo y)${tail}`);
-    expect(wrapCmdCommand('M', 'rem setup\r\n:: note\r\ncd /d D:\\w &\r\n\r\nif exist a (\r\n  echo a\r\n) else (\r\n  echo b\r\n)')).toBe(`(cd /d D:\\w & if exist a ( echo a ) else ( echo b ))${tail}`);
+  test('cmd temporary scripts are removed on write or execution failure', async () => {
+    for (const stage of ['write', 'exec']) {
+      let removed = '';
+      let scriptPath = '';
+      const machine = {
+        id: 'win',
+        lastInfo: { shell: 'cmd.exe' },
+        writeFile: async (path: string) => {
+          scriptPath = path;
+          if (stage === 'write') throw new Error('write failed');
+        },
+        remove: async (path: string) => { removed = path; },
+        exec: async (command: string) => {
+          if (command.includes('set TEMP')) return { exitCode: 0, stdout: 'TEMP=C:\\Temp & More\r\nTEMP_OTHER=ignored\r\n' };
+          throw new Error('exec failed');
+        },
+      } as unknown as Machine;
+      const out = await BashTool.run({ command: 'echo hi' }, makeCtx({ cwd: 'D:\\proj', machine }));
+      expect(out.isError).toBe(true);
+      expect(text(out)).toContain(`${stage} failed`);
+      expect(removed).toBe(scriptPath);
+      expect(removed).toStartWith('C:\\Temp & More\\');
+    }
+  });
+
+  test('the cmd batch wrapper preserves lines and does not nest user parentheses', () => {
+    const command = 'rem setup\n:: note\nif exist a (\n  echo 100%% (a)\n) else (\n  echo b\n)';
+    expect(wrapCmdCommand('M', command)).toContain(`:__conclave_run\r\n${command.replace(/\n/g, '\r\n')}\r\nexit /b\r\n`);
+    expect(wrapCmdCommand('M', command)).toContain('set "__conclave_exit=%errorlevel%"');
   });
 
   test('a bash device still gets the POSIX wrapper', async () => {

@@ -20,7 +20,7 @@ import { accountOf, ownDevice } from './scope';
 const MAX_PATH = 4096;
 
 /** A folder path from a body or query: a string of sane length with no NUL or line break (it goes into a shell on the device). */
-function pathString(v: unknown, name: string): string {
+export function pathString(v: unknown, name: string): string {
   const s = requireString(v, name);
   if (s.length > MAX_PATH) throw badRequest(`${name} is longer than ${MAX_PATH} characters`);
   if (/[\u0000\r\n]/.test(s)) throw badRequest(`${name} has a NUL or line break in it`);
@@ -133,6 +133,20 @@ export function registerProjectRoutes(app: Hono<HonoEnv>, ctx: ServerContext, au
   });
 
   app.get('/api/projects', (c) => c.json(svc().list(accountOf(c))));
+
+  // Add as project (the folder picker): a folder on a device of the caller's own becomes their project
+  app.post('/api/projects', async (c) => {
+    const body = await readJson<Record<string, unknown>>(c);
+    const device = requireString(body.device, 'device');
+    known(c, device);
+    const path = pathString(body.path, 'path');
+    const name = optString(body.name, 'name') ?? '';
+    // control and direction-override characters would spoof the name in lists and the audit log
+    if (name.length > 200 || /[\u0000-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/.test(name)) throw badRequest('name must be one line of at most 200 characters');
+    const project = await svc().add(device, path, name, accountOf(c));
+    audit(c, 'project.add', `${project.name} ${device} ${path}`, { device });
+    return c.json(project);
+  });
 
   app.get('/api/projects/:id', (c) => {
     const p = svc().get(c.req.param('id'));

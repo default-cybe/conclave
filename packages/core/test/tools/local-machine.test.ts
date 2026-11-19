@@ -1,7 +1,7 @@
 import { afterAll, describe, expect, test } from 'bun:test';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { LocalMachine, findWindowsBash, shellArgv } from '../../src/machine/local';
+import { LocalMachine, shellArgv } from '../../src/machine/local';
 import { tempDir } from './helpers';
 
 const m = new LocalMachine();
@@ -102,17 +102,10 @@ describe('LocalMachine', () => {
     expect(shellArgv('/usr/bin/bash', 'ver')).toEqual(['/usr/bin/bash', '-c', 'ver']);
   });
 
-  test('Windows shell: Git Bash, not the WSL launcher', () => {
-    const which = (paths: Record<string, string>) => (n: string) => paths[n] ?? null;
-    const gitBash = 'C:\\Program Files\\Git\\bin\\bash.exe';
-    expect(findWindowsBash({ ProgramFiles: 'C:\\Program Files' }, which({ bash: 'C:\\Windows\\System32\\bash.exe' }), (p) => p === gitBash)).toBe(gitBash);
-    expect(findWindowsBash({}, which({ git: 'D:\\Git\\cmd\\git.exe' }), (p) => p === 'D:\\Git\\bin\\bash.exe')).toBe('D:\\Git\\bin\\bash.exe');
-    expect(findWindowsBash({}, which({}), () => true)).toBeUndefined();
-  });
-
   test('info lists platform and cached CLIs', async () => {
     const info = await m.info();
     expect(info.platform).toBe(process.platform);
+    expect(info.shell).toBe(m.shell());
     expect(info.home).toBe(homedir());
     expect(info.clis.bun).toMatch(/^\d+\.\d+/);
     const again = await m.info();

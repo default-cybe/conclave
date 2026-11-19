@@ -52,6 +52,7 @@ function stub(): void {
     unpin: (id: string, device: string, path: string) => (calls.push({ method: 'unpin', args: [id, device, path] }), { id, name: 'portfolio', locations: [] }),
     deviceFolders: async (device: string) => ({ device, locations: [] }),
     deletePrefix: (id: string) => id === 'pfx_1',
+    add: async (device: string, path: string, name: string, acct: string) => (calls.push({ method: 'add', args: [device, path, name, acct] }), { id: 'prj_new', name, locations: [] }),
   };
   setProjects(hub.engine, svc as unknown as ProjectsService);
 }
@@ -120,5 +121,15 @@ describe('with the service', () => {
     expect((await hub.api('/api/devices/nope/folders')).status).toBe(404);
     expect((await hub.api('/api/devices/mac/folders')).status).toBe(200);
     expect((await hub.api('/api/projects', { token: null })).status).toBe(401);
+  });
+
+  test('Add as project checks the device, path and name, then passes them on with the account', async () => {
+    expect((await hub.api('/api/projects', { method: 'POST', json: { device: 'nope', path: '~/x', name: 'x' } })).status).toBe(404);
+    expect((await hub.api('/api/projects', { method: 'POST', json: { device: 'mac', path: '~/x\n/y', name: 'x' } })).status).toBe(400);
+    expect((await hub.api('/api/projects', { method: 'POST', json: { device: 'mac', path: '~/x', name: 'a\nb' } })).status).toBe(400);
+    const r = await hub.api('/api/projects', { method: 'POST', json: { device: 'mac', path: '~/code/site', name: 'Site' } });
+    expect(r.status).toBe(200);
+    expect(((await r.json()) as { name: string }).name).toBe('Site');
+    expect(calls.find((c) => c.method === 'add')?.args).toEqual(['mac', '~/code/site', 'Site', 'owner']);
   });
 });

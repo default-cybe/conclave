@@ -40,7 +40,7 @@ import type { Session } from '../types';
 import type { Machine } from '../machine/types';
 import type { RunnerExtension } from './runner-ext';
 import { wantsVerifyGate, agentHooksAllowed } from '../extensions/agent-hooks';
-import { checkPermission } from './permissions';
+import { checkPermission, machineShell } from './permissions';
 import { BashTool } from '../tools/bash';
 import { logger } from '../util/log';
 
@@ -175,6 +175,7 @@ export async function mayRunProjectCommand(engine: Engine, session: Session, com
       cwd: session.cwd,
       home,
       workspaceRoots: [session.cwd],
+      shell: machineShell(machine),
     });
     return verdict.decision === 'allow';
   } catch {

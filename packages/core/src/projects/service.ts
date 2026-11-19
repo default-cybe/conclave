@@ -405,6 +405,55 @@ export class ProjectsService {
     return this.dto(this.store.get(p.id)!);
   }
 
+  /**
+   * Add as project (the folder picker): make a folder the account's project
+   * under the name the owner gave. A git repository or synced folder is
+   * known by its history; a plain folder gets a marker
+   * (.conclave/project.json) so it can be told apart later. A folder that is
+   * already a project of the account answers that project.
+   */
+  add(device: string, path: string, name: string, accountId: string = OWNER_ID): Promise<ProjectDto> {
+    // one add per device and path at a time: a second Select waits and finds the first one's project
+    const key = `${accountId}\n${device}\n${path}`;
+    const prev = this.adding.get(key) ?? Promise.resolve();
+    const run = prev.catch(() => undefined).then(() => this.addNow(device, path, name, accountId));
+    const tail = run.catch(() => undefined).finally(() => this.adding.get(key) === tail && this.adding.delete(key));
+    this.adding.set(key, tail);
+    return run;
+  }
+
+  private adding = new Map<string, Promise<unknown>>();
+
+  private async addNow(device: string, path: string, name: string, accountId: string): Promise<ProjectDto> {
+    const m = this.machine(device);
+    if (!m) throw new EngineError(409, `${this.deviceName(device)} is offline`);
+    const home = await this.engine.machineHome(m);
+    const abs = trimSlash(m.resolve(path, home ?? '/'));
+    // the home folder or the root as a project would make every folder under it that project
+    if (!abs || abs === '/' || /^[A-Za-z]:[\\/]?$/.test(abs) || (home && abs === trimSlash(home))) throw new EngineError(400, 'Pick a folder inside the home folder, not the home folder or the root');
+    let probe = await this.probe(device, abs);
+    if (!probe.exists) throw new EngineError(400, `${abs} does not exist on ${this.deviceName(device)}`);
+    const root = repoRoot(abs, probe);
+    const found = this.findProject(probe, device, root, accountId);
+    if (found) {
+      // the same history known from another place: this folder becomes one of its places too
+      if (!this.store.locations(found.id).some((l) => l.device === device && trimSlash(l.path) === root)) {
+        this.store.saveLocation(found.id, { device, path: root, via: 'pinned', pinned: true, head: probe.head });
+        this.emitProject(this.store.get(found.id)!);
+      }
+      return this.dto(this.store.get(found.id)!);
+    }
+    if (!this.identifiable(probe)) {
+      await m.writeFile(`${root}/.conclave/project.json`, `${JSON.stringify({ id: crypto.randomUUID() }, null, 2)}\n`);
+      probe = await this.probe(device, abs);
+    }
+    const p = this.store.create(name.trim() || probe.name, identityOf(probe), accountId);
+    this.store.saveLocation(p.id, { device, path: root, via: 'pinned', pinned: true, head: probe.head });
+    this.engine.audit(undefined, 'project.add', `${p.name}: ${device} ${root}`);
+    this.emitProject(p);
+    return this.dto(p);
+  }
+
   unpin(projectId: string, device: string, path: string): ProjectDto {
     const p = this.store.get(projectId);
     if (!p) throw new EngineError(404, `unknown project ${projectId}`);
@@ -508,7 +557,16 @@ export class ProjectsService {
         // a folder inside the repository: the repository is the location, the folder is the cwd
         hit = { ...r, path: repoRoot(path, r.probe) };
         cwd = r.path;
-      } else {
+      } else if (this.engine.repos.devices.sameMachine(s.device, toDevice) && (await target.stat(s.cwd).catch(() => null))?.type === 'dir') {
+        // the same computer paired again under a new id: its folder is this folder, path for path
+        const r = await check(ctx, src.root, 'same-path');
+        // another history at the path is not the same folder: the normal resolution and its mismatch guard decide
+        if (r && r.level !== 'mismatch') {
+          hit = { ...r, level: 'exact', line: 'The same folder on the same computer' };
+          cwd = s.cwd;
+        }
+      }
+      if (!hit) {
         const outcome = await resolveLocation(ctx);
         if (!outcome.hit) {
           const name = src.project?.name ?? baseName(src.root);

@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
@@ -17,7 +18,11 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -33,6 +38,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.conclave.app.data.CodeDefaults
@@ -47,10 +53,12 @@ import dev.conclave.client.folderGit
 import dev.conclave.client.github
 import dev.conclave.client.githubBranches
 import dev.conclave.client.githubRepos
+import dev.conclave.client.logic.Locations
 import dev.conclave.client.logic.Panel
 import dev.conclave.client.logic.Paths
 import dev.conclave.client.logic.RepoWords
 import dev.conclave.client.logic.Start
+import dev.conclave.client.model.FileEntry
 import dev.conclave.client.model.FolderGit
 import dev.conclave.client.model.GithubBranches
 import dev.conclave.client.model.GithubRepo
@@ -147,7 +155,11 @@ fun CodeWhereSheet(
     var typed by remember { mutableStateOf("") }
     var fromGithub by remember { mutableStateOf(github && (startGithub || d.repo != null)) }
     val device = d.device
-    val folders = remember(sessions, device) { if (device == null) emptyList() else Panel.recentFolders(sessions, device) }
+    val home = devices.firstOrNull { it.id == device }?.info?.home?.ifBlank { null }
+    // Recent as in Codex: the folder's name over its muted path (Panel.recentRows)
+    val rows = remember(sessions, device, home) { if (device == null) emptyList() else Panel.recentRows(sessions, device, home) }
+    val folders = rows.map { it.path }
+    var browsing by remember { mutableStateOf(false) }
     // the folder picked is asked of its device before Start; the hub refuses a missing one too (core machine/folder-check.ts)
     val chosen = if (fromGithub) null else d.cwd
     val online = device == Start.HUB || devices.firstOrNull { it.id == device }?.online == true
@@ -200,9 +212,10 @@ fun CodeWhereSheet(
                 HorizontalDivider(thickness = 1.dp, color = c.rule, modifier = Modifier.padding(top = 6.dp))
                 OptionLabel("Folder")
                 ChoiceRow("Home folder", selected = d.cwd == "~", onClick = { onChange(d.copy(cwd = "~", repo = null, base = null)) })
-                folders.forEach { f ->
-                    ChoiceRow(Paths.folderName(f), selected = d.cwd == f, detail = Paths.shortPath(f, 3), onClick = { onChange(d.copy(cwd = f, repo = null, base = null)) })
+                rows.forEach { r ->
+                    ChoiceRow(r.name, selected = d.cwd == r.path, detail = r.detail, onClick = { onChange(d.copy(cwd = r.path, repo = null, base = null)) })
                 }
+                ChoiceRow("Browse…", selected = false, onClick = { browsing = true })
                 Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
                     OutlinedTextField(
                         value = typed,
@@ -240,6 +253,12 @@ fun CodeWhereSheet(
                     if (!anyway) TextButton(onClick = { anyway = true }, modifier = Modifier.padding(horizontal = 12.dp)) { Text("Use anyway") }
                 }
             }
+            if (browsing && device != null) {
+                BrowseFolderSheet(device, deviceName, home, start = d.cwd, onSelect = {
+                    browsing = false
+                    onChange(d.copy(cwd = it, repo = null, base = null))
+                }, onDismiss = { browsing = false })
+            }
             Spacer(Modifier.height(8.dp))
             Button(
                 onClick = onDone,
@@ -247,6 +266,59 @@ fun CodeWhereSheet(
                 colors = solidButtonColors(),
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp).height(52.dp),
             ) { Text(done) }
+        }
+    }
+}
+
+/**
+ * Browse… in CodeWhereSheet: the device's folders over GET
+ * /api/devices/:device/files (as Choose folder does, FolderPickerSheet.kt).
+ * Tap a folder to go in, Up to go back, Select to use the folder shown.
+ */
+@Composable
+private fun BrowseFolderSheet(device: String, deviceName: String, home: String?, start: String?, onSelect: (String) -> Unit, onDismiss: () -> Unit) {
+    val hub = LocalAppContainer.current.hub
+    val c = Conclave.colors
+    var path by remember { mutableStateOf(Locations.expandTilde(start?.takeIf { it.isNotBlank() } ?: "~", home).ifBlank { home ?: "/" }) }
+    var entries by remember { mutableStateOf<List<FileEntry>?>(null) }
+    var error by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(path) {
+        entries = null
+        error = null
+        try {
+            entries = hub.api { it.browse(device, path) }.filter { it.type == "dir" || it.type == "symlink" }.filter { !it.name.startsWith(".") }.sortedBy { it.name.lowercase() }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            error = errorText(e)
+        }
+    }
+    val up = Locations.parentOf(path)
+    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true), containerColor = c.bgRaise) {
+        Column(Modifier.fillMaxWidth().navigationBarsPadding().padding(bottom = 16.dp)) {
+            Text("Open folder on $deviceName", style = ConclaveType.title, color = c.fg, modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp))
+            Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = { up?.let { path = it } }, enabled = up != null) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Up one folder")
+                }
+                Text(Locations.tildePath(path, home), style = CodeStyle, color = c.fg2, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+            }
+            HorizontalDivider(thickness = 1.dp, color = c.rule)
+            Column(Modifier.fillMaxWidth().heightIn(min = 120.dp, max = 420.dp).verticalScroll(rememberScrollState())) {
+                val list = entries
+                when {
+                    error != null -> Text(error.orEmpty(), style = ConclaveType.meta, color = c.fault, modifier = Modifier.padding(horizontal = 20.dp, vertical = 10.dp))
+                    list == null -> Text("Reading the folder", style = ConclaveType.meta, color = c.fg3, modifier = Modifier.padding(horizontal = 20.dp, vertical = 10.dp))
+                    list.isEmpty() -> Text("No folders in here.", style = ConclaveType.meta, color = c.fg3, modifier = Modifier.padding(horizontal = 20.dp, vertical = 10.dp))
+                    else -> list.forEach { e -> ChoiceRow(e.name, selected = false, onClick = { path = e.path.ifBlank { path.trimEnd('/') + "/" + e.name } }) }
+                }
+            }
+            Button(
+                onClick = { onSelect(Locations.tildePath(path, home)) },
+                enabled = error == null,
+                colors = solidButtonColors(),
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp).height(52.dp),
+            ) { Text("Select this folder") }
         }
     }
 }

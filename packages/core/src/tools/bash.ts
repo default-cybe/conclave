@@ -53,7 +53,8 @@ EOF
 export function wrapCommand(marker: string): string {
   return [
     'exec 3>&2 2>&1',
-    `trap '__cc_ec=$?; printf "\\n%s%s\\n" "${marker}" "$PWD" >&3; exit $__cc_ec' EXIT`,
+    // Git Bash's $PWD is /d/x; pwd -W gives the D:/x the daemon can use as a cwd
+    `trap '__cc_ec=$?; __cc_pwd=$PWD; case "$OSTYPE" in msys*|cygwin*) __cc_pwd=$(pwd -W 2>/dev/null || echo "$PWD");; esac; printf "\\n%s%s\\n" "${marker}" "$__cc_pwd" >&3; exit $__cc_ec' EXIT`,
     '__cc_cmd=$__CONCLAVE_CMD; unset __CONCLAVE_CMD',
     'eval "$__cc_cmd"',
   ].join('\n');
@@ -72,27 +73,22 @@ export function extractCwd(text: string, marker: string): { text: string; cwd?: 
   return { text: before + after, cwd: cwd || undefined };
 }
 
-/**
- * The same for cmd.exe (a Windows device without Git Bash), which has no exec,
- * trap or eval: the command runs inline, then the marker and %CD% go to stderr
- * and cmd exits with the command's errorlevel. `call` and `%^X%` delay the
- * expansion until that point (command-line mode keeps an unknown %^X%, the
- * caret goes, call expands again). The command's own stderr stays on stderr;
- * the tool appends it to stdout as it does for bash. cmd /c runs one line, so
- * lines are joined with & (not inside a ( ) block, and rem lines dropped, as
- * they would comment out the rest). The parentheses keep an if or for from
- * taking the marker into its body.
- * shortcut: an odd number of % or an unescaped ) outside quotes (echo (x)) breaks the line; fine for cmd use, a PowerShell host would avoid it.
- */
+/** Batch lines stay intact: wrapping or joining user text changes cmd's percent and parentheses parsing. */
 export function wrapCmdCommand(marker: string, command: string): string {
-  let body = '';
-  for (const raw of command.split(/\r?\n/)) {
-    let l = raw.trim();
-    while (l.endsWith('&')) l = l.slice(0, -1).trimEnd();
-    if (!l || /^(rem(\s|$)|::)/i.test(l)) continue;
-    body = !body ? l : body.endsWith('(') || l.startsWith(')') ? `${body} ${l}` : `${body} & ${l}`;
-  }
-  return `(${body}) & call set __cc_ec=%^errorlevel%& call echo ${marker}%^CD% 1>&2 & call exit %^__cc_ec%`;
+  return [
+    '@echo off',
+    'chcp 65001 >nul',
+    'call :__conclave_run',
+    'set "__conclave_exit=%errorlevel%"',
+    'setlocal DisableDelayedExpansion',
+    `>&2 <nul set /p "=${marker}%CD%"`,
+    '>&2 echo(',
+    'exit /b %__conclave_exit%',
+    ':__conclave_run',
+    command.replace(/\r?\n/g, '\r\n'),
+    'exit /b',
+    '',
+  ].join('\r\n');
 }
 
 /** The shell the device runs commands in (MachineInfo.shell): a paired device's from its hello, no round trip. */
@@ -104,15 +100,22 @@ async function deviceShell(ctx: ToolContext): Promise<string | undefined> {
   return (await ctx.machine.info().catch(() => undefined))?.shell;
 }
 
+/**
+ * The folder the next Bash call starts in, from what the shell printed. On a Windows
+ * session (cwd like D:\x) only a Windows path counts: D:/x becomes D:\x, Git Bash's
+ * /d/x becomes D:\x, and a Linux path (WSL's /mnt/d/x) is dropped, since the daemon
+ * could never start a shell there and every later call would fail.
+ */
+export function followCwd(reported: string | undefined, current: string): string | undefined {
+  if (!reported || !/^[A-Za-z]:[\\/]/.test(current)) return reported;
+  if (/^[A-Za-z]:[\\/]/.test(reported)) return reported.replace(/\//g, '\\');
+  const msys = /^\/([A-Za-z])(\/.*)?$/.exec(reported);
+  if (msys) return `${msys[1]!.toUpperCase()}:${(msys[2] ?? '\\').replace(/\//g, '\\')}`;
+  return undefined;
+}
+
 /** The egress gateway's proxy variables of a Security mode call (session/egress.ts), set by run() for the helpers below. */
 const egressOf = new WeakMap<ToolContext, Record<string, string>>();
-
-/** Git Bash on Windows prints /c/Users/me for C:\Users\me; a session in a Windows folder keeps the Windows form. */
-export function windowsCwd(cwd: string, sessionCwd: string): string {
-  const m = /^\/([a-zA-Z])(\/.*)?$/.exec(cwd);
-  if (!m || !/^[a-zA-Z]:[\\/]/.test(sessionCwd)) return cwd;
-  return `${m[1].toUpperCase()}:${(m[2] ?? '\\').replace(/\//g, '\\')}`;
-}
 
 function bashEnv(ctx: ToolContext, extra?: Record<string, string>): Record<string, string> {
   return {
@@ -146,25 +149,39 @@ async function runForeground(input: BashInput, ctx: ToolContext): Promise<ToolOu
   };
 
   const shell = await deviceShell(ctx);
-  const res = await ctx.machine.exec(shell && isCmd(shell) ? wrapCmdCommand(marker, input.command) : wrapCommand(marker), {
-    cwd: ctx.cwd,
-    env: bashEnv(ctx, { __CONCLAVE_CMD: input.command }),
-    timeoutMs,
-    signal: ctx.signal,
-    maxOutputBytes: MACHINE_OUTPUT_CAP,
-    onOutput: (chunk, stream) => {
-      if (stream !== 'stdout') return;
-      pending += chunk;
-      timer ??= setTimeout(flush, PROGRESS_FLUSH_MS);
-    },
-  });
-  if (timer) clearTimeout(timer);
-  flush();
+  let script: string | undefined;
+  let res;
+  try {
+    if (shell && isCmd(shell)) {
+      const temp = await ctx.machine.exec('chcp 65001 >nul & set TEMP', { cwd: ctx.cwd, timeoutMs: 5_000, signal: ctx.signal });
+      const dir = /^TEMP=([^\r\n]+)$/im.exec(temp.stdout)?.[1] ?? '';
+      if (temp.exitCode !== 0 || !/^(?:[A-Za-z]:[\\/]|\\\\)[^\r\n]+$/.test(dir)) return fail('Could not locate the Windows temporary folder.');
+      script = `${dir.replace(/[\\/]$/, '')}\\${marker}.cmd`;
+      await ctx.machine.writeFile(script, wrapCmdCommand(marker, input.command));
+    }
+    res = await ctx.machine.exec(script ? '"%__CONCLAVE_SCRIPT%"' : wrapCommand(marker), {
+      cwd: ctx.cwd,
+      env: bashEnv(ctx, { __CONCLAVE_CMD: input.command, ...(script ? { __CONCLAVE_SCRIPT: script } : {}) }),
+      timeoutMs,
+      signal: ctx.signal,
+      maxOutputBytes: MACHINE_OUTPUT_CAP,
+      onOutput: (chunk, stream) => {
+        if (stream !== 'stdout') return;
+        pending += chunk;
+        timer ??= setTimeout(flush, PROGRESS_FLUSH_MS);
+      },
+    });
+  } catch (err) {
+    return fail(`Could not run command: ${(err as Error).message}`);
+  } finally {
+    if (timer) clearTimeout(timer);
+    flush();
+    if (script) await ctx.machine.remove(script).catch(() => {});
+  }
 
   const err = extractCwd(res.stderr, marker);
   const out = extractCwd(res.stdout, marker);
-  const rawCwd = err.cwd ?? out.cwd;
-  const newCwd = rawCwd && windowsCwd(rawCwd, ctx.cwd);
+  const newCwd = followCwd(err.cwd ?? out.cwd, ctx.cwd);
   let full = out.text;
   if (err.text.trim()) full = full ? `${full.replace(/\n$/, '')}\n${err.text}` : err.text;
   full = full.replace(/\s+$/, '');

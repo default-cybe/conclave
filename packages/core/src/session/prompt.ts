@@ -188,11 +188,12 @@ export function workflowStepNote(session: Session): string | undefined {
 /** The Environment line on the device's OS and the shell the Bash tool runs in. */
 export function shellLine(platform: string, shell?: string): string {
   if (platform === 'win32') {
-    if (shell && /(^|[\\/])cmd(\.exe)?$/i.test(shell)) return '- Shell: Windows, commands run in cmd.exe (no bash): use Windows commands (dir, type, findstr, where) or PowerShell via powershell -NoProfile -Command';
-    return '- Shell: Windows with Git Bash: POSIX commands work; paths like D:\\x work as /d/x or D:/x';
+    if (shell && /(^|[\\/])cmd(\.exe)?$/i.test(shell)) return '- Shell: Windows cmd.exe (no bash). Foreground commands run as a batch script: use %%i in FOR loops, %% for a literal %, CALL for .cmd/.bat tools before more commands, and exit /b. Use dir, type, findstr, where or powershell -NoProfile -Command.';
+    if (shell && /(^|[\\/])bash(\.exe)?$/i.test(shell)) return '- Shell: Windows with Git Bash: POSIX commands work; paths like D:\\x work as /d/x or D:/x';
+    return `- Shell: Windows, ${shell ?? 'unknown (check before choosing shell syntax)'}`;
   }
   const os = platform === 'darwin' ? 'macOS' : platform === 'linux' ? 'Linux' : platform;
-  return `- Shell: ${os}, commands run in bash`;
+  return `- Shell: ${os}, commands run in ${shell ?? 'the device shell (not reported)'}`;
 }
 
 /**

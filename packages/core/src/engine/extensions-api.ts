@@ -48,7 +48,7 @@ import { claudeHome, codexHome, parseJsonc } from '../config';
 import type { AgentDef, HookInput, HookOutcome, InstalledPlugin, MarketplaceEntry, RuntimeHookCommand } from '../extensions/types';
 import type { Tool } from '../tools/types';
 import { filterTools, untrustedOffers } from '../tools';
-import { checkPermission, dangerousCommand } from '../session/permissions';
+import { checkPermission, dangerousCommand, machineShell } from '../session/permissions';
 import { mcpFromClaude, mcpFromCodexToml, mcpFromGemini, mcpFromOpenCode, readForeignHooks } from '../extensions/compat';
 import { mcpConnectPlan } from '../extensions/cli-sync';
 import { oauthFailure } from '../extensions/mcp-oauth';
@@ -301,6 +301,7 @@ function permissionFor(
     cwd: ctx.session.cwd,
     home: ctx.home,
     workspaceRoots: [ctx.session.cwd, ...cfg.permissions.additionalDirectories],
+    shell: machineShell(engine.machineFor(ctx.session)),
   });
   let dangerous: string | false = false;
   if (tool.name === 'Bash' && typeof input.command === 'string') {

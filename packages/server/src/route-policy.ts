@@ -177,6 +177,8 @@ export const ROUTE_POLICY: Record<string, Rule> = {
   // ----- folders across devices -----
   'POST /api/projects/identify': 'self',
   'GET /api/projects': 'self',
+  // the route checks the device is the caller's own (scope.ts ownDevice)
+  'POST /api/projects': 'self',
   'GET /api/projects/:id': own({ id: 'project' }),
   'PUT /api/projects/:id/locations': own({ id: 'project' }),
   'DELETE /api/projects/:id/locations': own({ id: 'project' }),

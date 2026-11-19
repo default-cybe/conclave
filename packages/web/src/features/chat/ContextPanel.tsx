@@ -25,7 +25,7 @@ import { ChevronDown, ChevronRight, X } from 'lucide-react';
 import type { McpServerConfig } from '@conclave/core/config/schema';
 import type { Checkpoint, Message, Session } from '@conclave/core/types';
 import { api } from '@/lib/api';
-import { attempt, loadCheckpoints, loadShells, upsertSession, useHub } from '@/store/store';
+import { attempt, loadCheckpoints, loadShells, memberNow, upsertSession, useHub } from '@/store/store';
 import { setCardOpen, useUi } from '@/store/ui';
 import { useLoad } from '@/lib/hooks';
 import { cn, parseDiff, type DiffFile } from '@/lib/text';
@@ -325,7 +325,8 @@ function ContextParts({ session }: { session: Session }) {
 // ---------------------------------------------------------------------------
 
 function ConnectorsCard({ session, onManage }: { session: Session; onManage: () => void }) {
-  const load = useLoad(() => api().mcp(), []);
+  // the hub's MCP servers are the owner's: a member's session never gets them
+  const load = useLoad(() => (memberNow() ? Promise.resolve([]) : api().mcp()), []);
   const agent = useHub((s) => s.agents.find((a) => a.name === session.agent));
   const config = useHub((s) => s.config);
   const [busy, setBusy] = useState<string | null>(null);

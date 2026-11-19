@@ -180,17 +180,18 @@ impl HeadTail {
 // Shell and commands
 // ---------------------------------------------------------------------------
 
-/// bash when available, else sh. On Windows Git Bash, else cmd.exe.
+/// bash when available, else sh. On Windows: Git Bash (never the WSL launcher), else cmd.exe.
 pub fn shell() -> &'static str {
     static SHELL: OnceLock<String> = OnceLock::new();
     SHELL.get_or_init(|| {
         if cfg!(windows) {
-            let which = |n: &str| crate::env::which(n).map(|p| p.to_string_lossy().into_owned());
-            find_windows_bash(|k: &str| std::env::var(k).ok(), which, |p: &str| std::path::Path::new(p).is_file())
-                .or_else(|| std::env::var("ComSpec").ok())
-                .unwrap_or_else(|| "cmd.exe".into())
-        } else {
-            crate::env::which("bash").map(|p| p.to_string_lossy().into_owned()).unwrap_or_else(|| "/bin/sh".into())
+            let path = std::env::var_os("PATH").map(|p| p.to_string_lossy().into_owned()).unwrap_or_default();
+            let env = |k: &str| std::env::var(k).ok().filter(|v| !v.is_empty());
+            return windows_bash(&path, &env, &|p: &str| std::path::Path::new(p).is_file()).unwrap_or_else(|| "cmd.exe".into());
+        }
+        match crate::env::which("bash") {
+            Some(p) => p.to_string_lossy().into_owned(),
+            None => "/bin/sh".into(),
         }
     })
 }
@@ -202,31 +203,54 @@ fn is_cmd(sh: &str) -> bool {
     base == "cmd.exe" || base == "cmd"
 }
 
-/// The folder a Windows path is in ("C:\Git\cmd\git.exe" is in "C:\Git\cmd").
-fn win_parent(p: &str) -> &str {
-    p.rfind(|c: char| c == '\\' || c == '/').map(|i| &p[..i]).unwrap_or("")
+/// The WSL launcher (WindowsApps or System32 bash.exe) runs Linux, where D:\ paths and Windows tools do not exist.
+fn is_wsl_launcher(p: &str) -> bool {
+    let l = p.to_ascii_lowercase().replace('/', "\\");
+    ["\\windowsapps\\", "\\system32\\", "\\sysnative\\"].into_iter().any(|d| l.contains(d))
 }
 
-/// Git Bash on Windows: bash on PATH unless it is the WSL launcher (System32
-/// or WindowsApps), else next to git.exe, else where Git for Windows installs.
-pub fn find_windows_bash(var: impl Fn(&str) -> Option<String>, which: impl Fn(&str) -> Option<String>, exists: impl Fn(&str) -> bool) -> Option<String> {
-    if let Some(p) = which("bash") {
-        let l = p.to_ascii_lowercase();
-        if !l.contains("\\system32\\") && !l.contains("\\windowsapps\\") {
-            return Some(p);
+/// Git for Windows' install folder from the folder its git.exe is in (`<Git>\cmd`, `<Git>\bin`, `<Git>\mingw64\bin`).
+fn git_root(dir: &str) -> Option<&str> {
+    let lower = dir.to_ascii_lowercase();
+    ["\\mingw64\\bin", "\\mingw32\\bin", "\\clangarm64\\bin", "\\cmd", "\\bin"].into_iter().find(|s| lower.ends_with(*s)).map(|s| &dir[..dir.len() - s.len()])
+}
+
+/// Git Bash for a Windows PATH (`;`-separated): next to git.exe on PATH, then the standard
+/// install folders, then any other bash.exe on PATH that is not the WSL launcher.
+/// Strings, not Path, so the tests run the same on every OS.
+pub fn windows_bash(path_var: &str, env: &dyn Fn(&str) -> Option<String>, is_file: &dyn Fn(&str) -> bool) -> Option<String> {
+    let dirs: Vec<&str> = path_var.split(';').map(|d| d.trim().trim_matches('"').trim_end_matches(['\\', '/'])).filter(|d| !d.is_empty()).collect();
+    let mut cands: Vec<String> = Vec::new();
+    for d in &dirs {
+        if is_file(&format!("{d}\\git.exe")) {
+            if let Some(root) = git_root(d) {
+                cands.push(format!("{root}\\bin\\bash.exe"));
+            }
         }
     }
-    let mut candidates = Vec::new();
-    if let Some(git) = which("git") {
-        candidates.push(format!("{}\\bin\\bash.exe", win_parent(win_parent(&git))));
+    for (var, sub) in [("ProgramFiles", "Git"), ("ProgramW6432", "Git"), ("LOCALAPPDATA", "Programs\\Git"), ("ProgramFiles(x86)", "Git")] {
+        if let Some(base) = env(var) {
+            cands.push(format!("{}\\{sub}\\bin\\bash.exe", base.trim_end_matches(['\\', '/'])));
+        }
     }
-    if let Some(pf) = var("ProgramFiles") {
-        candidates.push(format!("{pf}\\Git\\bin\\bash.exe"));
+    cands.extend(dirs.iter().map(|d| format!("{d}\\bash.exe")));
+    cands.into_iter().find(|c| !is_wsl_launcher(c) && is_file(c))
+}
+
+/// `sh` running `command`, for exec and spawn's background shells. cmd.exe gets /d /v:off /s /c and
+/// the command in one pair of outer quotes that /s strips, so its own quotes reach cmd verbatim.
+fn shell_command(sh: &str, command: &str) -> tokio::process::Command {
+    let mut cmd = tokio::process::Command::new(sh);
+    if is_cmd(sh) {
+        #[cfg(windows)]
+        {
+            cmd.args(["/d", "/v:off", "/s", "/c"]);
+            cmd.raw_arg(format!("\"{command}\""));
+        }
+    } else {
+        cmd.arg("-c").arg(command);
     }
-    if let Some(la) = var("LOCALAPPDATA") {
-        candidates.push(format!("{la}\\Programs\\Git\\bin\\bash.exe"));
-    }
-    candidates.into_iter().find(|c| exists(c))
+    cmd
 }
 
 fn configure(cmd: &mut tokio::process::Command, own_group: bool) {
@@ -312,16 +336,7 @@ pub async fn exec(command: String, opts: ExecOpts, mut abort: watch::Receiver<bo
     }
 
     let sh = shell();
-    let mut cmd = tokio::process::Command::new(sh);
-    if is_cmd(sh) {
-        #[cfg(windows)]
-        {
-            cmd.args(["/d", "/v:off", "/s", "/c"]);
-            cmd.raw_arg(format!("\"{command}\""));
-        }
-    } else {
-        cmd.arg("-c").arg(&command);
-    }
+    let mut cmd = shell_command(sh, &command);
     cmd.current_dir(&cwd).env_clear().envs(crate::env::tool_env(opts.env.as_ref()));
     cmd.stdin(if opts.stdin.is_some() { Stdio::piped() } else { Stdio::null() });
     cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
@@ -488,16 +503,13 @@ pub fn spawn(command: &str, args: &[String], cwd: &str, env: Option<&Map<String,
             None => return Err(WireError::coded(format!("Executable not found in $PATH: \"{command}\""), "ENOENT")),
         }
     };
-    let mut cmd = tokio::process::Command::new(&program);
-    if via_shell && is_cmd(shell()) {
-        #[cfg(windows)]
-        {
-            cmd.args(["/d", "/v:off", "/s", "/c"]);
-            cmd.raw_arg(format!("\"{}\"", args[1]));
-        }
+    let mut cmd = if via_shell {
+        shell_command(shell(), &args[1])
     } else {
-        cmd.args(args);
-    }
+        let mut c = tokio::process::Command::new(&program);
+        c.args(args);
+        c
+    };
     cmd.current_dir(&cwd).env_clear().envs(envs);
     cmd.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
     configure(&mut cmd, true);
@@ -729,6 +741,44 @@ pub async fn capture(argv: &[String], cwd: Option<&str>, timeout: Duration, max_
 mod tests {
     use super::*;
 
+    fn pick(path: &str, files: &[&str]) -> Option<String> {
+        let env = |k: &str| match k {
+            "ProgramFiles" => Some(r"C:\Program Files".to_string()),
+            "LOCALAPPDATA" => Some(r"C:\Users\n\AppData\Local".to_string()),
+            _ => None,
+        };
+        let is_file = |p: &str| files.iter().any(|f| f.eq_ignore_ascii_case(p));
+        windows_bash(path, &env, &is_file)
+    }
+
+    const WSL: &str = r"C:\Users\n\AppData\Local\Microsoft\WindowsApps\bash.exe";
+
+    #[test]
+    fn windows_bash_follows_git_on_path_before_wsl() {
+        let path = r"C:\Users\n\AppData\Local\Microsoft\WindowsApps;C:\Windows\System32;D:\Tools\Git\cmd";
+        let files = [WSL, r"C:\Windows\System32\bash.exe", r"D:\Tools\Git\cmd\git.exe", r"D:\Tools\Git\bin\bash.exe"];
+        assert_eq!(pick(path, &files).as_deref(), Some(r"D:\Tools\Git\bin\bash.exe"));
+        // git.exe from <Git>\mingw64\bin, with a trailing slash and quotes
+        let files = [WSL, r"E:\Git\mingw64\bin\git.exe", r"E:\Git\bin\bash.exe"];
+        assert_eq!(pick(r#""E:\Git\mingw64\bin\";C:\Users\n\AppData\Local\Microsoft\WindowsApps"#, &files).as_deref(), Some(r"E:\Git\bin\bash.exe"));
+    }
+
+    #[test]
+    fn windows_bash_tries_standard_folders() {
+        let path = r"C:\Users\n\AppData\Local\Microsoft\WindowsApps";
+        assert_eq!(pick(path, &[WSL, r"C:\Program Files\Git\bin\bash.exe"]).as_deref(), Some(r"C:\Program Files\Git\bin\bash.exe"));
+        assert_eq!(pick(path, &[WSL, r"C:\Users\n\AppData\Local\Programs\Git\bin\bash.exe"]).as_deref(), Some(r"C:\Users\n\AppData\Local\Programs\Git\bin\bash.exe"));
+    }
+
+    #[test]
+    fn windows_bash_never_picks_the_wsl_launcher() {
+        let path = r"C:\Users\n\AppData\Local\Microsoft\WindowsApps;C:\WINDOWS\system32";
+        assert_eq!(pick(path, &[WSL, r"C:\WINDOWS\system32\bash.exe"]), None);
+        assert_eq!(pick("", &[]), None);
+        // another bash on PATH (MSYS2) is fine
+        assert_eq!(pick(r"C:\msys64\usr\bin;C:\WINDOWS\system32", &[r"C:\msys64\usr\bin\bash.exe"]).as_deref(), Some(r"C:\msys64\usr\bin\bash.exe"));
+    }
+
     #[test]
     fn head_tail_keeps_both_ends() {
         let mut b = HeadTail::new(50);
@@ -753,22 +803,6 @@ mod tests {
     }
 
     #[test]
-    fn windows_bash_skips_wsl_and_finds_git_bash() {
-        let pf = |k: &str| (k == "ProgramFiles").then(|| "C:\\Program Files".to_string());
-        let wsl = |n: &str| (n == "bash").then(|| "C:\\Windows\\System32\\bash.exe".to_string());
-        let installed = |p: &str| p == "C:\\Program Files\\Git\\bin\\bash.exe";
-        assert_eq!(find_windows_bash(pf, wsl, installed).as_deref(), Some("C:\\Program Files\\Git\\bin\\bash.exe"));
-        // git.exe on PATH: the bash of that Git
-        let git = |n: &str| (n == "git").then(|| "D:\\Git\\cmd\\git.exe".to_string());
-        assert_eq!(find_windows_bash(|_: &str| None, git, |p: &str| p == "D:\\Git\\bin\\bash.exe").as_deref(), Some("D:\\Git\\bin\\bash.exe"));
-        // a real bash on PATH wins
-        let msys = |n: &str| (n == "bash").then(|| "C:\\msys64\\usr\\bin\\bash.exe".to_string());
-        assert_eq!(find_windows_bash(|_: &str| None, msys, |_: &str| false).as_deref(), Some("C:\\msys64\\usr\\bin\\bash.exe"));
-        // no Git at all: none, so the daemon falls back to cmd.exe
-        assert_eq!(find_windows_bash(|_: &str| None, |_: &str| None, |_: &str| true), None);
-    }
-
-    #[test]
     fn head_tail_counts_utf16() {
         let mut b = HeadTail::new(4);
         b.push("é😀xyzw");
@@ -790,5 +824,172 @@ mod tests {
             assert!(started.elapsed() < Duration::from_secs(5), "took {:?}", started.elapsed());
             let _ = c;
         });
+    }
+
+    // Real cmd.exe and taskkill on Windows CI: cargo test windows_cmd
+    #[cfg(windows)]
+    mod win {
+        use super::*;
+        use futures_util::future::BoxFuture;
+
+        fn rt() -> tokio::runtime::Runtime {
+            tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap()
+        }
+
+        fn comspec() -> String {
+            let c = std::env::var("ComSpec").unwrap_or_else(|_| "cmd.exe".into());
+            assert!(is_cmd(&c), "ComSpec is not cmd: {c}");
+            c
+        }
+
+        /// shell_command with the real ComSpec: (exit code, stdout with \n line ends, stderr).
+        fn run_cmd(command: &str) -> (Option<i32>, String, String) {
+            rt().block_on(async {
+                let mut cmd = shell_command(&comspec(), command);
+                cmd.env("CV_WIN_CMD_VAR", "hello there").stdin(Stdio::null());
+                let out = cmd.output().await.unwrap();
+                (out.status.code(), String::from_utf8_lossy(&out.stdout).replace("\r\n", "\n"), String::from_utf8_lossy(&out.stderr).into_owned())
+            })
+        }
+
+        fn temp_dir(name: &str) -> std::path::PathBuf {
+            let d = std::env::temp_dir().join(format!("cv win cmd {name} {}", std::process::id()));
+            std::fs::create_dir_all(&d).unwrap();
+            d
+        }
+
+        #[test]
+        fn windows_cmd_runs_a_quoted_program_path_with_spaces_and_quoted_args() {
+            let dir = temp_dir("path");
+            let bat = dir.join("say it.cmd");
+            std::fs::write(&bat, "@echo [%~1] [%2]\r\n").unwrap();
+            // first and last character are both quotes: without /s and the outer pair cmd would strip them
+            let (code, out, err) = run_cmd(&format!("\"{}\" \"x y\" \"z\"", bat.display()));
+            let _ = std::fs::remove_dir_all(&dir);
+            assert_eq!((code, out.trim_end()), (Some(0), "[x y] [\"z\"]"), "stderr: {err}");
+        }
+
+        #[test]
+        fn windows_cmd_keeps_inner_quotes() {
+            let (code, out, err) = run_cmd("echo 'c'& echo \"a b\"");
+            assert_eq!((code, out.as_str()), (Some(0), "'c'\n\"a b\"\n"), "stderr: {err}");
+        }
+
+        #[test]
+        fn windows_cmd_expands_percent_vars_and_not_bang_vars() {
+            // /v:off: !NAME! stays literal
+            let (code, out, err) = run_cmd("echo %CV_WIN_CMD_VAR%^|!CV_WIN_CMD_VAR!");
+            assert_eq!((code, out.trim_end()), (Some(0), "hello there|!CV_WIN_CMD_VAR!"), "stderr: {err}");
+        }
+
+        #[test]
+        fn windows_cmd_returns_the_exit_status() {
+            assert_eq!(run_cmd("exit 5").0, Some(5));
+            assert_eq!(run_cmd("echo x>nul& exit 42").0, Some(42));
+            assert_eq!(run_cmd("ver>nul").0, Some(0));
+        }
+
+        #[test]
+        fn windows_cmd_kill_tree_ends_the_shell_and_its_child() {
+            rt().block_on(async {
+                let mut cmd = shell_command(&comspec(), "ping -n 30 127.0.0.1 && echo after");
+                cmd.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::null());
+                configure(&mut cmd, true);
+                let mut child = cmd.spawn().unwrap();
+                let mut out = child.stdout.take().unwrap();
+                tokio::time::sleep(Duration::from_millis(500)).await;
+                kill_tree(child.id().unwrap(), Sig::Term);
+                let mut buf = Vec::new();
+                // ping holds the pipe too: EOF only comes once the whole tree is gone
+                tokio::time::timeout(Duration::from_secs(10), out.read_to_end(&mut buf)).await.expect("pipe still open, ping outlived kill_tree").unwrap();
+                assert!(!child.wait().await.unwrap().success());
+                assert!(!String::from_utf8_lossy(&buf).contains("after"));
+            });
+        }
+
+        fn cwd() -> String {
+            std::env::temp_dir().to_string_lossy().into_owned()
+        }
+
+        fn exec_opts(timeout_ms: Option<f64>) -> ExecOpts {
+            ExecOpts { cwd: cwd(), env: None, timeout_ms, stdin: None, max_output: None }
+        }
+
+        // exec and spawn run shell(): Git Bash on CI, cmd.exe without it. These commands mean the same in both.
+        #[test]
+        fn windows_cmd_exec_returns_output_and_exit_status() {
+            rt().block_on(async {
+                let (_abort, rx) = watch::channel(false);
+                let r = exec("echo hi&& exit 3".into(), exec_opts(None), rx, None).await;
+                assert_eq!(r["exitCode"].as_i64(), Some(3), "{r}");
+                assert_eq!(r["stdout"].as_str().map(str::trim_end), Some("hi"), "{r}");
+            });
+        }
+
+        #[test]
+        fn windows_cmd_exec_times_out_and_kills_the_tree() {
+            rt().block_on(async {
+                let (_abort, rx) = watch::channel(false);
+                let started = Instant::now();
+                let r = exec("ping -n 30 127.0.0.1 && echo after".into(), exec_opts(Some(500.0)), rx, None).await;
+                assert_eq!(r["timedOut"], json!(true), "{r}");
+                assert!(started.elapsed() < Duration::from_secs(10), "took {:?}", started.elapsed());
+                assert!(!r["stdout"].as_str().unwrap().contains("after"), "{r}");
+            });
+        }
+
+        struct Collect {
+            out: Mutex<Vec<u8>>,
+            exit: Mutex<Option<tokio::sync::oneshot::Sender<Option<i32>>>>,
+        }
+
+        impl ProcSink for Collect {
+            fn output(&self, stream: &'static str, data: String) -> BoxFuture<'static, ()> {
+                if stream == "proc.stdout" {
+                    self.out.lock().unwrap().extend(crate::js::decode_base64_lenient(&data));
+                }
+                Box::pin(async {})
+            }
+            fn exit(&self, code: Option<i32>) -> BoxFuture<'static, ()> {
+                if let Some(tx) = self.exit.lock().unwrap().take() {
+                    let _ = tx.send(code);
+                }
+                Box::pin(async {})
+            }
+        }
+
+        fn collect() -> (Arc<Collect>, tokio::sync::oneshot::Receiver<Option<i32>>) {
+            let (tx, rx) = tokio::sync::oneshot::channel();
+            (Arc::new(Collect { out: Mutex::new(Vec::new()), exit: Mutex::new(Some(tx)) }), rx)
+        }
+
+        fn bash_c(command: &str) -> Vec<String> {
+            vec!["-c".into(), command.into()]
+        }
+
+        #[test]
+        fn windows_cmd_spawn_background_shell_returns_output_and_exit_status() {
+            rt().block_on(async {
+                let (sink, exit) = collect();
+                let _h = spawn("bash", &bash_c("echo hi&& exit 3"), &cwd(), None, sink.clone()).unwrap();
+                let code = tokio::time::timeout(Duration::from_secs(20), exit).await.expect("no proc.exit").unwrap();
+                assert_eq!(code, Some(3));
+                assert_eq!(String::from_utf8_lossy(&sink.out.lock().unwrap()).trim_end(), "hi");
+            });
+        }
+
+        #[test]
+        fn windows_cmd_spawn_kill_ends_the_tree() {
+            rt().block_on(async {
+                let (sink, exit) = collect();
+                let (h, _) = spawn("bash", &bash_c("ping -n 30 127.0.0.1 && echo after"), &cwd(), None, sink.clone()).unwrap();
+                tokio::time::sleep(Duration::from_millis(500)).await;
+                h.kill.send(Sig::Term).unwrap();
+                // proc.exit waits for both pipes, so a surviving ping would hold it back
+                let code = tokio::time::timeout(Duration::from_secs(10), exit).await.expect("no proc.exit, the tree outlived kill").unwrap();
+                assert_ne!(code, Some(0));
+                assert!(!String::from_utf8_lossy(&sink.out.lock().unwrap()).contains("after"));
+            });
+        }
     }
 }

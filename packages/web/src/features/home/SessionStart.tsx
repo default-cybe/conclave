@@ -75,7 +75,8 @@ import { BranchPicker, IssuePicker, RepoList, RepoPicker, type IssuePick, type R
 import { ASSISTANT_AGENT, CODE_AGENT, CODE_NEEDS_DEVICE, commandOf, customAgent, lastOwnSession, needsOwnDevice, offersIncognito, placeName, readPicks, savePicks, SECURITY_AGENT, sessionSetup, startCommands, startEffort, type Picks, type SessionKind } from './start';
 import { startSurface, useThisComputer } from './here';
 import { FolderChip, computerList, useComputers } from './Where';
-import { FolderCheckNote, useFolderCheck, useMissingFolders } from '@/features/chat/folderCheck';
+import { FolderCheckNote, useFolderCheck } from '@/features/chat/folderCheck';
+import { FolderMenu, useOpenFolder } from './FolderPicker';
 import { StateWord } from '@/components/ui/List';
 import { CODE_INCOGNITO_LINE, memoryChat, usePrivacy } from '@/features/conversation/incognito';
 
@@ -488,7 +489,6 @@ function PlaceSheet({
   onStartRepo: (r: RepoPick) => void;
 }) {
   const devices = useHub((s) => s.devices);
-  const sessions = useHub((s) => s.sessions);
   const [path, setPath] = useState(cwd ?? '');
   const [from, setFrom] = useState<'folder' | 'github'>('folder');
   const [repo, setRepo] = useState<RepoPick>();
@@ -497,16 +497,11 @@ function PlaceSheet({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
   const list = useMemo(() => computerList(devices), [devices]);
-  const known = useMemo(() => {
-    const seen = new Set<string>();
-    for (const s of Object.values(sessions).sort((a, b) => b.updatedAt - a.updatedAt)) if (s.device === device && s.kind !== 'chat' && s.cwd && s.cwd !== '~') seen.add(s.cwd);
-    for (const r of devices[device]?.roots ?? []) seen.add(r);
-    return [...seen].slice(0, 4);
-  }, [sessions, devices, device]);
   // the folder is asked of the device; an offline one waits for "Use anyway" (features/chat/folderCheck.tsx)
   const folder = from === 'folder' && open;
   const check = useFolderCheck(device, folder ? path : '');
-  const gone = useMissingFolders(device, folder ? known : []);
+  // the same folder menu as the chip (FolderPicker.tsx), with the browser as a tall sheet
+  const browse = useOpenFolder(device, path, setPath);
   return (
     <Sheet
       open={open}
@@ -519,18 +514,23 @@ function PlaceSheet({
       }
     >
       <div className="px-4 pb-4">
-        <div className="pb-1 text-[13px] font-medium text-fg-2">Device</div>
-        {list.map((d) => (
-          <button key={d.id} type="button" aria-pressed={d.id === device} onClick={() => onDevice(d.id)} className={cn('flex min-h-11 w-full items-center gap-3 rounded-[10px] px-3 text-left text-[16px]', d.id === device ? 'bg-hover text-fg' : 'text-fg-2')}>
-            <span className="min-w-0 flex-1 truncate">{placeName(d)}</span>
-            <span className={cn('text-[14px]', d.online ? 'text-ok' : 'text-fg-3')}>{d.online ? 'online' : 'offline'}</span>
-          </button>
-        ))}
+        {/* a folder's device is the menu's "On <device>" row; a repository still picks it here */}
+        {from === 'github' && (
+          <>
+            <div className="pb-1 text-[13px] font-medium text-fg-2">Device</div>
+            {list.map((d) => (
+              <button key={d.id} type="button" aria-pressed={d.id === device} onClick={() => onDevice(d.id)} className={cn('flex min-h-11 w-full items-center gap-3 rounded-[10px] px-3 text-left text-[16px]', d.id === device ? 'bg-hover text-fg' : 'text-fg-2')}>
+                <span className="min-w-0 flex-1 truncate">{placeName(d)}</span>
+                <span className={cn('text-[14px]', d.online ? 'text-ok' : 'text-fg-3')}>{d.online ? 'online' : 'offline'}</span>
+              </button>
+            ))}
+          </>
+        )}
         {!noRepo && <Segmented
           full
           size="touch"
           label="Work in"
-          className="mt-4"
+          className={from === 'github' ? 'mt-4' : undefined}
           value={from}
           onChange={setFrom}
           options={[
@@ -550,25 +550,13 @@ function PlaceSheet({
           </div>
         )}
         {from === 'folder' && (
-          <>
-            <label htmlFor="start-folder" className="mt-4 block pb-1.5 text-[13px] font-medium text-fg-2">
-              Folder
-            </label>
-            <Input id="start-folder" mono value={path} onChange={(e) => setPath(e.target.value)} placeholder="~/code/project" autoCapitalize="off" autoCorrect="off" spellCheck={false} />
-            <FolderCheckNote check={check} className="mt-1.5" />
-          </>
-        )}
-        {from === 'folder' && known.length > 0 && (
-          <div className="mt-1.5 flex flex-col">
-            {known.map((k) => (
-              <button key={k} type="button" aria-disabled={gone.has(k) || undefined} onClick={() => !gone.has(k) && setPath(k)} className={cn('flex min-h-11 items-center gap-2 text-left font-mono text-[14px]', gone.has(k) ? 'cursor-default text-fg-3' : 'text-fg-2')}>
-                <span className="min-w-0 flex-1 truncate">{k}</span>
-                {gone.has(k) && <StateWord tone="warn">missing</StateWord>}
-              </button>
-            ))}
+          <div className={cn('-mx-3', !noRepo && 'mt-2')}>
+            <FolderMenu device={device} cwd={path || undefined} onPick={setPath} onDevice={onDevice} onOpenFolder={browse.open} />
+            {path && path !== '~' && <FolderCheckNote check={check} className="mt-1 px-3" />}
           </div>
         )}
       </div>
+      {browse.browser}
     </Sheet>
   );
 }

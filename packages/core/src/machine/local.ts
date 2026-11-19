@@ -88,23 +88,6 @@ export function shellArgv(shell: string, command: string): string[] {
   return [shell, '/d', '/v:off', '/s', '/c', process.platform === 'win32' ? `"${command}"` : command];
 }
 
-/**
- * Git Bash on Windows: bash on PATH unless it is the WSL launcher (System32
- * or WindowsApps), else next to git.exe, else where Git for Windows installs.
- */
-export function findWindowsBash(env: Record<string, string | undefined>, which: (name: string) => string | null, exists: (path: string) => boolean): string | undefined {
-  const W = nodePath.win32;
-  const onPath = which('bash');
-  if (onPath && !/\\(system32|windowsapps)\\/i.test(onPath)) return onPath;
-  const git = which('git');
-  const candidates = [
-    git && W.join(W.dirname(W.dirname(git)), 'bin', 'bash.exe'),
-    env.ProgramFiles && W.join(env.ProgramFiles, 'Git', 'bin', 'bash.exe'),
-    env.LOCALAPPDATA && W.join(env.LOCALAPPDATA, 'Programs', 'Git', 'bin', 'bash.exe'),
-  ];
-  return candidates.find((p): p is string => !!p && exists(p));
-}
-
 /** Keeps the first and last part of a long stream and drops the middle. */
 class HeadTailBuffer {
   private head = '';
@@ -177,6 +160,29 @@ function withoutPrivate(paths: string[]): string[] {
 
 function globHasMagic(segment: string): boolean {
   return /[*?[\]{}]/.test(segment);
+}
+
+/**
+ * Git Bash for a Windows PATH, as daemon-rs procs::windows_bash: next to git.exe on PATH,
+ * then the standard install folders, then any other bash.exe on PATH. Never the WSL
+ * launcher (WindowsApps or System32 bash.exe), where D:\ paths and Windows tools do not exist.
+ */
+export function windowsBash(pathVar: string, env: (name: string) => string | undefined, isFile: (p: string) => boolean): string | undefined {
+  const dirs = pathVar
+    .split(';')
+    .map((d) => d.trim().replace(/^"+|"+$/g, '').replace(/[\\/]+$/, ''))
+    .filter(Boolean);
+  const cands: string[] = [];
+  for (const d of dirs) {
+    const root = /^(.*)\\(mingw64\\bin|mingw32\\bin|clangarm64\\bin|cmd|bin)$/i.exec(d)?.[1];
+    if (root && isFile(`${d}\\git.exe`)) cands.push(`${root}\\bin\\bash.exe`);
+  }
+  for (const [name, sub] of [['ProgramFiles', 'Git'], ['ProgramW6432', 'Git'], ['LOCALAPPDATA', 'Programs\\Git'], ['ProgramFiles(x86)', 'Git']]) {
+    const base = env(name);
+    if (base) cands.push(`${base.replace(/[\\/]+$/, '')}\\${sub}\\bin\\bash.exe`);
+  }
+  cands.push(...dirs.map((d) => `${d}\\bash.exe`));
+  return cands.find((c) => !/\\(windowsapps|system32|sysnative)\\/i.test(c.replace(/\//g, '\\')) && isFile(c));
 }
 
 function isEnoent(err: unknown): boolean {
@@ -283,8 +289,8 @@ export class LocalMachine implements Machine {
       platform: process.platform,
       arch: process.arch,
       home: os.homedir(),
-      // on Windows SHELL (set inside Git Bash) is not what exec runs: report the shell exec picks
-      shell: (process.platform !== 'win32' && process.env.SHELL) || this.shell(),
+      // SHELL describes the login shell, not necessarily what exec runs.
+      shell: this.shell(),
       clis,
       capabilities,
     };
@@ -621,12 +627,12 @@ export class LocalMachine implements Machine {
   // Processes
   // -------------------------------------------------------------------------
 
-  /** bash when available, else sh. On Windows Git Bash, else cmd.exe. */
+  /** bash when available, else sh. On Windows: Git Bash (never the WSL launcher), else cmd.exe. */
   shell(): string {
     if (!this.shellPath) {
       this.shellPath =
         process.platform === 'win32'
-          ? (findWindowsBash(process.env, (n) => Bun.which(n), existsSync) ?? process.env.ComSpec ?? 'cmd.exe')
+          ? (windowsBash(process.env.PATH ?? process.env.Path ?? '', (k) => process.env[k] || undefined, (p) => existsSync(p)) ?? 'cmd.exe')
           : (Bun.which('bash') ?? '/bin/sh');
     }
     return this.shellPath;

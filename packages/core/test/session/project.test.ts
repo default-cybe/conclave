@@ -110,9 +110,12 @@ describe('workspace facts', () => {
   test('the Environment block names the OS and shell', () => {
     const base = { session: { cwd: '/w' }, agent: { name: 'coder', prompt: '' }, modelRef: 'm', mode: 'agent', toolNames: ['Bash'], platform: 'linux', isGitRepo: true, deviceName: 'hub', projectInstructions: [], profile: [], skills: [], subagents: [], date: '2026-10-20' } as never;
     const env = (p: object) => buildSystemPrompt({ ...(base as object), ...p } as never)[1].text;
-    expect(env({ platform: 'win32', shell: 'C:\\WINDOWS\\system32\\cmd.exe' })).toContain('- Shell: Windows, commands run in cmd.exe (no bash): use Windows commands (dir, type, findstr, where) or PowerShell via powershell -NoProfile -Command');
+    expect(env({ platform: 'win32', shell: 'C:\\WINDOWS\\system32\\cmd.exe' })).toContain('- Shell: Windows cmd.exe (no bash). Foreground commands run as a batch script: use %%i in FOR loops, %% for a literal %, CALL for .cmd/.bat tools before more commands, and exit /b.');
     expect(env({ platform: 'win32', shell: 'C:\\Program Files\\Git\\bin\\bash.exe' })).toContain('- Shell: Windows with Git Bash: POSIX commands work; paths like D:\\x work as /d/x or D:/x');
-    expect(env({ shell: '/bin/bash' })).toContain('- Shell: Linux, commands run in bash');
+    expect(env({ shell: '/bin/bash' })).toContain('- Shell: Linux, commands run in /bin/bash');
+    expect(env({ shell: '/bin/sh' })).toContain('commands run in /bin/sh');
+    expect(env({ platform: 'win32' })).not.toContain('Git Bash');
+    expect(env({ platform: 'win32', shell: 'C:\\msys64\\usr\\bin\\bash.exe' })).toContain('POSIX commands work');
   });
 });
 

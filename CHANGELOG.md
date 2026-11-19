@@ -11,10 +11,28 @@ like `## [0.4.16] - 2026-10-24`.
 
 ### Fixed
 
+- Windows: commands work on PCs without Git Bash, using cmd.exe batch scripts. Quoted paths, multiline blocks, percent variables, exit codes and working-directory changes stay intact; command timeouts stop the process tree.
+- The agent is told the device's actual execution shell and Windows command syntax instead of assuming Unix commands.
+
+## [0.4.104] - 2026-11-19
+
+### Fixed
+
+- Windows: the Bash tool runs Git Bash instead of the WSL launcher (`WindowsApps\bash.exe`), found next to git.exe on PATH or in the standard install folders, else cmd.exe. A Git Bash cwd comes back as `D:\x`, and a shell folder that no longer exists resets to the session's folder instead of failing every later call.
+- Desktop app: turning "Let the hub use this computer" off and on keeps the same device, so chats keep their folders. A session left on a removed device moves to the same computer paired again at its exact folder.
+- Members: model pickers list models a member cannot use under Not available, so a fallback list no longer fails with "You can't use ... on this hub". The web app no longer calls the owner-only MCP, Preview and hub copy routes for a member.
+- Pasting a copied picture (from a website, Snipping Tool or a screenshot) works on Windows, in the app and the browser
+
+### Changed
+
+- Pick a folder like in Codex: search, recent folders, and Open folder… with a folder browser; add a folder as a project in one step
+
+## [0.4.103] - 2026-11-19
+
+### Fixed
+
 - Windows: this PC no longer stays offline after sleep or a dropped connection; the app reconnects or restarts its device link. The daemon's hello no longer waits forever on a CLI whose `--version` hangs, a hub ping can no longer freeze its connection loop, only one daemon runs per device, the app restarts a daemon that exited or stayed offline for 3 minutes, and Settings > This computer and the offline line in a chat offer Reconnect.
 - A member's move to the hub no longer fails with "unknown device local": in the desktop app it goes to this computer, else it says that code runs on a computer they paired, and the device picker no longer offers the hub to members.
-- Windows: commands run on PCs without Git Bash (cmd.exe), and Git Bash is used instead of WSL when installed
-- The agent is told the device's OS and shell, so it uses Windows commands there
 
 ## [0.4.102] - 2026-11-17
 

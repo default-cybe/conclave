@@ -4,7 +4,7 @@
  * from test/engine/harness.ts: no paid calls.
  */
 import { afterEach, describe, expect, test } from 'bun:test';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { startTestEngine, toolResults, until, type Step, type TestEngine } from '../engine/harness';
 import { projectsOf } from '../../src/projects/registry';
@@ -247,6 +247,40 @@ describe('the banner', () => {
     expect(after.prefixes).toHaveLength(1);
     svc.deletePrefix(after.prefixes[0].id);
     expect((await svc.deviceFolders('mac')).prefixes).toEqual([]);
+  });
+});
+
+describe('Add as project (the folder picker)', () => {
+  test('a plain folder gets a marker and a pinned location; a repository does not; adding again answers the same project', async () => {
+    const { d, svc } = await setup();
+    const plain = join(d.pc.home, 'notes');
+    mkdirSync(plain, { recursive: true });
+    const p = await svc.add('pc', plain, ' My notes ');
+    expect(p.name).toBe('My notes');
+    expect(JSON.parse(readFileSync(join(plain, '.conclave', 'project.json'), 'utf8')).id).toBeTruthy();
+    expect(p.locations).toMatchObject([{ device: 'pc', path: plain, pinned: true }]);
+    expect((await svc.add('pc', plain, 'Other name')).id).toBe(p.id);
+    expect(svc.list().map((x) => x.id)).toContain(p.id);
+
+    const repo = join(d.pc.home, 'code', 'site');
+    makeRepo(repo);
+    const r = await svc.add('pc', repo, '');
+    expect(r.name).toBe('site');
+    expect(existsSync(join(repo, '.conclave'))).toBe(false);
+    await expect(svc.add('pc', join(d.pc.home, 'nope'), 'x')).rejects.toThrow(/does not exist/);
+    await expect(svc.add('pc', d.pc.home, 'home')).rejects.toThrow(/not the home folder/);
+    await expect(svc.add('pc', '/', 'root')).rejects.toThrow(/not the home folder/);
+    // two Selects at once: one project, one marker
+    const twice = join(d.pc.home, 'twice');
+    mkdirSync(twice);
+    const [a, b] = await Promise.all([svc.add('pc', twice, 'Twice'), svc.add('pc', twice, 'Twice')]);
+    expect(a.id).toBe(b.id);
+    // the same history in another clone: that folder becomes another place of the project
+    const clone = join(d.pc.home, 'site-copy');
+    cloneRepo(repo, clone);
+    const again = await svc.add('pc', clone, 'ignored');
+    expect(again.id).toBe(r.id);
+    expect(again.locations.map((l) => l.path)).toContain(clone);
   });
 });
 

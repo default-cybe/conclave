@@ -17,7 +17,7 @@ import type { Engine } from '../engine/engine';
 import type { Session } from '../types';
 import type { Tool } from '../tools/types';
 import type { WorkflowCallKind, WorkflowFinding, WorkflowRunStatus } from '../client/workflows';
-import { checkPermission, dangerousCommand } from '../session/permissions';
+import { checkPermission, dangerousCommand, machineShell } from '../session/permissions';
 import { BashTool } from '../tools/bash';
 import { suggestBashRule } from '../tools/bash-rules';
 import { newId } from '../util/ids';
@@ -851,6 +851,7 @@ export class LiveRun {
       cwd,
       home,
       workspaceRoots: [cwd],
+      shell: machineShell(machine),
     });
     if (dangerousCommand(command) && decision.decision === 'allow') decision = { decision: 'ask', reason: 'Potentially destructive command' };
     const scope = await this.scopeVerdict('Bash', { command }, what);

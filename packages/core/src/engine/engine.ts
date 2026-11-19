@@ -1607,7 +1607,13 @@ export class Engine implements EngineApi {
     const accounts = accountsOf(this);
     // a model a member's own plan lists goes to that plan: the owner's order does not speak for it
     const routeOf = (m: string) => (accountId && this.access.ownPlan(accountId, PLAN_PROVIDER, m) ? undefined : accounts?.routeOf(m));
-    return mergeModelGroups(groups, routeOf, { member: isMember(accountId), vendorOf: (m) => accounts?.listedVendor(m) });
+    const merged = mergeModelGroups(groups, routeOf, { member: isMember(accountId), vendorOf: (m) => accounts?.listedVendor(m) });
+    if (!accountId || !isMember(accountId)) return merged;
+    // a member's pickers offer only what PATCH /api/me and their sessions accept (memberCanUse): the rest goes under Not available
+    const why = 'Not allowed for you on this hub. Add your own key in Settings, Providers, or ask the owner.';
+    // in-memory lookups on the member's cached registry, so no memo: well under a millisecond for hundreds of models
+    const canUse = (r: string) => memberCanUse(this, accountId, r);
+    return merged.map((g) => (g.type === 'acp' ? g : { ...g, models: g.models.map((m) => (m.unavailable || (m.refs ?? [m.ref]).some(canUse) ? m : { ...m, unavailable: why })) }));
   }
 
   testProvider(id: string): Promise<{ ok: boolean; detail: string; latencyMs?: number }> {

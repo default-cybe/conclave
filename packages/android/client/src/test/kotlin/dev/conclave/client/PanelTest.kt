@@ -113,6 +113,26 @@ class PanelTest {
     }
 
     @Test
+    fun recentRowsShowTheNameAndThePathOnlyWhenItSaysMore() {
+        val sessions = listOf(
+            agent("a", "x", at(20, 9)).copy(cwd = "/Users/sam/site"),
+            agent("b", "x", at(20, 10)).copy(cwd = "/Users/sam/work/site/"),
+            agent("c", "x", at(20, 8)).copy(cwd = "/Users/sam/conclave"),
+            agent("d", "x", at(20, 7)).copy(cwd = "/Users/sam/uni/Project-1"),
+            agent("e", "x", at(20, 6)).copy(cwd = "/Users/sam/conclave"),
+        )
+        assertEquals(
+            listOf(
+                Panel.FolderRow("/Users/sam/work/site", "site", "~/work/site"),
+                Panel.FolderRow("/Users/sam/site", "site", "~/site"),
+                Panel.FolderRow("/Users/sam/conclave", "conclave", null),
+                Panel.FolderRow("/Users/sam/uni/Project-1", "Project-1", "~/uni/Project-1"),
+            ),
+            Panel.recentRows(sessions, "mac", "/Users/sam"),
+        )
+    }
+
+    @Test
     fun listsAreChatsOrCodePinnedFirstThenByTime() {
         val sessions = listOf(
             chat("today", "Plan the week", at(20, 9)),
