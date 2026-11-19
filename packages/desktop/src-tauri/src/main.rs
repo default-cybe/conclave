@@ -243,6 +243,8 @@ fn grant_hub_ipc(app: &AppHandle, base: &Url) -> Result<(), String> {
             .windows([MAIN, QUICK])
             .permission("notification:default")
             .permission("allow-computer-status")
+            // Reconnect: restarts the daemon only when the switch is on already (computer_restart)
+            .permission("allow-computer-restart")
             .permission("allow-open-settings")
             .permission("allow-update-status")
             .permission("allow-update-install")
@@ -1078,6 +1080,68 @@ fn refresh_daemon(app: &AppHandle) {
     });
 }
 
+/// Every minute: a daemon the switch turned on that exited, or that the hub has seen offline for
+/// computer::WEDGED_AFTER, is started again (`install` stops the old one by its pid first). Windows
+/// has no service manager that would, and a daemon that runs without connecting fools every one.
+fn watch_daemon(app: &AppHandle) {
+    let app = app.clone();
+    std::thread::spawn(move || {
+        let mut offline_since: Option<Instant> = None;
+        // the start-up work first (refresh_daemon, a local hub), then soon: an app opened on a dead daemon fixes it
+        std::thread::sleep(Duration::from_secs(20));
+        loop {
+            check_daemon(&app, &mut offline_since);
+            std::thread::sleep(Duration::from_secs(60));
+        }
+    });
+}
+
+fn check_daemon(app: &AppHandle, offline_since: &mut Option<Instant>) {
+    let st = state(app);
+    // the switch or Reconnect is busy with it: look next time
+    let Ok(_guard) = st.daemon_lock.try_lock() else { return };
+    if st.settings.lock().unwrap().computer != Some(true) {
+        *offline_since = None;
+        return;
+    }
+    let Ok(stable) = stable_copy(app) else { return };
+    let Ok(local) = (if stable.exists() { computer::status(&stable.bin) } else { Err(String::new()) }) else { return };
+    let seen = seen_on_hub(app, local.device_id.as_deref());
+    if computer::needs_restart(&local, seen, offline_since, Instant::now()) {
+        *offline_since = None;
+        if let Err(e) = computer::install(&stable.bin) {
+            eprintln!("conclave: starting the daemon again: {e}");
+        }
+    }
+}
+
+/// Reconnect (Settings > This computer on the hub page): start this computer's daemon again. Only
+/// what the switch already turned on: the hub page still cannot turn it on.
+#[tauri::command]
+async fn computer_restart(app: AppHandle) -> Result<ComputerView, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let st = state(&app);
+        let _guard = st.daemon_lock.lock().unwrap();
+        if st.settings.lock().unwrap().computer != Some(true) {
+            return Err("Turn on \"Let the hub use this computer\" in the app first.".to_string());
+        }
+        // pairing is kept as it is; install stops the old daemon by its pid and starts a new one
+        let stable = stable_copy(&app)?;
+        if !stable.exists() {
+            return enable_blocking(&app);
+        }
+        computer::install(&stable.bin)?;
+        let id = computer::status(&stable.bin).ok().and_then(|l| l.device_id);
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while Instant::now() < deadline && seen_on_hub(&app, id.as_deref()) != Some(computer::Seen::Online) {
+            std::thread::sleep(Duration::from_millis(500));
+        }
+        Ok(computer_view(&app))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 #[tauri::command]
 async fn computer_status(app: AppHandle) -> Result<ComputerView, String> {
     tauri::async_runtime::spawn_blocking(move || computer_view(&app)).await.map_err(|e| e.to_string())
@@ -1905,6 +1969,7 @@ fn main() {
             computer_status,
             computer_enable,
             computer_disable,
+            computer_restart,
             open_settings,
             local_hub_status,
             local_hub_set,
@@ -1981,6 +2046,8 @@ fn main() {
             build_tray(&handle)?;
             // an updated app brings a new daemon; the service moves to it
             refresh_daemon(&handle);
+            // and keeps it running and connected
+            watch_daemon(&handle);
             // look for a new version of the app now and every 15 minutes; installed by itself when idle
             update::start(&handle, state(&handle).updates.clone(), Arc::new(UpdateHost(handle.clone())));
             // the AppImage adds itself to the app menu; a .deb or .rpm brings its own entry

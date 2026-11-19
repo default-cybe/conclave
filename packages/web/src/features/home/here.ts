@@ -46,6 +46,14 @@ async function find(names: Record<string, string>): Promise<string | undefined> 
   return view?.enabled && view.name ? Object.entries(names).find(([, n]) => n === view.name)?.[0] : undefined;
 }
 
+/** The same outside React (moveSessionTo), asking the app when no screen did yet. */
+export async function thisComputer(): Promise<string | undefined> {
+  const known = useHere.getState().device;
+  if (known || startSurface() !== 'desktop') return known;
+  const names = Object.fromEntries(Object.values(useHub.getState().devices).map((d) => [d.id, d.name]));
+  return find(names);
+}
+
 /** The device id of the desktop app's own computer, once known; undefined in a browser or on a phone. */
 export function useThisComputer(): string | undefined {
   const devices = useHub((s) => s.devices);

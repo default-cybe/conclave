@@ -485,6 +485,15 @@ fn is_conclave(pid: u32) -> bool {
     })
 }
 
+/// This binary runs as `pid` (its image or command line names conclave-daemon), not a program that got a stale pid.
+pub fn is_daemon(pid: u32) -> bool {
+    if cfg!(windows) {
+        let r = run_step(&step(&["tasklist", "/FI", &format!("PID eq {pid}"), "/FO", "CSV", "/NH"]), Duration::from_secs(20));
+        return r.stdout.to_lowercase().contains("conclave-daemon");
+    }
+    command_line(pid).is_some_and(|c| c.to_lowercase().contains("conclave-daemon"))
+}
+
 /// A process's command line (processMatches in pids.ts): Linux reads /proc, macOS asks ps, elsewhere None.
 fn command_line(pid: u32) -> Option<String> {
     if cfg!(target_os = "linux") {
