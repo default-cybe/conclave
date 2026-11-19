@@ -72,6 +72,25 @@ object Panel {
         .map { it.cwd.trimEnd('/', '\\') }
         .distinct()
         .take(count)
+
+    /** One Recent row as in Codex: the folder's name over its muted path; [detail] is null when ~/<name> says nothing more. */
+    data class FolderRow(val path: String, val name: String, val detail: String?)
+
+    /**
+     * [recentFolders] as rows (web: FolderPicker.tsx withDetails). The path
+     * shows under the name when two rows share a name, or when it is more
+     * than ~/<name>.
+     */
+    fun recentRows(sessions: List<Session>, device: String, home: String?, count: Int = 8): List<FolderRow> {
+        val folders = recentFolders(sessions, device, count)
+        val names = folders.map { Paths.folderName(Locations.tildePath(it, home)).ifEmpty { it } }
+        return folders.mapIndexed { i, f ->
+            val shown = Locations.tildePath(f, home)
+            val name = names[i]
+            val plain = shown == "~/$name" || shown == name
+            FolderRow(f, name, if (!plain || names.count { it.equals(name, ignoreCase = true) } > 1) shown else null)
+        }
+    }
 }
 
 object Lists {
