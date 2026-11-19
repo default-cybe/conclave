@@ -1022,6 +1022,7 @@ fn enable_blocking(app: &AppHandle) -> Result<ComputerView, String> {
         if !was_paired {
             // leave nothing half done: no stray device on the hub
             let _ = computer::uninstall(&stable.bin);
+            let _ = computer::unpair(&stable.bin);
         }
         return Err(e);
     }
@@ -1034,7 +1035,8 @@ fn enable_blocking(app: &AppHandle) -> Result<ComputerView, String> {
     Ok(computer_view(app))
 }
 
-/// Stop and remove the service, unpair the device, and say what happened.
+/// Stop and remove the service and say what happened. The pairing stays, so turning it
+/// on again is the same device (computer::UNINSTALL_ARGS).
 fn disable_blocking(app: &AppHandle) -> Result<String, String> {
     let was_on = state(app).settings.lock().unwrap().computer == Some(true);
     let stable = stable_copy(app)?;

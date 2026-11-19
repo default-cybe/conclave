@@ -508,7 +508,16 @@ export class ProjectsService {
         // a folder inside the repository: the repository is the location, the folder is the cwd
         hit = { ...r, path: repoRoot(path, r.probe) };
         cwd = r.path;
-      } else {
+      } else if (this.engine.repos.devices.sameMachine(s.device, toDevice) && (await target.stat(s.cwd).catch(() => null))?.type === 'dir') {
+        // the same computer paired again under a new id: its folder is this folder, path for path
+        const r = await check(ctx, src.root, 'same-path');
+        // another history at the path is not the same folder: the normal resolution and its mismatch guard decide
+        if (r && r.level !== 'mismatch') {
+          hit = { ...r, level: 'exact', line: 'The same folder on the same computer' };
+          cwd = s.cwd;
+        }
+      }
+      if (!hit) {
         const outcome = await resolveLocation(ctx);
         if (!outcome.hit) {
           const name = src.project?.name ?? baseName(src.root);

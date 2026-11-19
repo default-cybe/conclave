@@ -8,7 +8,7 @@ import { lazy, Suspense, useMemo, useState } from 'react';
 import type { McpServerConfig } from '@conclave/core/config/schema';
 import type { Session } from '@conclave/core/types';
 import { api } from '@/lib/api';
-import { attempt, upsertSession, useHub } from '@/store/store';
+import { attempt, memberNow, upsertSession, useHub } from '@/store/store';
 import { useIsMobile, useLoad } from '@/lib/hooks';
 import { plural } from '@/lib/format';
 import { cn } from '@/lib/text';
@@ -32,7 +32,7 @@ export function sessionMcpOff(s: Pick<Session, 'meta'>): string[] {
 
 export function ConnectorsSheet({ session, onClose }: { session: Session; onClose: () => void }) {
   const mobile = useIsMobile();
-  const load = useLoad(() => api().mcp(), []);
+  const load = useLoad(() => (memberNow() ? Promise.resolve([]) : api().mcp()), []);
   const config = useHub((s) => s.config);
   const agent = useHub((s) => s.agents.find((a) => a.name === session.agent));
   const servers = (config?.mcpServers ?? {}) as Record<string, McpServerConfig>;

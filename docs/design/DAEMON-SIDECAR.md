@@ -146,8 +146,13 @@ Prints one line of JSON:
 | `name`, `deviceId` | the pairing that went, or null |
 | `error` | why the hub did not confirm, in words, or null |
 
-`--keep-pairing` skips step 3 (not used by the app). `--dry-run` prints the
-commands and changes nothing.
+`--keep-pairing` skips step 3 and keeps the saved pairing. The app's "Let the hub
+use this computer" switch turns off with `uninstall --keep-pairing --json`, so
+turning it on again pairs as the same device (`pair` keeps a pairing the hub
+still lists) and its sessions keep their folders. Removing the device on the
+hub's Devices page is the real unpair. When `install` fails right after a new
+pairing, the app runs `conclave-daemon unpair --json` so no stray device stays.
+`--dry-run` prints the commands and changes nothing.
 
 ### `conclave-daemon run` (what the service runs)
 

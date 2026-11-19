@@ -11,6 +11,9 @@ like `## [0.4.16] - 2026-10-24`.
 
 ### Fixed
 
+- Windows: the Bash tool runs Git Bash instead of the WSL launcher (`WindowsApps\bash.exe`), found next to git.exe on PATH or in the standard install folders, else cmd.exe. A Git Bash cwd comes back as `D:\x`, and a shell folder that no longer exists resets to the session's folder instead of failing every later call.
+- Desktop app: turning "Let the hub use this computer" off and on keeps the same device, so chats keep their folders. A session left on a removed device moves to the same computer paired again at its exact folder.
+- Members: model pickers list models a member cannot use under Not available, so a fallback list no longer fails with "You can't use ... on this hub". The web app no longer calls the owner-only MCP, Preview and hub copy routes for a member.
 - Pasting a copied picture (from a website, Snipping Tool or a screenshot) works on Windows, in the app and the browser
 
 ## [0.4.103] - 2026-11-19
