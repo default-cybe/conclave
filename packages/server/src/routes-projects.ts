@@ -141,7 +141,8 @@ export function registerProjectRoutes(app: Hono<HonoEnv>, ctx: ServerContext, au
     known(c, device);
     const path = pathString(body.path, 'path');
     const name = optString(body.name, 'name') ?? '';
-    if (name.length > 200 || /[\u0000-\u001f]/.test(name)) throw badRequest('name must be one line of at most 200 characters');
+    // control and direction-override characters would spoof the name in lists and the audit log
+    if (name.length > 200 || /[\u0000-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/.test(name)) throw badRequest('name must be one line of at most 200 characters');
     const project = await svc().add(device, path, name, accountOf(c));
     audit(c, 'project.add', `${project.name} ${device} ${path}`, { device });
     return c.json(project);

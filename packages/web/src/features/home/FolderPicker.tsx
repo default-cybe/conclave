@@ -42,10 +42,15 @@ export interface FolderRow {
 
 /** The account's project a folder on the device is (or is inside), with the part below it. */
 export function projectOf(projects: ProjectDto[], device: string, abs: string): { project: ProjectDto; rel: string } | undefined {
+  // the deepest place wins (a project inside another); a place at the root is no prefix of everything
+  let best: { project: ProjectDto; at: string } | undefined;
   for (const p of projects)
-    for (const l of p.locations)
-      if (l.device === device && (abs === trim(l.path) || abs.startsWith(`${trim(l.path)}/`))) return { project: p, rel: abs.slice(trim(l.path).length + 1) };
-  return undefined;
+    for (const l of p.locations) {
+      const at = trim(l.path);
+      if (l.device !== device || at === '/' || !at) continue;
+      if ((abs === at || abs.startsWith(`${at}/`)) && (!best || at.length > best.at.length)) best = { project: p, at };
+    }
+  return best && { project: best.project, rel: abs.slice(best.at.length + 1) };
 }
 
 /** Give each row its second line: shown when two rows share a name, or when the path is more than ~/<name>. */

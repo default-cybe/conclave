@@ -268,6 +268,19 @@ describe('Add as project (the folder picker)', () => {
     expect(r.name).toBe('site');
     expect(existsSync(join(repo, '.conclave'))).toBe(false);
     await expect(svc.add('pc', join(d.pc.home, 'nope'), 'x')).rejects.toThrow(/does not exist/);
+    await expect(svc.add('pc', d.pc.home, 'home')).rejects.toThrow(/not the home folder/);
+    await expect(svc.add('pc', '/', 'root')).rejects.toThrow(/not the home folder/);
+    // two Selects at once: one project, one marker
+    const twice = join(d.pc.home, 'twice');
+    mkdirSync(twice);
+    const [a, b] = await Promise.all([svc.add('pc', twice, 'Twice'), svc.add('pc', twice, 'Twice')]);
+    expect(a.id).toBe(b.id);
+    // the same history in another clone: that folder becomes another place of the project
+    const clone = join(d.pc.home, 'site-copy');
+    cloneRepo(repo, clone);
+    const again = await svc.add('pc', clone, 'ignored');
+    expect(again.id).toBe(r.id);
+    expect(again.locations.map((l) => l.path)).toContain(clone);
   });
 });
 
