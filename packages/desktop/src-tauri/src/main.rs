@@ -250,7 +250,7 @@ fn grant_hub_ipc(app: &AppHandle, base: &Url) -> Result<(), String> {
             .permission("allow-update-install")
             // the files the owner just dropped on the window, nothing else (read_dropped)
             .permission("allow-read-dropped")
-            // the clipboard on a paste the webview handed over empty (macOS), only while the window has focus
+            // the clipboard on a paste the webview handed over empty (paste.rs), only while the window has focus
             .permission("allow-paste-files")
             // text to the clipboard for a copy button the webview refused (Linux), only while the window has focus
             .permission("allow-copy-text")

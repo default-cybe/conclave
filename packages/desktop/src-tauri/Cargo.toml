@@ -64,6 +64,9 @@ windows-registry = "0.6"
 windows = { version = "0.62", features = [
   "Win32_Foundation",
   "Win32_Graphics_Dwm",
+  # a paste the webview handed over empty: the clipboard's files and picture (src/paste.rs)
+  "Win32_System_DataExchange",
+  "Win32_System_Memory",
   "Win32_System_Threading",
   "Win32_UI_WindowsAndMessaging",
 ] }
