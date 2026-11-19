@@ -145,11 +145,8 @@ async fn collect() -> Value {
     if clis.contains_key("git") {
         caps.push("git");
     }
-    // on Windows SHELL (set inside Git Bash or MSYS) is not what exec runs: report the shell exec picks
-    let shell = match std::env::var("SHELL") {
-        Ok(s) if !s.is_empty() && !cfg!(windows) => s,
-        _ => crate::procs::shell().to_string(),
-    };
+    // SHELL describes the login shell, not necessarily what exec runs.
+    let shell = crate::procs::shell();
     json!({
         "hostname": hostname(),
         "platform": platform(),

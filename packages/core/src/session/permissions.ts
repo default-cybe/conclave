@@ -3,6 +3,7 @@ import type { PermissionMode } from '../types';
 import type { Tool } from '../tools/types';
 import { toolIsReadOnly } from '../tools/types';
 import { gatedConstructs, heredocLines, maskSafeHeredocs, parseCommand, quoteEnd, readHeredoc, startsComment, substitutionBodies, type Heredoc } from '../tools/bash-rules';
+import { isCmd } from '../machine/local';
 
 /**
  * Permission rules use Claude Code syntax:
@@ -223,6 +224,97 @@ export function bashRuleTargets(cmd: string): string[] {
   return [...out];
 }
 
+/**
+ * cmd.exe syntax these checks cannot read the way cmd does: % and ! expansion
+ * and ^ escapes change the line before cmd parses it, ( ) and if/for/call/start
+ * run commands in places the splitter does not look, plus redirects, line
+ * breaks and an unclosed quote. Returns the construct's name, or undefined.
+ */
+export function cmdUnsure(cmd: string): string | undefined {
+  if (/[%!^]/.test(cmd)) return 'cmd.exe expansion or ^ escape';
+  if (/[\r\n]/.test(cmd)) return 'a line break';
+  if ((cmd.match(/"/g)?.length ?? 0) % 2) return 'an unclosed quote';
+  if (/[()]/.test(cmd)) return 'cmd.exe grouping or block';
+  if (/[<>]/.test(cmd)) return 'redirect';
+  if (cmdParts(cmd).some((p) => cmdNames(cmdCommand(p).name).some((n) => RUNS_OTHERS.has(n)))) return 'a command that runs other commands';
+  return undefined;
+}
+
+/** Keywords and programs that run a command line of their own, which the checks do not read. */
+const RUNS_OTHERS = new Set(['if', 'for', 'call', 'start', 'cmd', 'command', 'powershell', 'pwsh', 'powershell_ise', 'bash', 'sh', 'zsh', 'wsl', 'wscript', 'cscript', 'mshta', 'conhost', 'runas']);
+
+/** The commands of a cmd.exe line: & && | || separate them outside double quotes; single quotes, backslashes and # are plain text to cmd. */
+export function cmdParts(cmd: string): string[] {
+  const parts: string[] = [];
+  let cur = '';
+  let quoted = false;
+  for (const c of cmd) {
+    if (c === '"') quoted = !quoted;
+    if (!quoted && (c === '&' || c === '|')) {
+      parts.push(cur);
+      cur = '';
+    } else cur += c;
+  }
+  parts.push(cur);
+  return parts.map((p) => p.trim()).filter(Boolean);
+}
+
+/** One cmd command as its program, as written (a quoted one without its quotes), and the rest: cmd ends a bare name at a space , ; or =. */
+function cmdCommand(part: string): { name: string; quoted: boolean; rest: string } {
+  const s = part.replace(/^[\s@]+/, '');
+  if (s.startsWith('"')) {
+    const end = s.indexOf('"', 1);
+    return end === -1 ? { name: s.slice(1), quoted: true, rest: '' } : { name: s.slice(1, end), quoted: true, rest: s.slice(end + 1) };
+  }
+  const name = /^[^\s,;=]*/.exec(s)![0];
+  return { name, quoted: false, rest: s.slice(name.length) };
+}
+
+/**
+ * The names a program may go by for rules, lower case: as written, its file
+ * name after a \ or / path, the part before a glued /switch (cmd/c), each with
+ * and without .exe/.com/.bat/.cmd. Only for deny, ask and nested-shell checks,
+ * never to trust a program: dir.cmd is a script, not dir.
+ */
+function cmdNames(name: string): string[] {
+  const n = name.toLowerCase();
+  const forms = [n, n.slice(Math.max(n.lastIndexOf('\\'), n.lastIndexOf('/')) + 1), n.split('/')[0]];
+  return [...new Set(forms.flatMap((f) => [f, f.replace(/\.(exe|com|bat|cmd)$/, '')]))].filter(Boolean);
+}
+
+/** Every command a cmd line may run, as written and under each name of its program, for deny and ask rules. */
+function cmdTargets(cmd: string): string[] {
+  return cmdParts(cmd).flatMap((p) => {
+    const { name, rest } = cmdCommand(p);
+    const args = rest.replace(/"/g, '').replace(/^[\s,;=]+/, '').trim();
+    return [p, ...cmdNames(name).map((n) => `${n} ${args}`.trim())];
+  });
+}
+
+/**
+ * cmd's own commands that only read. Built-ins only: cmd runs them before any
+ * file, while a program name (where, sort, git) may find a script in the
+ * folder first, and Windows programs share names, not flags, with POSIX ones
+ * (sort /o writes, date sets the clock).
+ */
+const CMD_READ_ONLY = new Set(['dir', 'type', 'echo', 'cd', 'chdir', 'ver', 'vol']);
+
+/** True when a cmd line has nothing the checks cannot read and each of its commands is a read-only built-in, written bare. */
+function cmdReadOnly(cmd: string): boolean {
+  return !cmdUnsure(cmd) && cmdParts(cmd).every((p) => {
+    const { name, quoted } = cmdCommand(p);
+    // a quoted or suffixed name ("dir", dir.cmd) is looked up as a file, not run as the built-in
+    return !quoted && /^[a-z]+$/i.test(name) && CMD_READ_ONLY.has(name.toLowerCase());
+  });
+}
+
+/** The shell a machine runs commands in: a paired device's from its hello, the hub's own from shell(). */
+export function machineShell(machine: unknown): string | undefined {
+  const m = machine as { lastInfo?: { shell?: string }; shell?: () => string };
+  if (m.lastInfo) return m.lastInfo.shell;
+  return typeof m.shell === 'function' ? m.shell() : undefined;
+}
+
 export interface CheckInput {
   tool: Tool;
   input: Record<string, any>;
@@ -236,6 +328,8 @@ export interface CheckInput {
   home: string;
   /** Directories edits may touch without asking in acceptEdits mode. */
   workspaceRoots: string[];
+  /** The shell the command runs in (machineShell). cmd.exe gets its own reading of a Bash command; unset reads it as bash. */
+  shell?: string;
 }
 
 /** Bash as checkOne needs it, for preview_start's command (no import cycle with tools/bash.ts). */
@@ -256,7 +350,12 @@ export function checkPermission(c: CheckInput): PermissionCheck {
 
 function checkOne(c: CheckInput): PermissionCheck {
   const name = c.tool.name;
-  const readOnly = toolIsReadOnly(c.tool, c.input);
+  // cmd.exe: single quotes, backslashes and # hide nothing, so the bash reading may miss a command
+  const cmd = name === 'Bash' && !!c.content && !!c.shell && isCmd(c.shell) ? c.content : undefined;
+  const unsure = cmd !== undefined ? cmdUnsure(cmd) : undefined;
+  // the Bash tool's own readOnly reads the line as bash; sleep and watch waits are not read-only segments either way
+  // (BASH_RULES, preview_start's stand-in, is never read-only)
+  const readOnly = cmd !== undefined ? c.tool.readOnly !== false && !c.input?.run_in_background && cmdReadOnly(cmd) : toolIsReadOnly(c.tool, c.input);
   const rules = (list: string[]) => list.map(parseRule).filter((r) => toolMatches(r.tool, name));
 
   const matchAny = (list: ParsedRule[]): ParsedRule | undefined => {
@@ -268,7 +367,7 @@ function checkOne(c: CheckInput): PermissionCheck {
   };
 
   // deny: any sub-command hit denies, including commands inside $( ) and backticks
-  const bashTargets = name === 'Bash' && c.content ? bashRuleTargets(c.content) : [];
+  const bashTargets = name === 'Bash' && c.content ? [...new Set([...bashRuleTargets(c.content), ...(cmd !== undefined ? cmdTargets(cmd) : [])])] : [];
   const denyRules = rules(c.rules.deny);
   for (const part of bashTargets) {
     const hit = denyRules.find((r) => contentMatches(r, name, part, c.cwd, c.home));
@@ -276,6 +375,9 @@ function checkOne(c: CheckInput): PermissionCheck {
   }
   const deny = matchAny(denyRules);
   if (deny) return { decision: 'deny', reason: `Denied by rule ${deny.raw}`, rule: deny.raw };
+  // cmd syntax that hides which commands run cannot be cleared against a command deny rule: fail closed
+  const unsureDeny = unsure ? denyRules.find((r) => r.content !== undefined) : undefined;
+  if (unsureDeny) return { decision: 'deny', reason: `Denied: ${unsure} hides which commands run from rule ${unsureDeny.raw}`, rule: unsureDeny.raw };
 
   if (c.mode === 'plan' && !readOnly && name !== 'ExitPlanMode') {
     return { decision: 'deny', reason: 'Plan mode is read-only. Present a plan with ExitPlanMode first.' };
@@ -283,7 +385,8 @@ function checkOne(c: CheckInput): PermissionCheck {
 
   // ask: like deny, any sub-command hit asks
   const askRules = rules(c.rules.ask);
-  const ask = matchAny(askRules) ?? bashTargets.map((p) => askRules.find((r) => contentMatches(r, name, p, c.cwd, c.home))).find(Boolean);
+  const ask =
+    matchAny(askRules) ?? bashTargets.map((p) => askRules.find((r) => contentMatches(r, name, p, c.cwd, c.home))).find(Boolean) ?? (unsure ? askRules.find((r) => r.content !== undefined) : undefined);
   if (ask) return { decision: 'ask', reason: `Rule ${ask.raw} requires approval`, rule: ask.raw };
 
   const allowList = rules([...c.rules.allow, ...c.sessionAllow]);
@@ -291,9 +394,9 @@ function checkOne(c: CheckInput): PermissionCheck {
   let gatedReason: string | undefined;
   if (name === 'Bash' && c.content) {
     const whole = c.content.trim();
-    const gated = gatedConstructs(whole);
+    const gated = cmd !== undefined ? (unsure ? [unsure] : []) : gatedConstructs(whole);
     // a $(cat <<'EOF' ... EOF) commit message is one word here, so its lines are not sub-commands
-    const parts = splitBashCommand(maskSafeHeredocs(whole));
+    const parts = cmd !== undefined ? cmdParts(whole) : splitBashCommand(maskSafeHeredocs(whole));
     if (gated.length) {
       // only a bare "Bash" rule or a rule naming this exact command covers substitution, redirects and the like;
       // the comparison is literal, so a suggested exact rule covers its command even when it contains *

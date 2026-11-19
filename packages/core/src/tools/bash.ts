@@ -7,6 +7,8 @@ import { isHeadless } from '../session/runner';
 import { clampInt, fail, outputBudget, truncateMiddleOut } from './util';
 import { KEEPS, KIND_NAMES, reduceOutput } from './compress';
 import { HEAVY_COMMANDS_DEFAULT, HEAVY_WAIT_NOTE, heavyGate, isHeavyCommand } from './heavy-gate';
+import { isCmd } from '../machine/local';
+import type { MachineInfo } from '../types';
 
 export interface BashInput {
   command: string;
@@ -21,7 +23,7 @@ export const BASH_MAX_OUTPUT_CHARS = 30_000;
 const MACHINE_OUTPUT_CAP = 4 * 1024 * 1024;
 const PROGRESS_FLUSH_MS = 250;
 
-const DESCRIPTION = `Run a shell command (bash -c) on the session's machine and return its combined stdout and stderr.
+const DESCRIPTION = `Run a shell command on the session's machine and return its combined stdout and stderr. It runs in bash, or in cmd.exe on a Windows device without Git Bash; the Environment section names the shell.
 
 - The working directory persists between calls; environment variables and shell functions do not. Prefer absolute paths to cd.
 - timeout is in milliseconds (default ${BASH_DEFAULT_TIMEOUT_MS}, max ${BASH_MAX_TIMEOUT_MS}). Give a 5 to 10 word description of what the command does, e.g. "Run unit tests".
@@ -69,6 +71,20 @@ export function extractCwd(text: string, marker: string): { text: string; cwd?: 
   if (before.endsWith('\n')) before = before.slice(0, -1);
   const after = nl === -1 ? '' : rest.slice(nl + 1);
   return { text: before + after, cwd: cwd || undefined };
+}
+
+/** Batch lines stay intact: wrapping or joining user text changes cmd's percent and parentheses parsing. */
+export function wrapCmdCommand(command: string): string {
+  return ['@echo off', 'chcp 65001 >nul', command.replace(/\r?\n/g, '\r\n'), ''].join('\r\n');
+}
+
+/** The shell the device runs commands in (MachineInfo.shell): a paired device's from its hello, no round trip. */
+async function deviceShell(ctx: ToolContext): Promise<string | undefined> {
+  const m = ctx.machine as { lastInfo?: MachineInfo; shell?: () => string };
+  if (m.lastInfo) return m.lastInfo.shell;
+  // the hub's own machine: its exec shell, without info()'s CLI version probes
+  if (typeof m.shell === 'function') return m.shell();
+  return (await ctx.machine.info().catch(() => undefined))?.shell;
 }
 
 /**
@@ -119,20 +135,38 @@ async function runForeground(input: BashInput, ctx: ToolContext): Promise<ToolOu
     }
   };
 
-  const res = await ctx.machine.exec(wrapCommand(marker), {
-    cwd: ctx.cwd,
-    env: bashEnv(ctx, { __CONCLAVE_CMD: input.command }),
-    timeoutMs,
-    signal: ctx.signal,
-    maxOutputBytes: MACHINE_OUTPUT_CAP,
-    onOutput: (chunk, stream) => {
-      if (stream !== 'stdout') return;
-      pending += chunk;
-      timer ??= setTimeout(flush, PROGRESS_FLUSH_MS);
-    },
-  });
-  if (timer) clearTimeout(timer);
-  flush();
+  const shell = await deviceShell(ctx);
+  let script: string | undefined;
+  let res;
+  try {
+    if (shell && isCmd(shell)) {
+      const temp = await ctx.machine.exec('chcp 65001 >nul & set TEMP', { cwd: ctx.cwd, timeoutMs: 5_000, signal: ctx.signal });
+      const dir = /^TEMP=([^\r\n]+)$/im.exec(temp.stdout)?.[1] ?? '';
+      if (temp.exitCode !== 0 || !/^(?:[A-Za-z]:[\\/]|\\\\)[^\r\n]+$/.test(dir)) return fail('Could not locate the Windows temporary folder.');
+      script = `${dir.replace(/[\\/]$/, '')}\\${marker}.cmd`;
+      await ctx.machine.writeFile(script, wrapCmdCommand(input.command));
+    }
+    res = await ctx.machine.exec(
+      script ? `chcp 65001 >nul & call "%__CONCLAVE_SCRIPT%" & call set "__conclave_exit=%^errorlevel%" & >&2 <nul set /p "=${marker}" & >&2 cd & call exit /b %^__conclave_exit%` : wrapCommand(marker),
+      {
+      cwd: ctx.cwd,
+      env: bashEnv(ctx, { __CONCLAVE_CMD: input.command, ...(script ? { __CONCLAVE_SCRIPT: script } : {}) }),
+      timeoutMs,
+      signal: ctx.signal,
+      maxOutputBytes: MACHINE_OUTPUT_CAP,
+      onOutput: (chunk, stream) => {
+        if (stream !== 'stdout') return;
+        pending += chunk;
+        timer ??= setTimeout(flush, PROGRESS_FLUSH_MS);
+      },
+    });
+  } catch (err) {
+    return fail(`Could not run command: ${(err as Error).message}`);
+  } finally {
+    if (timer) clearTimeout(timer);
+    flush();
+    if (script) await ctx.machine.remove(script).catch(() => {});
+  }
 
   const err = extractCwd(res.stderr, marker);
   const out = extractCwd(res.stdout, marker);

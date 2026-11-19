@@ -2741,6 +2741,7 @@ export class Engine implements EngineApi {
       session, agent, modelRef, mode, toolNames,
       platform: info?.platform ?? process.platform,
       hostname: info?.hostname,
+      shell: info?.shell,
       isGitRepo: isGit,
       deviceName: this.devices.list().find((d) => d.id === session.device)?.name ?? session.device,
       projectInstructions, profile, skills, firstMessage,
