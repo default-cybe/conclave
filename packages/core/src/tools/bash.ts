@@ -74,20 +74,8 @@ export function extractCwd(text: string, marker: string): { text: string; cwd?: 
 }
 
 /** Batch lines stay intact: wrapping or joining user text changes cmd's percent and parentheses parsing. */
-export function wrapCmdCommand(marker: string, command: string): string {
-  return [
-    '@echo off',
-    'call :__conclave_run',
-    'set "__conclave_exit=%errorlevel%"',
-    'setlocal DisableDelayedExpansion',
-    `>&2 <nul set /p "=${marker}%CD%"`,
-    '>&2 echo(',
-    'exit /b %__conclave_exit%',
-    ':__conclave_run',
-    command.replace(/\r?\n/g, '\r\n'),
-    'exit /b',
-    '',
-  ].join('\r\n');
+export function wrapCmdCommand(command: string): string {
+  return ['@echo off', command.replace(/\r?\n/g, '\r\n'), ''].join('\r\n');
 }
 
 /** The shell the device runs commands in (MachineInfo.shell): a paired device's from its hello, no round trip. */
@@ -156,9 +144,11 @@ async function runForeground(input: BashInput, ctx: ToolContext): Promise<ToolOu
       const dir = /^TEMP=([^\r\n]+)$/im.exec(temp.stdout)?.[1] ?? '';
       if (temp.exitCode !== 0 || !/^(?:[A-Za-z]:[\\/]|\\\\)[^\r\n]+$/.test(dir)) return fail('Could not locate the Windows temporary folder.');
       script = `${dir.replace(/[\\/]$/, '')}\\${marker}.cmd`;
-      await ctx.machine.writeFile(script, wrapCmdCommand(marker, input.command));
+      await ctx.machine.writeFile(script, wrapCmdCommand(input.command));
     }
-    res = await ctx.machine.exec(script ? 'chcp 65001 >nul & "%__CONCLAVE_SCRIPT%"' : wrapCommand(marker), {
+    res = await ctx.machine.exec(
+      script ? `chcp 65001 >nul & call "%__CONCLAVE_SCRIPT%" & call set "__conclave_exit=%%errorlevel%%" & >&2 <nul set /p "=${marker}" & >&2 cd & call exit /b %%__conclave_exit%%` : wrapCommand(marker),
+      {
       cwd: ctx.cwd,
       env: bashEnv(ctx, { __CONCLAVE_CMD: input.command, ...(script ? { __CONCLAVE_SCRIPT: script } : {}) }),
       timeoutMs,
