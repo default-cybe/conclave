@@ -218,7 +218,10 @@ mod tests {
     #[test]
     fn not_a_dib() {
         assert!(dib_to_bmp(&[]).is_none());
-        assert!(dib_to_bmp(&header(12, 24, 0, 0)).is_none());
+        // a BITMAPCOREHEADER (12 bytes), which CF_DIB never holds
+        let mut core = header(40, 24, 0, 0);
+        core[0..4].copy_from_slice(&12u32.to_le_bytes());
+        assert!(dib_to_bmp(&core).is_none());
         // a color table that runs past the block
         assert!(dib_to_bmp(&header(40, 8, 0, 0)).is_none());
         assert!(dib_to_bmp(&header(40, 8, 0, u32::MAX)).is_none());
