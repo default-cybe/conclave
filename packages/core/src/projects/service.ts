@@ -511,8 +511,11 @@ export class ProjectsService {
       } else if (this.engine.repos.devices.sameMachine(s.device, toDevice) && (await target.stat(s.cwd).catch(() => null))?.type === 'dir') {
         // the same computer paired again under a new id: its folder is this folder, path for path
         const r = await check(ctx, src.root, 'same-path');
-        hit = r ? { ...r, level: 'exact', line: 'The same folder on the same computer' } : undefined;
-        cwd = s.cwd;
+        // another history at the path is not the same folder: the normal resolution and its mismatch guard decide
+        if (r && r.level !== 'mismatch') {
+          hit = { ...r, level: 'exact', line: 'The same folder on the same computer' };
+          cwd = s.cwd;
+        }
       }
       if (!hit) {
         const outcome = await resolveLocation(ctx);

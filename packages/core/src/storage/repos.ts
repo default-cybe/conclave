@@ -1140,9 +1140,13 @@ export class DeviceRepo {
     return r ? json(r.value, undefined) : undefined;
   }
 
-  /** Two device ids for the same computer: same account, hostname and platform (a removed device paired again). */
+  /**
+   * A removed device and a device on the same computer: same account, hostname and platform.
+   * One of the two must be gone, so two live devices that share a hostname (ubuntu) never count.
+   */
   sameMachine(a: string, b: string): boolean {
     if (!a || !b || a === b || a === 'local' || b === 'local') return false;
+    if (this.get(a) && this.get(b)) return false;
     const x = this.machineOf(a);
     const y = this.machineOf(b);
     return !!x && !!y && x.accountId === y.accountId && x.hostname.toLowerCase() === y.hostname.toLowerCase() && x.platform === y.platform;

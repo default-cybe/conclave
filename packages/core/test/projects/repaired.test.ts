@@ -42,6 +42,11 @@ test('a move to the same computer paired again keeps the exact folder', async ()
   expect(t.engine.repos.devices.sameMachine('pc', 'pc2')).toBe(true);
   // another computer is not the same machine
   expect(t.engine.repos.devices.sameMachine('pc', 'mac')).toBe(false);
+  // two live devices that share a hostname are never the same machine
+  t.engine.repos.devices.insert({ id: 'pc3', name: d.pc.name, tokenHash: 'test' });
+  t.engine.repos.devices.seen('pc3', again.infoNow());
+  expect(t.engine.repos.devices.sameMachine('pc2', 'pc3')).toBe(false);
+  t.engine.repos.devices.delete('pc3');
 
   const r = await svc.move(s.id, { device: 'pc2' });
   expect(r).toMatchObject({ resolved: true, via: 'same-path', level: 'exact', cwd: site });

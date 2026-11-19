@@ -19,13 +19,12 @@ import type { Session } from '@conclave/core/types';
 import { api } from '@/lib/api';
 import { useBreakpoint } from '@/lib/hooks';
 import { cn } from '@/lib/text';
-import { attempt } from '@/store/store';
+import { attempt, memberNow } from '@/store/store';
 import { Button, IconButton } from '@/components/ui/Button';
 import { Segmented, Textarea } from '@/components/ui/Field';
 import { Dialog, Sheet, SideSheet } from '@/components/ui/Overlay';
 import { RemotePage } from '@/features/settings/RemotePage';
 import { errText } from '@/features/settings/parts';
-import { isOwnerNow } from '@/lib/people';
 import { addComment } from '@/features/chat/lineComments';
 
 /** Which session's Preview is open on this device (one at a time). */
@@ -92,7 +91,7 @@ export function PreviewPane({ session }: { session: Session }) {
   useEffect(() => {
     let on = true;
     // Preview runs Chromium on the hub, which is the owner's (ACCOUNTS.md): a member never polls it
-    if (!isOwnerNow()) return;
+    if (memberNow()) return;
     const load = () =>
       api()
         .previewState(id)
