@@ -53,8 +53,9 @@ export function DeviceFolderPicker({
   const [open, setOpen] = useState(false);
   const devices = useHub((s) => s.devices);
   const d = device ? devices[device] : undefined;
-  // the hub first, by its name ("madx (hub)"), then the computers
-  const list = computerList(devices);
+  const member = useHub((s) => s.me?.role === 'member');
+  // the hub first, by its name ("madx (hub)"), then the computers; a member's code never runs on the hub (moveTarget)
+  const list = computerList(devices).filter((x) => !member || x.id !== 'local');
   // the same menu as the folder chip (FolderPicker.tsx); Open folder… opens the browser
   const browse = useOpenFolder(device ?? 'local', cwd, (p) => onCwd?.(p));
   return (

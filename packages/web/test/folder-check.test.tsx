@@ -227,6 +227,20 @@ describe('the folder menu', () => {
     await v.unmount();
   });
 
+  test('"On <device>" lists the places, offline greyed; a member is never offered the hub', async () => {
+    const v = await chip('arch');
+    await v.act(async () => v.options().find((o) => o.textContent?.startsWith('On '))!.click());
+    expect(v.options().map((o) => o.textContent)).toEqual(expect.arrayContaining(['madx (hub)', 'arch-desktopoffline']));
+    await v.unmount();
+    useHub.setState({ me: { role: 'member' } } as never);
+    const m = await chip('arch');
+    // only one place left for a member here: no device row at all
+    expect(m.options().some((o) => o.textContent?.startsWith('On '))).toBe(false);
+    expect(m.options().some((o) => o.textContent?.includes('madx'))).toBe(false);
+    await m.unmount();
+    useHub.setState({ me: undefined } as never);
+  });
+
   test('a typed path lists the folders it starts on the device', async () => {
     const v = await chip('local');
     await v.type('/home/kai/code/s');

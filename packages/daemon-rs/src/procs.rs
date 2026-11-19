@@ -649,7 +649,10 @@ pub async fn capture(argv: &[String], cwd: Option<&str>, timeout: Duration, max_
             kill_tree(p, Sig::Kill);
         }
     });
-    let (stdout, stderr) = tokio::join!(read(so, max_out), read(se, max_err));
+    // a grandchild holding the pipes (a .cmd shim's node, a backgrounded job) outlives the kill above: stop reading then too.
+    // shortcut: its output so far is dropped in that case, keep partial reads if a caller ever needs them
+    let reads = async { tokio::join!(read(so, max_out), read(se, max_err)) };
+    let (stdout, stderr) = tokio::time::timeout(timeout + DRAIN_GRACE, reads).await.unwrap_or_default();
     let st = child.wait().await.ok();
     killer.abort();
     Ok(Captured { stdout, stderr, code: st.and_then(|s| s.code()) })
@@ -680,5 +683,19 @@ mod tests {
         let s = b.finish();
         assert!(s.starts_with('é'), "{s}");
         assert!(s.ends_with("zw"), "{s}");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn capture_ends_at_its_timeout_when_a_grandchild_keeps_the_pipes() {
+        let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+        rt.block_on(async {
+            // `--version` of a shim that leaves a child behind on stdout: info() waited for it before the hello
+            let argv: Vec<String> = ["/bin/sh", "-c", "(sleep 15) & echo 1.2.3"].iter().map(|s| s.to_string()).collect();
+            let started = Instant::now();
+            let c = capture(&argv, None, Duration::from_millis(300), 1024, 1024).await.unwrap();
+            assert!(started.elapsed() < Duration::from_secs(5), "took {:?}", started.elapsed());
+            let _ = c;
+        });
     }
 }

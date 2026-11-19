@@ -161,7 +161,9 @@ export function FolderMenu({ device, cwd, onPick, onOpenFolder, onDevice, onClos
   // a recent folder that is gone is marked, not offered; a typed path is asked of the device (folderCheck.tsx)
   const gone = useMissingFolders(device, recent.map((r) => r.path));
   const check = useFolderCheck(device, typedPath);
-  const list = computerList(devices);
+  const member = useHub((s) => s.me?.role === 'member');
+  // a member's code never runs on the hub (moveTarget), so the hub is not offered to them
+  const list = computerList(devices).filter((x) => !member || x.id !== 'local');
   const many = !!onDevice && list.length > 1;
   const none = !cwd || cwd === '~';
   const current = cwd ? trim(expandHome(cwd, home)) : '';

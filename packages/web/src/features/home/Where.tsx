@@ -32,7 +32,9 @@ export function FolderChip({ device, cwd, onCwd, onDevice, open: openProp, onOpe
   const setOpen = (v: boolean) => (onOpenChange ? onOpenChange(v) : setOwn(v));
   const name = useHub((s) => s.devices[device]?.name ?? device);
   const d = useHub((s) => s.devices[device]);
-  const list = useComputers();
+  const member = useHub((s) => s.me?.role === 'member');
+  // as Device and folder (pickers.tsx): a member's code never runs on the hub
+  const list = useComputers().filter((x) => !member || x.id !== 'local');
   const devices = !!onDevice && list.length > 1;
   const set = (p: string) => {
     onCwd?.(p.trim() || '~');
