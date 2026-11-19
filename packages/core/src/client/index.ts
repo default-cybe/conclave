@@ -1962,6 +1962,8 @@ export class ConclaveClient {
   identifyFolder = (input: { device: string; path: string; sessionId?: string; projectId?: string }) => this.request<IdentifyResult>('POST', '/api/projects/identify', input);
   projects = () => this.request<ProjectDto[]>('GET', '/api/projects');
   project = (id: string) => this.request<ProjectDto>('GET', `/api/projects/${id}`);
+  /** Add as project: the folder becomes a project named `name` (a plain folder gets a .conclave/project.json marker). */
+  addProject = (device: string, path: string, name: string) => this.request<ProjectDto>('POST', '/api/projects', { device, path, name });
   /** Verify a folder is the project and pin it as its location on the device. */
   pinLocation = (projectId: string, device: string, path: string) => this.request<ProjectDto>('PUT', `/api/projects/${projectId}/locations`, { device, path });
   unpinLocation = (projectId: string, device: string, path: string) => this.request<ProjectDto>('DELETE', `/api/projects/${projectId}/locations`, undefined, { device, path });

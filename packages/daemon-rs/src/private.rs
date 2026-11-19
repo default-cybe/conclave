@@ -163,6 +163,20 @@ pub mod tests {
         done(&home);
     }
 
+    /// New folder in the folder browser: the "mkdir" RPC checks the path, then makes it (server.rs).
+    #[test]
+    fn mkdir_keeps_out_of_it() {
+        let (home, work) = fixture("mkdir");
+        let mk = |p: String| check(&p).and_then(|_| crate::fsops::mkdir_p(&p));
+        assert_eq!(mk(format!("{home}/cliproxy/auth/new")).unwrap_err().code.as_deref(), Some("EACCES"));
+        #[cfg(unix)]
+        assert!(mk(format!("{work}/link/new")).is_err());
+        assert!(mk(format!("{work}/project/new")).is_ok());
+        assert!(std::path::Path::new(&format!("{work}/project/new")).is_dir());
+        assert!(crate::fsops::mkdir_p("").is_err());
+        done(&home);
+    }
+
     #[test]
     fn a_shell_command_that_names_it() {
         let (home, _) = fixture("commands");

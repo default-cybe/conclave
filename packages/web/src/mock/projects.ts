@@ -470,6 +470,18 @@ export function registerProjects(ctx: MockCtx) {
   });
 
   on('GET', '/api/projects', () => [...projects.values()].map((p) => structuredClone(p)));
+  // Add as project (the folder picker): the folder becomes a project, pinned on the device
+  on('POST', '/api/projects', ({ body }) => {
+    const b = body as { device: string; path: string; name?: string };
+    const path = abs(b.device, b.path);
+    const found = [...projects.values()].find((p) => p.locations.some((l) => l.device === b.device && l.path === path));
+    if (found) return structuredClone(found);
+    const id = uid('prj');
+    project(id, b.name?.trim() || base(path), { gitRoots: [], remotes: [], shallow: false }, [loc(id, b.device, path, 'pinned', 0, true)]);
+    const p = projects.get(id)!;
+    emit({ type: 'project.updated', project: structuredClone(p) } as never);
+    return structuredClone(p);
+  });
   on('GET', '/api/projects/:id', ({ params }) => projects.get(params[0]) ?? fail(404, `unknown project ${params[0]}`));
   on('PUT', '/api/projects/:id/locations', ({ params, body }) => {
     const p = projects.get(params[0]) ?? fail(404, `unknown project ${params[0]}`);

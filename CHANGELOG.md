@@ -16,6 +16,10 @@ like `## [0.4.16] - 2026-10-24`.
 - Members: model pickers list models a member cannot use under Not available, so a fallback list no longer fails with "You can't use ... on this hub". The web app no longer calls the owner-only MCP, Preview and hub copy routes for a member.
 - Pasting a copied picture (from a website, Snipping Tool or a screenshot) works on Windows, in the app and the browser
 
+### Changed
+
+- Pick a folder like in Codex: search, recent folders, and Open folder… with a folder browser; add a folder as a project in one step
+
 ## [0.4.103] - 2026-11-19
 
 ### Fixed
