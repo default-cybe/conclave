@@ -87,7 +87,8 @@ export function extractCwd(text: string, marker: string): { text: string; cwd?: 
 export function wrapCmdCommand(marker: string, command: string): string {
   let body = '';
   for (const raw of command.split(/\r?\n/)) {
-    const l = raw.trim().replace(/\s*&+$/, '');
+    let l = raw.trim();
+    while (l.endsWith('&')) l = l.slice(0, -1).trimEnd();
     if (!l || /^(rem(\s|$)|::)/i.test(l)) continue;
     body = !body ? l : body.endsWith('(') || l.startsWith(')') ? `${body} ${l}` : `${body} & ${l}`;
   }
