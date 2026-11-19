@@ -167,19 +167,54 @@ impl HeadTail {
 // Shell and commands
 // ---------------------------------------------------------------------------
 
-/// bash when available, else sh (cmd.exe on Windows).
+/// bash when available, else sh. On Windows: Git Bash (never the WSL launcher), else cmd.exe.
 pub fn shell() -> &'static str {
     static SHELL: OnceLock<String> = OnceLock::new();
-    SHELL.get_or_init(|| match crate::env::which("bash") {
-        Some(p) => p.to_string_lossy().into_owned(),
-        None => {
-            if cfg!(windows) {
-                "cmd.exe".into()
-            } else {
-                "/bin/sh".into()
-            }
+    SHELL.get_or_init(|| {
+        if cfg!(windows) {
+            let path = std::env::var_os("PATH").map(|p| p.to_string_lossy().into_owned()).unwrap_or_default();
+            let env = |k: &str| std::env::var(k).ok().filter(|v| !v.is_empty());
+            return windows_bash(&path, &env, &|p: &str| std::path::Path::new(p).is_file()).unwrap_or_else(|| "cmd.exe".into());
+        }
+        match crate::env::which("bash") {
+            Some(p) => p.to_string_lossy().into_owned(),
+            None => "/bin/sh".into(),
         }
     })
+}
+
+/// The WSL launcher (WindowsApps or System32 bash.exe) runs Linux, where D:\ paths and Windows tools do not exist.
+fn is_wsl_launcher(p: &str) -> bool {
+    let l = p.to_ascii_lowercase().replace('/', "\\");
+    ["\\windowsapps\\", "\\system32\\", "\\sysnative\\"].into_iter().any(|d| l.contains(d))
+}
+
+/// Git for Windows' install folder from the folder its git.exe is in (`<Git>\cmd`, `<Git>\bin`, `<Git>\mingw64\bin`).
+fn git_root(dir: &str) -> Option<&str> {
+    let lower = dir.to_ascii_lowercase();
+    ["\\mingw64\\bin", "\\mingw32\\bin", "\\clangarm64\\bin", "\\cmd", "\\bin"].into_iter().find(|s| lower.ends_with(*s)).map(|s| &dir[..dir.len() - s.len()])
+}
+
+/// Git Bash for a Windows PATH (`;`-separated): next to git.exe on PATH, then the standard
+/// install folders, then any other bash.exe on PATH that is not the WSL launcher.
+/// Strings, not Path, so the tests run the same on every OS.
+pub fn windows_bash(path_var: &str, env: &dyn Fn(&str) -> Option<String>, is_file: &dyn Fn(&str) -> bool) -> Option<String> {
+    let dirs: Vec<&str> = path_var.split(';').map(|d| d.trim().trim_matches('"').trim_end_matches(['\\', '/'])).filter(|d| !d.is_empty()).collect();
+    let mut cands: Vec<String> = Vec::new();
+    for d in &dirs {
+        if is_file(&format!("{d}\\git.exe")) {
+            if let Some(root) = git_root(d) {
+                cands.push(format!("{root}\\bin\\bash.exe"));
+            }
+        }
+    }
+    for (var, sub) in [("ProgramFiles", "Git"), ("ProgramW6432", "Git"), ("LOCALAPPDATA", "Programs\\Git"), ("ProgramFiles(x86)", "Git")] {
+        if let Some(base) = env(var) {
+            cands.push(format!("{}\\{sub}\\bin\\bash.exe", base.trim_end_matches(['\\', '/'])));
+        }
+    }
+    cands.extend(dirs.iter().map(|d| format!("{d}\\bash.exe")));
+    cands.into_iter().find(|c| !is_wsl_launcher(c) && is_file(c))
 }
 
 fn configure(cmd: &mut tokio::process::Command, own_group: bool) {
@@ -658,6 +693,44 @@ pub async fn capture(argv: &[String], cwd: Option<&str>, timeout: Duration, max_
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn pick(path: &str, files: &[&str]) -> Option<String> {
+        let env = |k: &str| match k {
+            "ProgramFiles" => Some(r"C:\Program Files".to_string()),
+            "LOCALAPPDATA" => Some(r"C:\Users\n\AppData\Local".to_string()),
+            _ => None,
+        };
+        let is_file = |p: &str| files.iter().any(|f| f.eq_ignore_ascii_case(p));
+        windows_bash(path, &env, &is_file)
+    }
+
+    const WSL: &str = r"C:\Users\n\AppData\Local\Microsoft\WindowsApps\bash.exe";
+
+    #[test]
+    fn windows_bash_follows_git_on_path_before_wsl() {
+        let path = r"C:\Users\n\AppData\Local\Microsoft\WindowsApps;C:\Windows\System32;D:\Tools\Git\cmd";
+        let files = [WSL, r"C:\Windows\System32\bash.exe", r"D:\Tools\Git\cmd\git.exe", r"D:\Tools\Git\bin\bash.exe"];
+        assert_eq!(pick(path, &files).as_deref(), Some(r"D:\Tools\Git\bin\bash.exe"));
+        // git.exe from <Git>\mingw64\bin, with a trailing slash and quotes
+        let files = [WSL, r"E:\Git\mingw64\bin\git.exe", r"E:\Git\bin\bash.exe"];
+        assert_eq!(pick(r#""E:\Git\mingw64\bin\";C:\Users\n\AppData\Local\Microsoft\WindowsApps"#, &files).as_deref(), Some(r"E:\Git\bin\bash.exe"));
+    }
+
+    #[test]
+    fn windows_bash_tries_standard_folders() {
+        let path = r"C:\Users\n\AppData\Local\Microsoft\WindowsApps";
+        assert_eq!(pick(path, &[WSL, r"C:\Program Files\Git\bin\bash.exe"]).as_deref(), Some(r"C:\Program Files\Git\bin\bash.exe"));
+        assert_eq!(pick(path, &[WSL, r"C:\Users\n\AppData\Local\Programs\Git\bin\bash.exe"]).as_deref(), Some(r"C:\Users\n\AppData\Local\Programs\Git\bin\bash.exe"));
+    }
+
+    #[test]
+    fn windows_bash_never_picks_the_wsl_launcher() {
+        let path = r"C:\Users\n\AppData\Local\Microsoft\WindowsApps;C:\WINDOWS\system32";
+        assert_eq!(pick(path, &[WSL, r"C:\WINDOWS\system32\bash.exe"]), None);
+        assert_eq!(pick("", &[]), None);
+        // another bash on PATH (MSYS2) is fine
+        assert_eq!(pick(r"C:\msys64\usr\bin;C:\WINDOWS\system32", &[r"C:\msys64\usr\bin\bash.exe"]).as_deref(), Some(r"C:\msys64\usr\bin\bash.exe"));
+    }
 
     #[test]
     fn head_tail_keeps_both_ends() {

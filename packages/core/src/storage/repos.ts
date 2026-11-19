@@ -1122,7 +1122,30 @@ export class DeviceRepo {
   }
 
   delete(id: string): void {
+    // which computer it was stays known, so a session left on it can find the same computer paired again (sameMachine)
+    const d = this.get(id);
+    if (d?.info?.hostname) {
+      this.db
+        .query('INSERT INTO kv (key, value, updated_at) VALUES (?,?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at')
+        .run(`device.gone:${id}`, JSON.stringify({ hostname: d.info.hostname, platform: d.info.platform, accountId: d.accountId }), Date.now());
+    }
     this.db.query('DELETE FROM devices WHERE id = ?').run(id);
+  }
+
+  /** The computer a device runs on, also after it was removed: hostname, platform and account. */
+  machineOf(id: string): { hostname: string; platform?: string; accountId: string } | undefined {
+    const d = this.get(id);
+    if (d) return d.info?.hostname ? { hostname: d.info.hostname, platform: d.info.platform, accountId: d.accountId ?? OWNER_ID } : undefined;
+    const r = this.db.query('SELECT value FROM kv WHERE key = ?').get(`device.gone:${id}`) as Row | null;
+    return r ? json(r.value, undefined) : undefined;
+  }
+
+  /** Two device ids for the same computer: same account, hostname and platform (a removed device paired again). */
+  sameMachine(a: string, b: string): boolean {
+    if (!a || !b || a === b || a === 'local' || b === 'local') return false;
+    const x = this.machineOf(a);
+    const y = this.machineOf(b);
+    return !!x && !!y && x.accountId === y.accountId && x.hostname.toLowerCase() === y.hostname.toLowerCase() && x.platform === y.platform;
   }
 
   createPairingCode(kind: 'device' | 'client', ttlMs = 10 * 60_000, accountId: string = OWNER_ID): string {

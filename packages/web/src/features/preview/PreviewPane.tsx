@@ -25,6 +25,7 @@ import { Segmented, Textarea } from '@/components/ui/Field';
 import { Dialog, Sheet, SideSheet } from '@/components/ui/Overlay';
 import { RemotePage } from '@/features/settings/RemotePage';
 import { errText } from '@/features/settings/parts';
+import { isOwnerNow } from '@/lib/people';
 import { addComment } from '@/features/chat/lineComments';
 
 /** Which session's Preview is open on this device (one at a time). */
@@ -90,6 +91,8 @@ export function PreviewPane({ session }: { session: Session }) {
 
   useEffect(() => {
     let on = true;
+    // Preview runs Chromium on the hub, which is the owner's (ACCOUNTS.md): a member never polls it
+    if (!isOwnerNow()) return;
     const load = () =>
       api()
         .previewState(id)

@@ -13,6 +13,7 @@ import { attempt, onHubEvent } from '@/store/store';
 import { Button } from '@/components/ui/Button';
 import { Checkbox } from '@/components/ui/Field';
 import { Dialog, type MenuItem } from '@/components/ui/Overlay';
+import { isOwnerNow } from '@/lib/people';
 
 type Progress = Extract<EngineEventEnvelope, { type: 'hubcopy.progress' }>;
 
@@ -34,7 +35,8 @@ function useProgress(sessionId: string): Progress | undefined {
 function usePreview(session: Session, when: boolean): HubCopyPreview | undefined {
   const [p, setP] = useState(() => previews.get(session.id)?.p);
   useEffect(() => {
-    if (!when || session.kind === 'chat') return;
+    // a hub copy is the owner's (route policy admin): a member never asks
+    if (!when || session.kind === 'chat' || !isOwnerNow()) return;
     const hit = previews.get(session.id);
     if (hit && Date.now() - hit.at < 3 * 60_000) return setP(hit.p);
     let live = true;

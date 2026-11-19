@@ -20,6 +20,7 @@ import { StatusWord } from '@/features/extensions/mcp/StatusWord';
 import { ServerForm } from '@/features/extensions/mcp/ServerForm';
 import { ExtCwdProvider } from '@/features/extensions/project';
 import { SheetRouter } from './SessionSheet';
+import { isOwnerNow } from '@/lib/people';
 
 // the Extensions tab loads when All servers opens, not with the chat
 const McpServersTab = lazy(() => import('@/features/extensions/McpServers').then((m) => ({ default: m.McpServersTab })));
@@ -32,7 +33,7 @@ export function sessionMcpOff(s: Pick<Session, 'meta'>): string[] {
 
 export function ConnectorsSheet({ session, onClose }: { session: Session; onClose: () => void }) {
   const mobile = useIsMobile();
-  const load = useLoad(() => api().mcp(), []);
+  const load = useLoad(() => (isOwnerNow() ? api().mcp() : Promise.resolve([])), []);
   const config = useHub((s) => s.config);
   const agent = useHub((s) => s.agents.find((a) => a.name === session.agent));
   const servers = (config?.mcpServers ?? {}) as Record<string, McpServerConfig>;

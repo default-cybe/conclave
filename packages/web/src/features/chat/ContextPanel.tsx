@@ -60,6 +60,7 @@ import { backgroundShells, callCostWord, contextPercent, costWord, outputsWord, 
 import { sessionMcpOff, ConnectorsSheet } from './sheets/Connectors';
 import { ContextSheet, CONTEXT_PARTS } from './sheets/ContextSheet';
 import { SessionSheet } from './sheets/SessionSheet';
+import { isOwnerNow } from '@/lib/people';
 
 /** The panel's width, docked and as a sheet. */
 export const PANEL_W = 340;
@@ -325,7 +326,8 @@ function ContextParts({ session }: { session: Session }) {
 // ---------------------------------------------------------------------------
 
 function ConnectorsCard({ session, onManage }: { session: Session; onManage: () => void }) {
-  const load = useLoad(() => api().mcp(), []);
+  // the hub's MCP servers are the owner's: a member's session never gets them
+  const load = useLoad(() => (isOwnerNow() ? api().mcp() : Promise.resolve([])), []);
   const agent = useHub((s) => s.agents.find((a) => a.name === session.agent));
   const config = useHub((s) => s.config);
   const [busy, setBusy] = useState<string | null>(null);
