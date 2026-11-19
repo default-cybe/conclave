@@ -9,7 +9,7 @@ import type { HubBackPreview, HubCopyPreview, HubCopyRecord } from '@conclave/co
 import type { EngineEventEnvelope, Session } from '@conclave/core/types';
 import { api } from '@/lib/api';
 import { bytes as size } from '@/lib/format';
-import { attempt, onHubEvent } from '@/store/store';
+import { attempt, memberNow, onHubEvent } from '@/store/store';
 import { Button } from '@/components/ui/Button';
 import { Checkbox } from '@/components/ui/Field';
 import { Dialog, type MenuItem } from '@/components/ui/Overlay';
@@ -34,7 +34,8 @@ function useProgress(sessionId: string): Progress | undefined {
 function usePreview(session: Session, when: boolean): HubCopyPreview | undefined {
   const [p, setP] = useState(() => previews.get(session.id)?.p);
   useEffect(() => {
-    if (!when || session.kind === 'chat') return;
+    // a hub copy is the owner's (route policy admin): a member never asks
+    if (!when || session.kind === 'chat' || memberNow()) return;
     const hit = previews.get(session.id);
     if (hit && Date.now() - hit.at < 3 * 60_000) return setP(hit.p);
     let live = true;

@@ -14,7 +14,7 @@
 //!
 //!   conclave-daemon pair --hub URL --app-token-stdin --json
 //!   conclave-daemon install
-//!   conclave-daemon uninstall --json
+//!   conclave-daemon uninstall --keep-pairing --json
 //!   conclave-daemon status --json
 //!   conclave-daemon --version
 
@@ -260,8 +260,12 @@ pub fn parse_uninstalled(stdout: &str) -> Uninstalled {
     serde_json::from_str(json_line(stdout)).unwrap_or_default()
 }
 
+/// Turning the switch off keeps the pairing, so on brings back the same device and its
+/// sessions keep their folders. Removing the device on the hub's Devices page unpairs it.
+pub const UNINSTALL_ARGS: &[&str] = &["uninstall", "--keep-pairing", "--json"];
+
 pub fn uninstall(bin: &Path) -> Result<Uninstalled, String> {
-    let out = run(bin, &["uninstall", "--json"], None, Duration::from_secs(60))?;
+    let out = run(bin, UNINSTALL_ARGS, None, Duration::from_secs(60))?;
     if out.ok {
         Ok(parse_uninstalled(&out.stdout))
     } else {
@@ -269,11 +273,21 @@ pub fn uninstall(bin: &Path) -> Result<Uninstalled, String> {
     }
 }
 
+/// `conclave-daemon unpair --json`: the hub removes the device and the pairing here is gone.
+pub fn unpair(bin: &Path) -> Result<(), String> {
+    let out = run(bin, &["unpair", "--json"], None, Duration::from_secs(30))?;
+    if out.ok {
+        Ok(())
+    } else {
+        Err(out.error("Unpairing this computer"))
+    }
+}
+
 /// What turning it off did, in one or two sentences.
 pub fn off_words(u: &Uninstalled) -> String {
     let name = u.name.as_deref().unwrap_or("this computer");
     match (u.unpaired, u.removed_on_hub) {
-        (false, _) => "Off. The hub cannot use this computer. The service is removed.".into(),
+        (false, _) => "Off. The hub cannot use this computer. The service is removed; turning it on again brings back the same device.".into(),
         (true, true) => format!("Off. The service is removed and {name} is gone from the hub's Devices page."),
         (true, false) => format!("Off. The service is removed. The hub did not answer, so remove {name} on its Devices page."),
     }
@@ -430,6 +444,14 @@ mod tests {
         assert!(off_words(&u).contains("remove arch on its Devices page"));
         assert!(off_words(&parse_uninstalled(r#"{"removed":false,"unpaired":false,"removedOnHub":false,"name":null,"deviceId":null,"error":null}"#)).starts_with("Off."));
         assert!(off_words(&parse_uninstalled("garbage")).starts_with("Off."));
+    }
+
+    #[test]
+    fn turning_it_off_keeps_the_pairing() {
+        assert!(UNINSTALL_ARGS.contains(&"--keep-pairing"));
+        assert_eq!(UNINSTALL_ARGS[0], "uninstall");
+        let kept = parse_uninstalled(r#"{"removed":true,"unpaired":false,"removedOnHub":false,"name":null,"deviceId":null,"error":null}"#);
+        assert!(off_words(&kept).contains("same device"));
     }
 
     #[test]

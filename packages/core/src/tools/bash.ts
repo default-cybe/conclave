@@ -51,7 +51,8 @@ EOF
 export function wrapCommand(marker: string): string {
   return [
     'exec 3>&2 2>&1',
-    `trap '__cc_ec=$?; printf "\\n%s%s\\n" "${marker}" "$PWD" >&3; exit $__cc_ec' EXIT`,
+    // Git Bash's $PWD is /d/x; pwd -W gives the D:/x the daemon can use as a cwd
+    `trap '__cc_ec=$?; __cc_pwd=$PWD; case "$OSTYPE" in msys*|cygwin*) __cc_pwd=$(pwd -W 2>/dev/null || echo "$PWD");; esac; printf "\\n%s%s\\n" "${marker}" "$__cc_pwd" >&3; exit $__cc_ec' EXIT`,
     '__cc_cmd=$__CONCLAVE_CMD; unset __CONCLAVE_CMD',
     'eval "$__cc_cmd"',
   ].join('\n');
@@ -68,6 +69,20 @@ export function extractCwd(text: string, marker: string): { text: string; cwd?: 
   if (before.endsWith('\n')) before = before.slice(0, -1);
   const after = nl === -1 ? '' : rest.slice(nl + 1);
   return { text: before + after, cwd: cwd || undefined };
+}
+
+/**
+ * The folder the next Bash call starts in, from what the shell printed. On a Windows
+ * session (cwd like D:\x) only a Windows path counts: D:/x becomes D:\x, Git Bash's
+ * /d/x becomes D:\x, and a Linux path (WSL's /mnt/d/x) is dropped, since the daemon
+ * could never start a shell there and every later call would fail.
+ */
+export function followCwd(reported: string | undefined, current: string): string | undefined {
+  if (!reported || !/^[A-Za-z]:[\\/]/.test(current)) return reported;
+  if (/^[A-Za-z]:[\\/]/.test(reported)) return reported.replace(/\//g, '\\');
+  const msys = /^\/([A-Za-z])(\/.*)?$/.exec(reported);
+  if (msys) return `${msys[1]!.toUpperCase()}:${(msys[2] ?? '\\').replace(/\//g, '\\')}`;
+  return undefined;
 }
 
 /** The egress gateway's proxy variables of a Security mode call (session/egress.ts), set by run() for the helpers below. */
@@ -121,7 +136,7 @@ async function runForeground(input: BashInput, ctx: ToolContext): Promise<ToolOu
 
   const err = extractCwd(res.stderr, marker);
   const out = extractCwd(res.stdout, marker);
-  const newCwd = err.cwd ?? out.cwd;
+  const newCwd = followCwd(err.cwd ?? out.cwd, ctx.cwd);
   let full = out.text;
   if (err.text.trim()) full = full ? `${full.replace(/\n$/, '')}\n${err.text}` : err.text;
   full = full.replace(/\s+$/, '');
