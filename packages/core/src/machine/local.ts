@@ -674,7 +674,7 @@ export class LocalMachine implements Machine {
         stdin: opts.stdin !== undefined ? 'pipe' : 'ignore',
         stdout: 'pipe',
         stderr: 'pipe',
-        detached: true,
+        detached: process.platform !== 'win32',
         windowsVerbatimArguments: verbatim,
       });
     } catch (err) {
@@ -780,7 +780,7 @@ export class LocalMachine implements Machine {
       stdin: 'pipe',
       stdout: 'pipe',
       stderr: 'pipe',
-      detached: true,
+      detached: process.platform !== 'win32',
       windowsVerbatimArguments: verbatim,
     });
     trackGroup(proc.pid);

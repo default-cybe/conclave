@@ -110,8 +110,9 @@ describe.skipIf(process.platform !== 'win32')('Bash tool on cmd.exe (Windows run
 
   test('types a file with a Unicode name and prints its UTF-8 text exactly', async () => {
     const body = 'héllo wörld ✓ 日本語';
-    writeFileSync(join(root, 'café.txt'), body);
-    const out = await bash('type "café.txt"');
+    const file = join(root, 'café.txt');
+    writeFileSync(file, body);
+    const out = await bash(`type "${file.replace(/%/g, '%%')}"`);
     expect(out.isError).toBeFalsy();
     expect(clean(text(out))).toBe(body);
   }, TEST_TIMEOUT);

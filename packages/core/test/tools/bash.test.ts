@@ -199,7 +199,7 @@ describe('Bash', () => {
     const out = await BashTool.run({ command: 'cd sub\ndir x' }, makeCtx({ cwd: 'D:\\proj', machine }));
     const { command, env } = sent[1]!;
     expect(script).toBe(wrapCmdCommand('cd sub\ndir x'));
-    expect(command).toMatch(/^chcp 65001 >nul & call "%__CONCLAVE_SCRIPT%" & call set "__conclave_exit=%%errorlevel%%" & >&2 <nul set \/p "=__CONCLAVE_CWD_\w+__" & >&2 cd & call exit \/b %%__conclave_exit%%$/);
+    expect(command).toMatch(/^chcp 65001 >nul & call "%__CONCLAVE_SCRIPT%" & call set "__conclave_exit=%\^errorlevel%" & >&2 <nul set \/p "=__CONCLAVE_CWD_\w+__" & >&2 cd & call exit \/b %\^__conclave_exit%$/);
     expect(env?.__CONCLAVE_CMD).toBe('cd sub\ndir x');
     expect(removed).toBe(env!.__CONCLAVE_SCRIPT!);
     expect(out.isError).toBe(true);
@@ -237,7 +237,7 @@ describe('Bash', () => {
 
   test('the cmd batch wrapper preserves lines and does not nest user parentheses', () => {
     const command = 'rem setup\n:: note\nif exist a (\n  echo 100%% (a)\n) else (\n  echo b\n)';
-    expect(wrapCmdCommand(command)).toBe(`@echo off\r\n${command.replace(/\n/g, '\r\n')}\r\n`);
+    expect(wrapCmdCommand(command)).toBe(`@echo off\r\nchcp 65001 >nul\r\n${command.replace(/\n/g, '\r\n')}\r\n`);
   });
 
   test('a bash device still gets the POSIX wrapper', async () => {

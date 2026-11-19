@@ -75,7 +75,7 @@ export function extractCwd(text: string, marker: string): { text: string; cwd?: 
 
 /** Batch lines stay intact: wrapping or joining user text changes cmd's percent and parentheses parsing. */
 export function wrapCmdCommand(command: string): string {
-  return ['@echo off', command.replace(/\r?\n/g, '\r\n'), ''].join('\r\n');
+  return ['@echo off', 'chcp 65001 >nul', command.replace(/\r?\n/g, '\r\n'), ''].join('\r\n');
 }
 
 /** The shell the device runs commands in (MachineInfo.shell): a paired device's from its hello, no round trip. */
@@ -147,7 +147,7 @@ async function runForeground(input: BashInput, ctx: ToolContext): Promise<ToolOu
       await ctx.machine.writeFile(script, wrapCmdCommand(input.command));
     }
     res = await ctx.machine.exec(
-      script ? `chcp 65001 >nul & call "%__CONCLAVE_SCRIPT%" & call set "__conclave_exit=%%errorlevel%%" & >&2 <nul set /p "=${marker}" & >&2 cd & call exit /b %%__conclave_exit%%` : wrapCommand(marker),
+      script ? `chcp 65001 >nul & call "%__CONCLAVE_SCRIPT%" & call set "__conclave_exit=%^errorlevel%" & >&2 <nul set /p "=${marker}" & >&2 cd & call exit /b %^__conclave_exit%` : wrapCommand(marker),
       {
       cwd: ctx.cwd,
       env: bashEnv(ctx, { __CONCLAVE_CMD: input.command, ...(script ? { __CONCLAVE_SCRIPT: script } : {}) }),
