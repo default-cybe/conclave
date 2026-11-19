@@ -9,8 +9,16 @@
  * main.rs paste_files). A copied file comes back as its path and is read
  * through read_dropped like a drop. TIFF (and any picture no model reads)
  * becomes PNG, which every model takes.
+ *
+ * Chromium on Windows lists a picture only when the clipboard has a DIB
+ * (clipboard_win.cc), so a picture copied as "PNG" alone comes empty too: the
+ * Windows app asks paste_files, and a browser reads navigator.clipboard,
+ * which Chromium allows inside a paste without a prompt. A copied web picture
+ * that left only <img src> in the HTML is not fetched: the page cannot read
+ * another site's picture, and the hub has no safe fetch for it.
  */
 import { desktop, type Desktop } from '@/overlay/desktop';
+import { toast } from '@/store/store';
 import { droppedFiles, readDropped } from './fileDrop';
 import { isModelImage, SNIFF_BYTES, sniffImageType } from '@conclave/core/attachments/image';
 
@@ -51,11 +59,11 @@ export async function asPng(f: File): Promise<File> {
 }
 
 /**
- * The desktop app on macOS or Linux, whose webviews (WKWebView, WebKitGTK)
- * can hand over a screenshot paste with no file. Windows' WebView2 puts the
- * picture in the paste event, so it is not asked.
+ * The desktop app, whose webview can hand over a picture paste with no file:
+ * WKWebView and WebKitGTK for a screenshot, WebView2 for a picture copied
+ * only as "PNG". Not Android, whose app has its own box.
  */
-export const pasteApp = (ua = navigator.userAgent) => (/Mac OS X|Macintosh|Linux/.test(ua) && !/Android/.test(ua) ? desktop() : undefined);
+export const pasteApp = (ua = navigator.userAgent) => (/Mac OS X|Macintosh|Linux|Windows/.test(ua) && !/Android/.test(ua) ? desktop() : undefined);
 
 type AppPaste = { paths?: string[]; image?: string | null; mime?: string | null };
 
@@ -65,14 +73,35 @@ export async function clipboardFiles(app: Desktop): Promise<File[]> {
   if (got?.paths?.length) return readDropped(got.paths, app);
   if (!got?.image || !got.mime) return [];
   const bytes = Uint8Array.from(atob(got.image), (c) => c.charCodeAt(0));
-  return [new File([bytes], got.mime === 'image/tiff' ? 'pasted.tiff' : 'pasted.png', { type: got.mime })];
+  return [new File([bytes], `pasted.${got.mime.split('/')[1]}`, { type: got.mime })];
+}
+
+type Board = Pick<Clipboard, 'read'>;
+
+/** The pictures on the clipboard, through the async Clipboard API (a browser); none when it refuses. */
+export async function clipboardImages(board: Board): Promise<File[]> {
+  try {
+    const out: File[] = [];
+    for (const item of await board.read()) {
+      const type = item.types.find((t) => t.startsWith('image/'));
+      if (type) out.push(new File([await item.getType(type)], `pasted.${type.split('/')[1].split('+')[0]}`, { type }));
+    }
+    return out;
+  } catch {
+    return [];
+  }
 }
 
 /**
  * onPaste for a message box: attaches what the paste carries and keeps text
  * pasting as text.
  */
-export function onPasteFiles(e: { clipboardData: Clip; preventDefault(): void; currentTarget: EventTarget }, add: (files: File[]) => void, app: Desktop | undefined = pasteApp()): void {
+export function onPasteFiles(
+  e: { clipboardData: Clip; preventDefault(): void; currentTarget: EventTarget },
+  add: (files: File[]) => void,
+  app: Desktop | undefined = pasteApp(),
+  board: Board | undefined = globalThis.navigator?.clipboard,
+): void {
   const dt = e.clipboardData;
   // the paste's own files: dataTransfer.files, or its file items
   const own = droppedFiles(dt);
@@ -81,12 +110,16 @@ export function onPasteFiles(e: { clipboardData: Clip; preventDefault(): void; c
     void Promise.all(own.map(asPng)).then(add);
     return;
   }
-  if (!app || !mayHoldFiles(dt)) return;
+  // a browser asks only when the paste has no text at all: Chromium hands over copied files itself
+  const ask = app ? mayHoldFiles(dt) : typeof board?.read === 'function' && !Array.from(dt.types ?? []).includes('text/plain');
+  if (!ask) return;
+  const read = () => (app ? clipboardFiles(app) : clipboardImages(board!));
   // the text is read now: the event's clipboard is gone after the await
   const text = dt.getData('text/plain');
+  const webPicture = /<img\b/i.test(dt.getData('text/html') ?? '');
   const box = e.currentTarget as HTMLTextAreaElement;
   e.preventDefault();
-  void clipboardFiles(app)
+  void read()
     .then((files) => Promise.all(files.map(asPng)))
     .then((files) => {
       if (files.length) return add(files);
@@ -94,6 +127,8 @@ export function onPasteFiles(e: { clipboardData: Clip; preventDefault(): void; c
       if (text) {
         box.focus?.();
         document.execCommand('insertText', false, text);
+      } else if (webPicture) {
+        toast({ title: 'Could not read the copied picture. Save it, then attach it with +.', level: 'error' });
       }
     });
 }

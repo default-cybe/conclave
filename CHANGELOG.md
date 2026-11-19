@@ -7,6 +7,12 @@ from the section of its version (`scripts/releases/notes.ts`); a release
 without one fails. At tag time, rename `[Unreleased]` to the version and date,
 like `## [0.4.16] - 2026-10-24`.
 
+## [Unreleased]
+
+### Fixed
+
+- Pasting a copied picture (from a website, Snipping Tool or a screenshot) works on Windows, in the app and the browser
+
 ## [0.4.102] - 2026-11-17
 
 ### Added
