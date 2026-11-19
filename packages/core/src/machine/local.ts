@@ -1,4 +1,4 @@
-import { promises as fs } from 'node:fs';
+import { existsSync, promises as fs } from 'node:fs';
 import * as os from 'node:os';
 import * as nodePath from 'node:path';
 import type { MachineInfo } from '../types';
@@ -54,6 +54,15 @@ function untrackGroup(pid: number | undefined): void {
 
 function killTree(pid: number | undefined, signal: NodeJS.Signals): void {
   if (!pid) return;
+  if (process.platform === 'win32') {
+    // Windows has no process groups (kill(-pid) throws): taskkill /T ends the shell and its children
+    try {
+      Bun.spawnSync(['taskkill', '/pid', String(pid), '/T', '/F'], { stdout: 'ignore', stderr: 'ignore' });
+    } catch {
+      /* already gone */
+    }
+    return;
+  }
   try {
     process.kill(-pid, signal);
     return;
@@ -65,6 +74,30 @@ function killTree(pid: number | undefined, signal: NodeJS.Signals): void {
   } catch {
     /* already gone */
   }
+}
+
+export const isCmd = (shell: string) => /(^|[\\/])cmd(\.exe)?$/i.test(shell);
+
+/** The argv that runs one command line: cmd.exe takes /d /s /c, every other shell -c. */
+export function shellArgv(shell: string, command: string): string[] {
+  return isCmd(shell) ? [shell, '/d', '/s', '/c', command] : [shell, '-c', command];
+}
+
+/**
+ * Git Bash on Windows: bash on PATH unless it is the WSL launcher (System32
+ * or WindowsApps), else next to git.exe, else where Git for Windows installs.
+ */
+export function findWindowsBash(env: Record<string, string | undefined>, which: (name: string) => string | null, exists: (path: string) => boolean): string | undefined {
+  const W = nodePath.win32;
+  const onPath = which('bash');
+  if (onPath && !/\\(system32|windowsapps)\\/i.test(onPath)) return onPath;
+  const git = which('git');
+  const candidates = [
+    git && W.join(W.dirname(W.dirname(git)), 'bin', 'bash.exe'),
+    env.ProgramFiles && W.join(env.ProgramFiles, 'Git', 'bin', 'bash.exe'),
+    env.LOCALAPPDATA && W.join(env.LOCALAPPDATA, 'Programs', 'Git', 'bin', 'bash.exe'),
+  ];
+  return candidates.find((p): p is string => !!p && exists(p));
 }
 
 /** Keeps the first and last part of a long stream and drops the middle. */
@@ -245,7 +278,8 @@ export class LocalMachine implements Machine {
       platform: process.platform,
       arch: process.arch,
       home: os.homedir(),
-      shell: process.env.SHELL || this.shell(),
+      // on Windows SHELL (set inside Git Bash) is not what exec runs: report the shell exec picks
+      shell: (process.platform !== 'win32' && process.env.SHELL) || this.shell(),
       clis,
       capabilities,
     };
@@ -582,9 +616,14 @@ export class LocalMachine implements Machine {
   // Processes
   // -------------------------------------------------------------------------
 
-  /** bash when available, else sh. */
+  /** bash when available, else sh. On Windows Git Bash, else cmd.exe. */
   shell(): string {
-    if (!this.shellPath) this.shellPath = Bun.which('bash') ?? (process.platform === 'win32' ? 'cmd.exe' : '/bin/sh');
+    if (!this.shellPath) {
+      this.shellPath =
+        process.platform === 'win32'
+          ? (findWindowsBash(process.env, (n) => Bun.which(n), existsSync) ?? process.env.ComSpec ?? 'cmd.exe')
+          : (Bun.which('bash') ?? '/bin/sh');
+    }
     return this.shellPath;
   }
 
@@ -614,7 +653,7 @@ export class LocalMachine implements Machine {
     if (opts.signal?.aborted) return { ...fail('Aborted before start'), exitCode: null, aborted: true };
 
     const shell = this.shell();
-    const argv = shell.endsWith('cmd.exe') ? [shell, '/d', '/s', '/c', command] : [shell, '-c', command];
+    const argv = shellArgv(shell, command);
     let proc: ReturnType<typeof Bun.spawn<'pipe' | 'ignore', 'pipe', 'pipe'>>;
     try {
       proc = Bun.spawn(argv, {
@@ -718,7 +757,10 @@ export class LocalMachine implements Machine {
     // a background shell (tools/shells.ts) names its command in the arguments
     const named = [command, ...args].join(' ');
     if (commandTouchesHubPrivate(named, cwd) || hubPrivateDirs().some((d) => cwd === d || cwd.startsWith(d + nodePath.sep))) throw Object.assign(new Error(privateRefusal(named)), { code: 'EACCES' });
-    const proc = Bun.spawn([command, ...args], {
+    // a background shell asks for bash -c (tools/shells.ts): on Windows that is this machine's shell, which may be off PATH or cmd.exe
+    const shell = this.shell();
+    const viaShell = (command === 'bash' || command === 'sh') && args.length === 2 && args[0] === '-c' && (process.platform === 'win32' || isCmd(shell));
+    const proc = Bun.spawn(viaShell ? shellArgv(shell, args[1] as string) : [command, ...args], {
       cwd,
       env: this.env(opts.env),
       stdin: 'pipe',

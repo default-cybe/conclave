@@ -1,7 +1,7 @@
 import { afterAll, describe, expect, test } from 'bun:test';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { LocalMachine } from '../../src/machine/local';
+import { LocalMachine, findWindowsBash, shellArgv } from '../../src/machine/local';
 import { tempDir } from './helpers';
 
 const m = new LocalMachine();
@@ -84,6 +84,30 @@ describe('LocalMachine', () => {
     const s = m.spawn('sleep', ['20'], { cwd: dir });
     s.kill('SIGKILL');
     expect(await s.exited).toBeNull();
+  });
+
+  test('cmd.exe runs its line with /d /s /c', async () => {
+    const cmd = new LocalMachine();
+    // stands in for cmd.exe: a script that prints the argv it got
+    const fake = join(dir, 'cmd.exe');
+    await cmd.writeFile(fake, '#!/bin/sh\nprintf "%s|" "$@"\n');
+    await cmd.exec(`chmod 755 '${fake}'`, { cwd: dir });
+    (cmd as any).shellPath = fake;
+    const r = await cmd.exec('ver & call echo x', { cwd: dir });
+    expect(r.stdout).toBe('/d|/s|/c|ver & call echo x|');
+    // a background shell's bash -c goes to cmd.exe too
+    const p = cmd.spawn('bash', ['-c', 'ver'], { cwd: dir });
+    expect(await new Response(p.stdout as never).text()).toBe('/d|/s|/c|ver|');
+    expect(shellArgv('C:\\WINDOWS\\system32\\cmd.exe', 'ver')).toEqual(['C:\\WINDOWS\\system32\\cmd.exe', '/d', '/s', '/c', 'ver']);
+    expect(shellArgv('/usr/bin/bash', 'ver')).toEqual(['/usr/bin/bash', '-c', 'ver']);
+  });
+
+  test('Windows shell: Git Bash, not the WSL launcher', () => {
+    const which = (paths: Record<string, string>) => (n: string) => paths[n] ?? null;
+    const gitBash = 'C:\\Program Files\\Git\\bin\\bash.exe';
+    expect(findWindowsBash({ ProgramFiles: 'C:\\Program Files' }, which({ bash: 'C:\\Windows\\System32\\bash.exe' }), (p) => p === gitBash)).toBe(gitBash);
+    expect(findWindowsBash({}, which({ git: 'D:\\Git\\cmd\\git.exe' }), (p) => p === 'D:\\Git\\bin\\bash.exe')).toBe('D:\\Git\\bin\\bash.exe');
+    expect(findWindowsBash({}, which({}), () => true)).toBeUndefined();
   });
 
   test('info lists platform and cached CLIs', async () => {

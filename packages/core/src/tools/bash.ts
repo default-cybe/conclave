@@ -7,6 +7,8 @@ import { isHeadless } from '../session/runner';
 import { clampInt, fail, outputBudget, truncateMiddleOut } from './util';
 import { KEEPS, KIND_NAMES, reduceOutput } from './compress';
 import { HEAVY_COMMANDS_DEFAULT, HEAVY_WAIT_NOTE, heavyGate, isHeavyCommand } from './heavy-gate';
+import { isCmd } from '../machine/local';
+import type { MachineInfo } from '../types';
 
 export interface BashInput {
   command: string;
@@ -21,7 +23,7 @@ export const BASH_MAX_OUTPUT_CHARS = 30_000;
 const MACHINE_OUTPUT_CAP = 4 * 1024 * 1024;
 const PROGRESS_FLUSH_MS = 250;
 
-const DESCRIPTION = `Run a shell command (bash -c) on the session's machine and return its combined stdout and stderr.
+const DESCRIPTION = `Run a shell command on the session's machine and return its combined stdout and stderr. It runs in bash, or in cmd.exe on a Windows device without Git Bash; the Environment section names the shell.
 
 - The working directory persists between calls; environment variables and shell functions do not. Prefer absolute paths to cd.
 - timeout is in milliseconds (default ${BASH_DEFAULT_TIMEOUT_MS}, max ${BASH_MAX_TIMEOUT_MS}). Give a 5 to 10 word description of what the command does, e.g. "Run unit tests".
@@ -70,8 +72,39 @@ export function extractCwd(text: string, marker: string): { text: string; cwd?: 
   return { text: before + after, cwd: cwd || undefined };
 }
 
+/**
+ * The same for cmd.exe (a Windows device without Git Bash), which has no exec,
+ * trap or eval: the command runs inline, then the marker and %CD% go to stderr
+ * and cmd exits with the command's errorlevel. `call` and `%^X%` delay the
+ * expansion until that point (command-line mode keeps an unknown %^X%, the
+ * caret goes, call expands again). The command's own stderr stays on stderr;
+ * the tool appends it to stdout as it does for bash. cmd /c runs one line, so
+ * lines are joined with &.
+ * shortcut: an odd number of % in the command shifts the % pairs and loses the cwd; fine for cmd use, a PowerShell host would avoid it.
+ */
+export function wrapCmdCommand(marker: string, command: string): string {
+  const line = command.split(/\r?\n/).filter((l) => l.trim()).join(' & ');
+  return `${line} & call set __cc_ec=%^errorlevel%& call echo ${marker}%^CD% 1>&2 & call exit %^__cc_ec%`;
+}
+
+/** The shell the device runs commands in (MachineInfo.shell): a paired device's from its hello, no round trip. */
+async function deviceShell(ctx: ToolContext): Promise<string | undefined> {
+  const m = ctx.machine as { lastInfo?: MachineInfo; shell?: () => string };
+  if (m.lastInfo) return m.lastInfo.shell;
+  // the hub's own machine: its exec shell, without info()'s CLI version probes
+  if (typeof m.shell === 'function') return m.shell();
+  return (await ctx.machine.info().catch(() => undefined))?.shell;
+}
+
 /** The egress gateway's proxy variables of a Security mode call (session/egress.ts), set by run() for the helpers below. */
 const egressOf = new WeakMap<ToolContext, Record<string, string>>();
+
+/** Git Bash on Windows prints /c/Users/me for C:\Users\me; a session in a Windows folder keeps the Windows form. */
+export function windowsCwd(cwd: string, sessionCwd: string): string {
+  const m = /^\/([a-zA-Z])(\/.*)?$/.exec(cwd);
+  if (!m || !/^[a-zA-Z]:[\\/]/.test(sessionCwd)) return cwd;
+  return `${m[1].toUpperCase()}:${(m[2] ?? '\\').replace(/\//g, '\\')}`;
+}
 
 function bashEnv(ctx: ToolContext, extra?: Record<string, string>): Record<string, string> {
   return {
@@ -104,7 +137,8 @@ async function runForeground(input: BashInput, ctx: ToolContext): Promise<ToolOu
     }
   };
 
-  const res = await ctx.machine.exec(wrapCommand(marker), {
+  const shell = await deviceShell(ctx);
+  const res = await ctx.machine.exec(shell && isCmd(shell) ? wrapCmdCommand(marker, input.command) : wrapCommand(marker), {
     cwd: ctx.cwd,
     env: bashEnv(ctx, { __CONCLAVE_CMD: input.command }),
     timeoutMs,
@@ -121,7 +155,8 @@ async function runForeground(input: BashInput, ctx: ToolContext): Promise<ToolOu
 
   const err = extractCwd(res.stderr, marker);
   const out = extractCwd(res.stdout, marker);
-  const newCwd = err.cwd ?? out.cwd;
+  const rawCwd = err.cwd ?? out.cwd;
+  const newCwd = rawCwd && windowsCwd(rawCwd, ctx.cwd);
   let full = out.text;
   if (err.text.trim()) full = full ? `${full.replace(/\n$/, '')}\n${err.text}` : err.text;
   full = full.replace(/\s+$/, '');

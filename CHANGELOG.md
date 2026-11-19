@@ -7,6 +7,13 @@ from the section of its version (`scripts/releases/notes.ts`); a release
 without one fails. At tag time, rename `[Unreleased]` to the version and date,
 like `## [0.4.16] - 2026-10-24`.
 
+## [Unreleased]
+
+### Fixed
+
+- Windows: commands run on PCs without Git Bash (cmd.exe), and Git Bash is used instead of WSL when installed
+- The agent is told the device's OS and shell, so it uses Windows commands there
+
 ## [0.4.102] - 2026-11-17
 
 ### Added

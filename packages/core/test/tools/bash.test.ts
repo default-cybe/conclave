@@ -1,7 +1,8 @@
 import { afterAll, describe, expect, test } from 'bun:test';
 import { mkdirSync, realpathSync } from 'node:fs';
 import { join } from 'node:path';
-import { BashTool, isBlockingWait } from '../../src/tools/bash';
+import { BashTool, isBlockingWait, windowsCwd, wrapCmdCommand, wrapCommand } from '../../src/tools/bash';
+import type { Machine } from '../../src/machine/types';
 import { BashOutputTool } from '../../src/tools/bash-output';
 import { KillShellTool } from '../../src/tools/kill-shell';
 import { shellRegistry } from '../../src/tools/shells';
@@ -177,6 +178,53 @@ describe('Bash', () => {
     // other sessions cannot see it
     const other = await BashOutputTool.run({ bash_id: id }, makeCtx({ cwd: dir, sessionId: 'sess_other' }));
     expect(other.isError).toBe(true);
+  });
+
+  test('a Git Bash cwd on a Windows session comes back in Windows form', () => {
+    expect(windowsCwd('/c/Users/me/src', 'C:\\Users\\me')).toBe('C:\\Users\\me\\src');
+    expect(windowsCwd('/d', 'C:\\Users\\me')).toBe('D:\\');
+    expect(windowsCwd('/c/Users/me', '/home/me')).toBe('/c/Users/me');
+    expect(windowsCwd('/home/me/src', '/home/me')).toBe('/home/me/src');
+  });
+
+  test('a cmd.exe device gets the cmd wrapper; the cwd marker and exit code come back', async () => {
+    const sent: Array<{ command: string; env?: Record<string, string> }> = [];
+    const machine = {
+      id: 'win',
+      lastInfo: { shell: 'C:\\WINDOWS\\system32\\cmd.exe' },
+      exec: async (command: string, opts: { env?: Record<string, string> }) => {
+        sent.push({ command, env: opts.env });
+        const marker = /(__CONCLAVE_CWD_\w+__)/.exec(command)![1];
+        return { exitCode: 2, stdout: 'File Not Found\r\n', stderr: `nope\r\n${marker}D:\\proj\\sub \r\n`, timedOut: false, aborted: false, durationMs: 5 };
+      },
+    } as unknown as Machine;
+    const out = await BashTool.run({ command: 'cd sub\ndir x' }, makeCtx({ cwd: 'D:\\proj', machine }));
+    const { command } = sent[0]!;
+    const marker = /(__CONCLAVE_CWD_\w+__)/.exec(command)![1]!;
+    expect(command).toBe(wrapCmdCommand(marker, 'cd sub\ndir x'));
+    expect(command).toBe(`cd sub & dir x & call set __cc_ec=%^errorlevel%& call echo ${marker}%^CD% 1>&2 & call exit %^__cc_ec%`);
+    expect(command).not.toContain('exec 3>&2');
+    expect(out.isError).toBe(true);
+    expect(out.meta?.exitCode).toBe(2);
+    expect(out.meta?.cwd).toBe('D:\\proj\\sub');
+    expect(text(out)).not.toContain('__CONCLAVE_CWD_');
+    expect(text(out)).toContain('File Not Found');
+    expect(text(out)).toContain('nope');
+  });
+
+  test('a bash device still gets the POSIX wrapper', async () => {
+    const sent: string[] = [];
+    const machine = {
+      id: 'mac',
+      lastInfo: { shell: '/bin/zsh' },
+      exec: async (command: string) => {
+        sent.push(command);
+        return { exitCode: 0, stdout: 'hi\n', stderr: '', timedOut: false, aborted: false, durationMs: 1 };
+      },
+    } as unknown as Machine;
+    await BashTool.run({ command: 'echo hi' }, makeCtx({ cwd: '/w', machine }));
+    const marker = /(__CONCLAVE_CWD_\w+__)/.exec(sent[0]!)![1]!;
+    expect(sent[0]).toBe(wrapCommand(marker));
   });
 
   test('readOnly and rule hooks', () => {

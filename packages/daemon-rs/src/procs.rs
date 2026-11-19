@@ -82,8 +82,21 @@ pub fn kill_tree(pid: u32, sig: Sig) {
 
 #[cfg(windows)]
 pub fn kill_tree(pid: u32, _sig: Sig) {
+    use std::os::windows::process::CommandExt;
     use windows_sys::Win32::Foundation::CloseHandle;
     use windows_sys::Win32::System::Threading::{OpenProcess, TerminateProcess, PROCESS_TERMINATE};
+    // no process groups on Windows: taskkill /T ends the shell and everything it started
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+    let tree = std::process::Command::new("taskkill")
+        .args(["/pid", &pid.to_string(), "/T", "/F"])
+        .creation_flags(CREATE_NO_WINDOW)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status();
+    if matches!(tree, Ok(s) if s.success()) {
+        return;
+    }
     // SAFETY: plain Win32 calls on a process handle we open and close here.
     unsafe {
         let h = OpenProcess(PROCESS_TERMINATE, 0, pid);
@@ -167,19 +180,53 @@ impl HeadTail {
 // Shell and commands
 // ---------------------------------------------------------------------------
 
-/// bash when available, else sh (cmd.exe on Windows).
+/// bash when available, else sh. On Windows Git Bash, else cmd.exe.
 pub fn shell() -> &'static str {
     static SHELL: OnceLock<String> = OnceLock::new();
-    SHELL.get_or_init(|| match crate::env::which("bash") {
-        Some(p) => p.to_string_lossy().into_owned(),
-        None => {
-            if cfg!(windows) {
-                "cmd.exe".into()
-            } else {
-                "/bin/sh".into()
-            }
+    SHELL.get_or_init(|| {
+        if cfg!(windows) {
+            let which = |n: &str| crate::env::which(n).map(|p| p.to_string_lossy().into_owned());
+            find_windows_bash(|k: &str| std::env::var(k).ok(), which, |p: &str| std::path::Path::new(p).is_file())
+                .or_else(|| std::env::var("ComSpec").ok())
+                .unwrap_or_else(|| "cmd.exe".into())
+        } else {
+            crate::env::which("bash").map(|p| p.to_string_lossy().into_owned()).unwrap_or_else(|| "/bin/sh".into())
         }
     })
+}
+
+/// cmd.exe (also as ComSpec's full path), which takes /d /s /c instead of -c.
+fn is_cmd(sh: &str) -> bool {
+    let l = sh.to_ascii_lowercase();
+    let base = l.rsplit(|c: char| c == '\\' || c == '/').next().unwrap_or("");
+    base == "cmd.exe" || base == "cmd"
+}
+
+/// The folder a Windows path is in ("C:\Git\cmd\git.exe" is in "C:\Git\cmd").
+fn win_parent(p: &str) -> &str {
+    p.rfind(|c: char| c == '\\' || c == '/').map(|i| &p[..i]).unwrap_or("")
+}
+
+/// Git Bash on Windows: bash on PATH unless it is the WSL launcher (System32
+/// or WindowsApps), else next to git.exe, else where Git for Windows installs.
+pub fn find_windows_bash(var: impl Fn(&str) -> Option<String>, which: impl Fn(&str) -> Option<String>, exists: impl Fn(&str) -> bool) -> Option<String> {
+    if let Some(p) = which("bash") {
+        let l = p.to_ascii_lowercase();
+        if !l.contains("\\system32\\") && !l.contains("\\windowsapps\\") {
+            return Some(p);
+        }
+    }
+    let mut candidates = Vec::new();
+    if let Some(git) = which("git") {
+        candidates.push(format!("{}\\bin\\bash.exe", win_parent(win_parent(&git))));
+    }
+    if let Some(pf) = var("ProgramFiles") {
+        candidates.push(format!("{pf}\\Git\\bin\\bash.exe"));
+    }
+    if let Some(la) = var("LOCALAPPDATA") {
+        candidates.push(format!("{la}\\Programs\\Git\\bin\\bash.exe"));
+    }
+    candidates.into_iter().find(|c| exists(c))
 }
 
 fn configure(cmd: &mut tokio::process::Command, own_group: bool) {
@@ -266,7 +313,7 @@ pub async fn exec(command: String, opts: ExecOpts, mut abort: watch::Receiver<bo
 
     let sh = shell();
     let mut cmd = tokio::process::Command::new(sh);
-    if sh.to_ascii_lowercase().ends_with("cmd.exe") {
+    if is_cmd(sh) {
         #[cfg(windows)]
         {
             cmd.args(["/d", "/s", "/c"]);
@@ -428,7 +475,11 @@ pub fn spawn(command: &str, args: &[String], cwd: &str, env: Option<&Map<String,
     let cwd = crate::paths::resolve_with(if cwd.is_empty() { "." } else { cwd }, &home, &home, cfg!(windows));
     let envs = crate::env::tool_env(env);
     let has_sep = command.contains('/') || (cfg!(windows) && command.contains('\\'));
-    let program = if has_sep {
+    // a background shell asks for bash -c (tools/shells.ts): on Windows that is this daemon's shell, which may be off PATH or cmd.exe
+    let via_shell = cfg!(windows) && (command == "bash" || command == "sh") && args.len() == 2 && args[0] == "-c";
+    let program = if via_shell {
+        std::path::PathBuf::from(shell())
+    } else if has_sep {
         std::path::PathBuf::from(command)
     } else {
         let path_var = envs.iter().find(|(k, _)| if cfg!(windows) { k.to_string_lossy().eq_ignore_ascii_case("PATH") } else { k.as_os_str() == "PATH" }).map(|(_, v)| v.clone());
@@ -438,7 +489,16 @@ pub fn spawn(command: &str, args: &[String], cwd: &str, env: Option<&Map<String,
         }
     };
     let mut cmd = tokio::process::Command::new(&program);
-    cmd.args(args).current_dir(&cwd).env_clear().envs(envs);
+    if via_shell && is_cmd(shell()) {
+        #[cfg(windows)]
+        {
+            cmd.args(["/d", "/s", "/c"]);
+            cmd.raw_arg(format!("\"{}\"", args[1]));
+        }
+    } else {
+        cmd.args(args);
+    }
+    cmd.current_dir(&cwd).env_clear().envs(envs);
     cmd.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
     configure(&mut cmd, true);
     let mut child = cmd.spawn().map_err(|e| spawn_error(&e, command))?;
@@ -504,7 +564,14 @@ pub fn spawn(command: &str, args: &[String], cwd: &str, env: Option<&Map<String,
                 _ = &mut pumps, if !pumps_done => { pumps_done = true; }
                 Some(sig) = kill_rx.recv() => {
                     #[cfg(windows)]
-                    { if !exited { let _ = child.start_kill(); } }
+                    {
+                        if !exited {
+                            match pid {
+                                Some(p) => kill_tree(p, sig),
+                                None => { let _ = child.start_kill(); }
+                            }
+                        }
+                    }
                     #[cfg(unix)]
                     { if let Some(p) = pid { kill_tree(p, sig); } }
                     let _ = sig;
@@ -670,6 +737,32 @@ mod tests {
         let mut b = HeadTail::new(50);
         b.push("short");
         assert_eq!(b.finish(), "short");
+    }
+
+    #[test]
+    fn is_cmd_matches_cmd_exe_only() {
+        assert!(is_cmd("cmd.exe"));
+        assert!(is_cmd("C:\\WINDOWS\\system32\\CMD.EXE"));
+        assert!(is_cmd("cmd"));
+        assert!(!is_cmd("C:\\Program Files\\Git\\bin\\bash.exe"));
+        assert!(!is_cmd("/usr/bin/bash"));
+        assert!(!is_cmd("C:\\tools\\notcmd.exe"));
+    }
+
+    #[test]
+    fn windows_bash_skips_wsl_and_finds_git_bash() {
+        let pf = |k: &str| (k == "ProgramFiles").then(|| "C:\\Program Files".to_string());
+        let wsl = |n: &str| (n == "bash").then(|| "C:\\Windows\\System32\\bash.exe".to_string());
+        let installed = |p: &str| p == "C:\\Program Files\\Git\\bin\\bash.exe";
+        assert_eq!(find_windows_bash(pf, wsl, installed).as_deref(), Some("C:\\Program Files\\Git\\bin\\bash.exe"));
+        // git.exe on PATH: the bash of that Git
+        let git = |n: &str| (n == "git").then(|| "D:\\Git\\cmd\\git.exe".to_string());
+        assert_eq!(find_windows_bash(|_: &str| None, git, |p: &str| p == "D:\\Git\\bin\\bash.exe").as_deref(), Some("D:\\Git\\bin\\bash.exe"));
+        // a real bash on PATH wins
+        let msys = |n: &str| (n == "bash").then(|| "C:\\msys64\\usr\\bin\\bash.exe".to_string());
+        assert_eq!(find_windows_bash(|_: &str| None, msys, |_: &str| false).as_deref(), Some("C:\\msys64\\usr\\bin\\bash.exe"));
+        // no Git at all: none, so the daemon falls back to cmd.exe
+        assert_eq!(find_windows_bash(|_: &str| None, |_: &str| None, |_: &str| true), None);
     }
 
     #[test]
