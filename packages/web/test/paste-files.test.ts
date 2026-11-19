@@ -185,9 +185,10 @@ describe('the paste came empty in a browser: navigator.clipboard', () => {
     const b = board([{ 'text/html': new Blob(['<img>']), 'image/png': pic }]);
     const p = paste(clip({ types: ['text/html'], html: '<img src="https://x.dev/a.png">' }), undefined, b);
     expect(p.prevented()).toBe(true);
-    await p.settle();
-    await p.settle();
+    // read inside the paste event, before any await: Chromium grants clipboard-read only there
     expect(b.reads).toBe(1);
+    await p.settle();
+    await p.settle();
     expect(p.got[0].map((f) => [f.name, f.type, f.size])).toEqual([['pasted.png', 'image/png', 3]]);
   });
 

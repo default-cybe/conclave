@@ -12,10 +12,12 @@
  *
  * Chromium on Windows lists a picture only when the clipboard has a DIB
  * (clipboard_win.cc), so a picture copied as "PNG" alone comes empty too: the
- * Windows app asks paste_files, and a browser reads navigator.clipboard,
- * which Chromium allows inside a paste without a prompt. A copied web picture
- * that left only <img src> in the HTML is not fetched: the page cannot read
- * another site's picture, and the hub has no safe fetch for it.
+ * Windows app asks paste_files. A Chromium browser with a paste that came
+ * without file or text reads navigator.clipboard once more (a file item
+ * whose getAsFile gave nothing); it sees the same formats, so it cannot
+ * rescue a "PNG"-only copy. A copied web picture that left only <img src> in
+ * the HTML is not fetched: the page cannot read another site's picture, and
+ * the hub has no safe fetch for it.
  */
 import { desktop, type Desktop } from '@/overlay/desktop';
 import { toast } from '@/store/store';
@@ -100,7 +102,8 @@ export function onPasteFiles(
   e: { clipboardData: Clip; preventDefault(): void; currentTarget: EventTarget },
   add: (files: File[]) => void,
   app: Desktop | undefined = pasteApp(),
-  board: Board | undefined = globalThis.navigator?.clipboard,
+  // Chromium only: Firefox and Safari show their own Paste popup for read()
+  board: Board | undefined = /Chrome\//.test(globalThis.navigator?.userAgent ?? '') ? globalThis.navigator?.clipboard : undefined,
 ): void {
   const dt = e.clipboardData;
   // the paste's own files: dataTransfer.files, or its file items
