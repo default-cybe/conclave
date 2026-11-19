@@ -186,7 +186,8 @@ pub async fn info() -> Value {
 /// MachineInfo within `limit`: the hello must not wait on a CLI that never answers. Late, it is the last one
 /// collected (stale), else the basics without CLI versions; the next info RPC brings the rest.
 pub async fn info_within(limit: Duration) -> Value {
-    if let Ok(v) = tokio::time::timeout(limit, info()).await {
+    // spawned, so a late collection still finishes and fills the cache for the next hello
+    if let Ok(Ok(v)) = tokio::time::timeout(limit, tokio::spawn(info())).await {
         return v;
     }
     if let Some((_, v)) = CACHE.lock().unwrap().as_ref() {

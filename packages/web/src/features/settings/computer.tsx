@@ -44,7 +44,8 @@ export async function reconnectComputer(): Promise<ComputerView | string> {
     return await invoke<ComputerView>('computer_restart');
   } catch (e) {
     const text = typeof e === 'string' ? e : e instanceof Error ? e.message : '';
-    return /not allowed|not found|unknown/i.test(text) || !text ? 'Update the desktop app to reconnect from here, or turn the switch off and on in its settings.' : text;
+    // Tauri's own words for an app without the command or its permission
+    return !text || /computer_restart not (allowed|found)/i.test(text) ? 'Update the desktop app to reconnect from here, or turn the switch off and on in its settings.' : text;
   }
 }
 

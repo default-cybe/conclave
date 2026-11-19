@@ -102,7 +102,8 @@ export function moveTarget(device: string, i: { member: boolean; here?: string }
  * folder opens Choose folder with what it found.
  */
 export async function moveSessionTo(session: Pick<Session, 'id' | 'device'>, to: string, extra: Partial<MoveInput> = {}): Promise<MoveResult | undefined> {
-  const target = moveTarget(to, { member: useHub.getState().me?.role === 'member', here: thisComputer() });
+  const member = useHub.getState().me?.role === 'member';
+  const target = moveTarget(to, { member, here: member && to === 'local' ? await thisComputer() : undefined });
   if ('error' in target) {
     toast({ title: target.error, level: 'warning' });
     return undefined;

@@ -322,7 +322,8 @@ pub const WEDGED_AFTER: Duration = Duration::from_secs(180);
 /// `offline_since` carries when the hub first saw it offline across checks. A hub that does not
 /// answer (this computer is offline) or a device removed on the hub never counts.
 pub fn needs_restart(local: &LocalStatus, seen: Option<Seen>, offline_since: &mut Option<Instant>, now: Instant) -> bool {
-    if !local.paired || !local.installed {
+    // removed on the hub (or a revoked token): starting it again would only fail again, every minute
+    if !local.paired || !local.installed || seen == Some(Seen::Missing) {
         // the switch's own words say to turn it off and on
         *offline_since = None;
         return false;
@@ -354,6 +355,8 @@ mod tests {
         // exited (Windows: nothing else restarts it)
         let dead = LocalStatus { running: Some(false), ..ok };
         assert!(needs_restart(&dead, Some(Seen::Offline), &mut since, at(0)));
+        // exited because the hub removed the device: left alone
+        assert!(!needs_restart(&dead, Some(Seen::Missing), &mut since, at(0)));
         // running but offline on the hub: only after WEDGED_AFTER, so its own backoff gets its turn
         let ok = LocalStatus { paired: true, installed: true, running: Some(true), ..Default::default() };
         assert!(!needs_restart(&ok, Some(Seen::Offline), &mut since, at(10)));
