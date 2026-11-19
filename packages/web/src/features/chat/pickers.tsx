@@ -54,8 +54,9 @@ export function DeviceFolderPicker({
   const devices = useHub((s) => s.devices);
   const d = device ? devices[device] : undefined;
   const [path, setPath] = useState(cwd ?? '');
-  // the hub first, by its name ("madx (hub)"), then the computers
-  const list = computerList(devices);
+  const member = useHub((s) => s.me?.role === 'member');
+  // the hub first, by its name ("madx (hub)"), then the computers; a member's code never runs on the hub (moveTarget)
+  const list = computerList(devices).filter((x) => !member || x.id !== 'local');
   // the folder is asked of the device before Set (folderCheck.tsx)
   const check = useFolderCheck(device, open && onCwd ? path : '');
   return (

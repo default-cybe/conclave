@@ -1,7 +1,7 @@
 fn main() {
     // Listing the app commands makes them deny-by-default, so only the bundled
     // connection page (see capabilities/default.json) can call them. The hub's
-    // remote page never gets them, except computer_status, open_settings,
+    // remote page never gets them, except computer_status, computer_restart, open_settings,
     // update_status and update_install (grant_hub_ipc in src/main.rs). The
     // local_hub_* commands start and stop a hub on this computer, so they are
     // the bundled page's only.
@@ -14,6 +14,8 @@ fn main() {
             "computer_status",
             "computer_enable",
             "computer_disable",
+            // Reconnect: starts the daemon again, only when the switch is on already
+            "computer_restart",
             "open_settings",
             "local_hub_status",
             "local_hub_set",

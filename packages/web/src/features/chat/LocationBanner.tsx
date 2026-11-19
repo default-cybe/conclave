@@ -16,7 +16,9 @@ import { useEffect, useState } from 'react';
 import type { SessionLocationDto } from '@conclave/core/client';
 import type { Session } from '@conclave/core/types';
 import { api } from '@/lib/api';
-import { useHub } from '@/store/store';
+import { toast, useHub } from '@/store/store';
+import { useThisComputer } from '@/features/home/here';
+import { reconnectComputer } from '@/features/settings/computer';
 import { Button } from '@/components/ui/Button';
 import { Menu } from '@/components/ui/Overlay';
 import { useIsMobile } from '@/lib/hooks';
@@ -58,6 +60,16 @@ export function LocationBanner({ session }: { session: Session }) {
   const [busy, setBusy] = useState<string | false>(false);
   const [tick, setTick] = useState(0);
   const parked = session.status === 'waiting_input';
+  // the desktop app's own computer: it can start its daemon again (Reconnect)
+  const here = useThisComputer();
+  const reconnect = async () => {
+    setBusy('reconnect');
+    const r = await reconnectComputer();
+    setBusy(false);
+    if (typeof r === 'string') toast({ title: r, level: 'warning' });
+    else if (!r.online) toast({ title: r.words, level: 'warning' });
+    setTick((t) => t + 1);
+  };
 
   useEffect(() => {
     if (session.kind === 'chat') return;
@@ -97,6 +109,11 @@ export function LocationBanner({ session }: { session: Session }) {
         <Button variant="quiet" size={size} onClick={hide}>
           Wait
         </Button>
+        {here === session.device && (
+          <Button variant="solid" size={size} className="phone:order-first" busy={busy === 'reconnect' ? 'Reconnecting' : false} onClick={() => void reconnect()}>
+            Reconnect this computer
+          </Button>
+        )}
         {loc.suggestion ? (
           <Button variant="solid" size={size} className="phone:order-first" busy={busy === loc.suggestion.device ? 'Moving' : false} onClick={() => void move(loc.suggestion!.device)}>
             Run on {loc.suggestion.deviceName}

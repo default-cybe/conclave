@@ -183,9 +183,46 @@ pub async fn info() -> Value {
     v
 }
 
+/// MachineInfo within `limit`: the hello must not wait on a CLI that never answers. Late, it is the last one
+/// collected (stale), else the basics without CLI versions; the next info RPC brings the rest.
+pub async fn info_within(limit: Duration) -> Value {
+    // spawned, so a late collection still finishes and fills the cache for the next hello
+    if let Ok(Ok(v)) = tokio::time::timeout(limit, tokio::spawn(info())).await {
+        return v;
+    }
+    if let Some((_, v)) = CACHE.lock().unwrap().as_ref() {
+        return v.clone();
+    }
+    json!({
+        "hostname": hostname(),
+        "platform": platform(),
+        "arch": arch(),
+        "home": crate::paths::home_dir(),
+        "shell": crate::procs::shell(),
+        "clis": {},
+        "capabilities": [],
+        "daemon": crate::update::daemon_json(),
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_hello_does_not_wait_for_a_stuck_collection() {
+        let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+        rt.block_on(async {
+            // a collection that never ends holds this lock (a CLI whose --version hangs)
+            let _stuck = PENDING.lock().await;
+            *CACHE.lock().unwrap() = None;
+            let started = Instant::now();
+            let v = info_within(Duration::from_millis(200)).await;
+            assert!(started.elapsed() < Duration::from_secs(2));
+            assert_eq!(v["platform"], json!(platform()));
+            assert!(v["clis"].is_object());
+        });
+    }
 
     #[test]
     fn versions_parse_like_local_ts() {
