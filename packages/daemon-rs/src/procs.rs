@@ -316,7 +316,7 @@ pub async fn exec(command: String, opts: ExecOpts, mut abort: watch::Receiver<bo
     if is_cmd(sh) {
         #[cfg(windows)]
         {
-            cmd.args(["/d", "/s", "/c"]);
+            cmd.args(["/d", "/v:off", "/s", "/c"]);
             cmd.raw_arg(format!("\"{command}\""));
         }
     } else {
@@ -492,7 +492,7 @@ pub fn spawn(command: &str, args: &[String], cwd: &str, env: Option<&Map<String,
     if via_shell && is_cmd(shell()) {
         #[cfg(windows)]
         {
-            cmd.args(["/d", "/s", "/c"]);
+            cmd.args(["/d", "/v:off", "/s", "/c"]);
             cmd.raw_arg(format!("\"{}\"", args[1]));
         }
     } else {

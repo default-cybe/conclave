@@ -202,7 +202,7 @@ describe('Bash', () => {
     const { command } = sent[0]!;
     const marker = /(__CONCLAVE_CWD_\w+__)/.exec(command)![1]!;
     expect(command).toBe(wrapCmdCommand(marker, 'cd sub\ndir x'));
-    expect(command).toBe(`cd sub & dir x & call set __cc_ec=%^errorlevel%& call echo ${marker}%^CD% 1>&2 & call exit %^__cc_ec%`);
+    expect(command).toBe(`(cd sub & dir x) & call set __cc_ec=%^errorlevel%& call echo ${marker}%^CD% 1>&2 & call exit %^__cc_ec%`);
     expect(command).not.toContain('exec 3>&2');
     expect(out.isError).toBe(true);
     expect(out.meta?.exitCode).toBe(2);
@@ -210,6 +210,12 @@ describe('Bash', () => {
     expect(text(out)).not.toContain('__CONCLAVE_CWD_');
     expect(text(out)).toContain('File Not Found');
     expect(text(out)).toContain('nope');
+  });
+
+  test('the cmd wrapper joins lines so an if, a block, rem and a trailing & keep the marker', () => {
+    const tail = ' & call set __cc_ec=%^errorlevel%& call echo M%^CD% 1>&2 & call exit %^__cc_ec%';
+    expect(wrapCmdCommand('M', 'if exist x echo y')).toBe(`(if exist x echo y)${tail}`);
+    expect(wrapCmdCommand('M', 'rem setup\r\n:: note\r\ncd /d D:\\w &\r\n\r\nif exist a (\r\n  echo a\r\n) else (\r\n  echo b\r\n)')).toBe(`(cd /d D:\\w & if exist a ( echo a ) else ( echo b ))${tail}`);
   });
 
   test('a bash device still gets the POSIX wrapper', async () => {

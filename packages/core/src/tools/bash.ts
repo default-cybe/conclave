@@ -79,12 +79,19 @@ export function extractCwd(text: string, marker: string): { text: string; cwd?: 
  * expansion until that point (command-line mode keeps an unknown %^X%, the
  * caret goes, call expands again). The command's own stderr stays on stderr;
  * the tool appends it to stdout as it does for bash. cmd /c runs one line, so
- * lines are joined with &.
- * shortcut: an odd number of % in the command shifts the % pairs and loses the cwd; fine for cmd use, a PowerShell host would avoid it.
+ * lines are joined with & (not inside a ( ) block, and rem lines dropped, as
+ * they would comment out the rest). The parentheses keep an if or for from
+ * taking the marker into its body.
+ * shortcut: an odd number of % or an unescaped ) outside quotes (echo (x)) breaks the line; fine for cmd use, a PowerShell host would avoid it.
  */
 export function wrapCmdCommand(marker: string, command: string): string {
-  const line = command.split(/\r?\n/).filter((l) => l.trim()).join(' & ');
-  return `${line} & call set __cc_ec=%^errorlevel%& call echo ${marker}%^CD% 1>&2 & call exit %^__cc_ec%`;
+  let body = '';
+  for (const raw of command.split(/\r?\n/)) {
+    const l = raw.trim().replace(/\s*&+$/, '');
+    if (!l || /^(rem(\s|$)|::)/i.test(l)) continue;
+    body = !body ? l : body.endsWith('(') || l.startsWith(')') ? `${body} ${l}` : `${body} & ${l}`;
+  }
+  return `(${body}) & call set __cc_ec=%^errorlevel%& call echo ${marker}%^CD% 1>&2 & call exit %^__cc_ec%`;
 }
 
 /** The shell the device runs commands in (MachineInfo.shell): a paired device's from its hello, no round trip. */

@@ -78,9 +78,14 @@ function killTree(pid: number | undefined, signal: NodeJS.Signals): void {
 
 export const isCmd = (shell: string) => /(^|[\\/])cmd(\.exe)?$/i.test(shell);
 
-/** The argv that runs one command line: cmd.exe takes /d /s /c, every other shell -c. */
+/**
+ * The argv that runs one command line: cmd.exe takes /d /v:off /s /c, every
+ * other shell -c. On Windows cmd's line goes in quotes that /s strips, with
+ * windowsVerbatimArguments so Bun adds no quoting of its own (as raw_arg in daemon-rs).
+ */
 export function shellArgv(shell: string, command: string): string[] {
-  return isCmd(shell) ? [shell, '/d', '/s', '/c', command] : [shell, '-c', command];
+  if (!isCmd(shell)) return [shell, '-c', command];
+  return [shell, '/d', '/v:off', '/s', '/c', process.platform === 'win32' ? `"${command}"` : command];
 }
 
 /**
@@ -654,6 +659,7 @@ export class LocalMachine implements Machine {
 
     const shell = this.shell();
     const argv = shellArgv(shell, command);
+    const verbatim = isCmd(shell);
     let proc: ReturnType<typeof Bun.spawn<'pipe' | 'ignore', 'pipe', 'pipe'>>;
     try {
       proc = Bun.spawn(argv, {
@@ -663,6 +669,7 @@ export class LocalMachine implements Machine {
         stdout: 'pipe',
         stderr: 'pipe',
         detached: true,
+        windowsVerbatimArguments: verbatim,
       });
     } catch (err) {
       return fail(`Failed to start shell: ${(err as Error).message}`);
@@ -760,6 +767,7 @@ export class LocalMachine implements Machine {
     // a background shell asks for bash -c (tools/shells.ts): on Windows that is this machine's shell, which may be off PATH or cmd.exe
     const shell = this.shell();
     const viaShell = (command === 'bash' || command === 'sh') && args.length === 2 && args[0] === '-c' && (process.platform === 'win32' || isCmd(shell));
+    const verbatim = viaShell && isCmd(shell);
     const proc = Bun.spawn(viaShell ? shellArgv(shell, args[1] as string) : [command, ...args], {
       cwd,
       env: this.env(opts.env),
@@ -767,6 +775,7 @@ export class LocalMachine implements Machine {
       stdout: 'pipe',
       stderr: 'pipe',
       detached: true,
+      windowsVerbatimArguments: verbatim,
     });
     trackGroup(proc.pid);
     const exited = proc.exited.then(() => {
