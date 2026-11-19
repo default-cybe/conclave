@@ -313,9 +313,66 @@ pub fn words(enabled: bool, local: Option<&LocalStatus>, seen: Option<Seen>) -> 
     }
 }
 
+/// How long a running daemon may stay offline on the hub before the app starts it again. Its own
+/// reconnect waits at most 30 s between tries, so this is a daemon that stopped trying.
+pub const WEDGED_AFTER: Duration = Duration::from_secs(180);
+
+/// The app's watchdog (main.rs watch_daemon). Windows has no service manager to restart a daemon that
+/// exited, and none anywhere restarts one that runs but no longer connects. True: start it again.
+/// `offline_since` carries when the hub first saw it offline across checks. A hub that does not
+/// answer (this computer is offline) or a device removed on the hub never counts.
+pub fn needs_restart(local: &LocalStatus, seen: Option<Seen>, offline_since: &mut Option<Instant>, now: Instant) -> bool {
+    if !local.paired || !local.installed {
+        // the switch's own words say to turn it off and on
+        *offline_since = None;
+        return false;
+    }
+    if local.running == Some(false) {
+        *offline_since = None;
+        return true;
+    }
+    if seen != Some(Seen::Offline) {
+        *offline_since = None;
+        return false;
+    }
+    let since = *offline_since.get_or_insert(now);
+    now.duration_since(since) >= WEDGED_AFTER
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn restarts_a_dead_or_wedged_daemon_only() {
+        let t0 = Instant::now();
+        let at = |s: u64| t0 + Duration::from_secs(s);
+        let ok = LocalStatus { paired: true, installed: true, running: Some(true), ..Default::default() };
+        let mut since = None;
+        // online: nothing to do
+        assert!(!needs_restart(&ok, Some(Seen::Online), &mut since, at(0)));
+        // exited (Windows: nothing else restarts it)
+        let dead = LocalStatus { running: Some(false), ..ok };
+        assert!(needs_restart(&dead, Some(Seen::Offline), &mut since, at(0)));
+        // running but offline on the hub: only after WEDGED_AFTER, so its own backoff gets its turn
+        let ok = LocalStatus { paired: true, installed: true, running: Some(true), ..Default::default() };
+        assert!(!needs_restart(&ok, Some(Seen::Offline), &mut since, at(10)));
+        assert!(!needs_restart(&ok, Some(Seen::Offline), &mut since, at(100)));
+        assert!(needs_restart(&ok, Some(Seen::Offline), &mut since, at(10 + WEDGED_AFTER.as_secs())));
+        // back online in between starts the count again
+        let mut since = None;
+        assert!(!needs_restart(&ok, Some(Seen::Offline), &mut since, at(0)));
+        assert!(!needs_restart(&ok, Some(Seen::Online), &mut since, at(100)));
+        assert!(!needs_restart(&ok, Some(Seen::Offline), &mut since, at(200)));
+        // the hub not answering (this computer has no network) and a removed device never count
+        let mut since = None;
+        assert!(!needs_restart(&ok, None, &mut since, at(0)));
+        assert!(!needs_restart(&ok, None, &mut since, at(1000)));
+        assert!(!needs_restart(&ok, Some(Seen::Missing), &mut since, at(2000)));
+        // not paired or no service: the switch says what to do, the watchdog does not guess
+        let unpaired = LocalStatus { paired: false, ..ok };
+        assert!(!needs_restart(&unpaired, Some(Seen::Offline), &mut Some(t0), at(1000)));
+    }
 
     fn tmp(name: &str) -> PathBuf {
         let dir = std::env::temp_dir().join(format!("conclave-desktop-test-{name}-{}", std::process::id()));

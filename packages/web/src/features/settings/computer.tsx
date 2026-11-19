@@ -33,6 +33,21 @@ export function tauriInvoke(): Invoke | undefined {
   return w.__TAURI__?.core?.invoke ?? w.__TAURI_INTERNALS__?.invoke;
 }
 
+/**
+ * Reconnect: the app starts this computer's daemon again (main.rs computer_restart, only when the switch
+ * is on). The new view, or the error in words; an app from before Reconnect says to update.
+ */
+export async function reconnectComputer(): Promise<ComputerView | string> {
+  const invoke = tauriInvoke();
+  if (!invoke) return 'Open the desktop app to reconnect this computer.';
+  try {
+    return await invoke<ComputerView>('computer_restart');
+  } catch (e) {
+    const text = typeof e === 'string' ? e : e instanceof Error ? e.message : '';
+    return /not allowed|not found|unknown/i.test(text) || !text ? 'Update the desktop app to reconnect from here, or turn the switch off and on in its settings.' : text;
+  }
+}
+
 export const ALLOWS = 'The hub can read and change your files here and run commands and coding tools as you.';
 
 /** The section shows only in the desktop app. */
@@ -41,6 +56,8 @@ export const showComputerSection = (): boolean => isDesktopApp();
 export function ComputerSection() {
   const mobile = useIsMobile();
   const [view, setView] = useState<ComputerView | 'loading' | 'old'>('loading');
+  const [reconnecting, setReconnecting] = useState(false);
+  const [problem, setProblem] = useState<string>();
 
   const load = async () => {
     const invoke = tauriInvoke();
@@ -62,6 +79,14 @@ export function ComputerSection() {
   }, []);
 
   const open = () => void tauriInvoke()?.('open_settings');
+  const reconnect = async () => {
+    setReconnecting(true);
+    setProblem(undefined);
+    const r = await reconnectComputer();
+    setReconnecting(false);
+    if (typeof r === 'string') setProblem(r);
+    else setView(r);
+  };
   const size = mobile ? 'touch' : 'sm';
   const v = typeof view === 'object' ? view : undefined;
 
@@ -77,6 +102,13 @@ export function ComputerSection() {
             <Outcome word={view.enabled ? (view.online ? 'On' : 'On, not online') : 'Off'} tone={view.enabled ? (view.online ? 'ok' : 'warn') : 'dim'} />
           )}
         </SettingRow>
+        {v?.enabled && !v.online && (
+          <SettingRow label="Offline" help={problem ?? 'The hub cannot reach this computer now, so sessions cannot run here. Reconnect starts its link to the hub again.'}>
+            <Button variant="solid" size={size} busy={reconnecting ? 'Reconnecting' : false} onClick={() => void reconnect()}>
+              Reconnect
+            </Button>
+          </SettingRow>
+        )}
         {v?.version && (
           <SettingRow label="Daemon version">
             <span className="font-mono text-[13px] text-fg">{v.version}</span>

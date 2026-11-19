@@ -25,6 +25,7 @@ import { Dialog } from '@/components/ui/Overlay';
 import { StateWord } from '@/components/ui/List';
 import { LoadingRows } from '@/components/ui/EmptyState';
 import { FolderCheckNote, useFolderCheck } from './folderCheck';
+import { thisComputer } from '@/features/home/here';
 
 type NotResolved = Extract<MoveResult, { resolved: false }>;
 
@@ -82,11 +83,31 @@ function announce(r: Extract<MoveResult, { resolved: true }>) {
   toast({ title: r.line, body: stale || undefined, level: stale || r.level === 'mismatch' ? 'warning' : 'success' });
 }
 
+/** What a member is told when nothing of theirs can stand in for the hub. */
+export const MEMBER_NO_HUB = 'Code sessions run on a computer you paired, not on the hub. Turn on "Let the hub use this computer" in the desktop app, or pick one of your devices.';
+
+/**
+ * Where a move goes. "local" is the hub's own computer, the owner's only: for
+ * a member the hub answers 404 "unknown device local". In the desktop app a
+ * member's "this computer" is its own paired device, so the move goes there;
+ * else a plain message, not the 404.
+ */
+export function moveTarget(device: string, i: { member: boolean; here?: string }): { device: string } | { error: string } {
+  if (device !== 'local' || !i.member) return { device };
+  return i.here ? { device: i.here } : { error: MEMBER_NO_HUB };
+}
+
 /**
  * Move a session to a device (and folder). A move that cannot find the
  * folder opens Choose folder with what it found.
  */
-export async function moveSessionTo(session: Pick<Session, 'id' | 'device'>, device: string, extra: Partial<MoveInput> = {}): Promise<MoveResult | undefined> {
+export async function moveSessionTo(session: Pick<Session, 'id' | 'device'>, to: string, extra: Partial<MoveInput> = {}): Promise<MoveResult | undefined> {
+  const target = moveTarget(to, { member: useHub.getState().me?.role === 'member', here: thisComputer() });
+  if ('error' in target) {
+    toast({ title: target.error, level: 'warning' });
+    return undefined;
+  }
+  const { device } = target;
   const r = await attempt(() => api().moveSession(session.id, { device, ...extra }));
   if (!r) return undefined;
   if (r.resolved) {

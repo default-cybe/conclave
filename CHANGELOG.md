@@ -7,6 +7,13 @@ from the section of its version (`scripts/releases/notes.ts`); a release
 without one fails. At tag time, rename `[Unreleased]` to the version and date,
 like `## [0.4.16] - 2026-10-24`.
 
+## [Unreleased]
+
+### Fixed
+
+- Windows: this PC no longer stays offline after sleep or a dropped connection; the app reconnects or restarts its device link. The daemon's hello no longer waits forever on a CLI whose `--version` hangs, a hub ping can no longer freeze its connection loop, only one daemon runs per device, the app restarts a daemon that exited or stayed offline for 3 minutes, and Settings > This computer and the offline line in a chat offer Reconnect.
+- A member's move to the hub no longer fails with "unknown device local": in the desktop app it goes to this computer, else it says that code runs on a computer they paired, and the device picker no longer offers the hub to members.
+
 ## [0.4.102] - 2026-11-17
 
 ### Added
