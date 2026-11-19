@@ -213,6 +213,14 @@ pub fn parse_status(stdout: &str) -> Result<LocalStatus, String> {
     serde_json::from_str(json_line(stdout)).map_err(|e| format!("Unexpected reply from the daemon: {e}"))
 }
 
+/// This computer's device id on the hub the app uses: the daemon says it is paired, with an id,
+/// to the same hub (both sides normalized). None otherwise, so a page never gets a guessed id.
+pub fn own_device(local: &LocalStatus, app_hub: Option<&str>) -> Option<String> {
+    let same = |a: &str, b: &str| matches!((crate::hub::normalize(a), crate::hub::normalize(b)), (Ok(a), Ok(b)) if a == b);
+    let id = local.device_id.as_deref().map(str::trim).filter(|id| !id.is_empty())?;
+    (local.paired && same(local.hub.as_deref()?, app_hub?)).then(|| id.to_string())
+}
+
 pub fn status(bin: &Path) -> Result<LocalStatus, String> {
     let out = run(bin, &["status", "--json"], None, Duration::from_secs(15))?;
     if !out.ok {
@@ -434,6 +442,27 @@ mod tests {
         let none = parse_status("some log line\n{\"version\":\"0.2.0\",\"paired\":false,\"hub\":null,\"deviceId\":null,\"name\":null,\"installed\":false,\"running\":false}").unwrap();
         assert!(!none.paired && none.device_id.is_none() && none.running == Some(false));
         assert!(parse_status("Error: nope").is_err());
+    }
+
+    #[test]
+    fn proves_its_own_device_only_on_the_same_hub() {
+        let local = |paired: bool, hub: Option<&str>, id: Option<&str>| LocalStatus { paired, hub: hub.map(Into::into), device_id: id.map(Into::into), ..Default::default() };
+        let ok = local(true, Some("http://box:7717"), Some("dev_1"));
+        assert_eq!(own_device(&ok, Some("http://box:7717/")).as_deref(), Some("dev_1"));
+        // normalized on both sides: scheme added, trailing slash, query and fragment dropped
+        assert_eq!(own_device(&ok, Some("box:7717")).as_deref(), Some("dev_1"));
+        assert_eq!(own_device(&local(true, Some("https://h.example/c"), Some("dev_2")), Some("https://h.example/c/#token=x")).as_deref(), Some("dev_2"));
+        // another hub, port, scheme or path prefix: not this hub's device
+        for other in ["http://box:7718", "https://box:7717", "http://other:7717", "http://box:7717/sub"] {
+            assert_eq!(own_device(&ok, Some(other)), None, "{other}");
+        }
+        // no app hub, not paired, no hub or no id: nothing proven
+        assert_eq!(own_device(&ok, None), None);
+        assert_eq!(own_device(&ok, Some("")), None);
+        assert_eq!(own_device(&local(false, Some("http://box:7717"), Some("dev_1")), Some("http://box:7717")), None);
+        assert_eq!(own_device(&local(true, None, Some("dev_1")), Some("http://box:7717")), None);
+        assert_eq!(own_device(&local(true, Some("http://box:7717"), None), Some("http://box:7717")), None);
+        assert_eq!(own_device(&local(true, Some("http://box:7717"), Some("  ")), Some("http://box:7717")), None);
     }
 
     #[test]

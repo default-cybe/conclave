@@ -40,7 +40,7 @@ export function FolderChip({ device, cwd, onCwd, onDevice, open: openProp, onOpe
     onCwd?.(p.trim() || '~');
     setOpen(false);
   };
-  // Open folder…: the in-app browser everywhere (the desktop app has no native folder dialog: no tauri-plugin-dialog or rfd)
+  // Open folder…: native on this desktop's paired device, then the shared validation and project browser.
   const browse = useOpenFolder(device, cwd, (p) => onCwd?.(p));
   if (!onCwd && !devices) return null;
   const shown = cwd && cwd !== '~' ? shortPath(cwd, 2) : undefined;

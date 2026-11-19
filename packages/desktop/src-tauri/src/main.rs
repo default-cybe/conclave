@@ -49,6 +49,7 @@ use tauri::{
 };
 use tauri_plugin_autostart::{MacosLauncher, ManagerExt as _};
 use tauri_plugin_deep_link::DeepLinkExt;
+use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_global_shortcut::ShortcutState;
 use tauri_plugin_opener::OpenerExt;
 
@@ -260,6 +261,10 @@ fn grant_hub_ipc(app: &AppHandle, base: &Url) -> Result<(), String> {
             .permission("allow-open-download")
             // Dock bounce / taskbar flash and badge while an approval waits (attention)
             .permission("allow-attention")
+            // the native folder picker, only for this computer's own device and a focused window
+            // (pick_folder); never a dialog:* permission, so the page cannot open dialogs itself
+            .permission("allow-native-folder-device")
+            .permission("allow-pick-folder")
             // the hub page may open the meeting overlay, never start capture (MEETING-MODE.md 2.1.1)
             .permission("allow-meeting-open")
             .permission("allow-meeting-status")
@@ -513,6 +518,107 @@ fn attention(app: AppHandle, on: bool, count: u32) {
         let _ = win.request_user_attention(Some(UserAttentionType::Critical));
     }
     let _ = win.set_badge_count((count > 0).then_some(i64::from(count)));
+}
+
+/// This computer's device id on the hub the app uses, proven by the daemon's own status
+/// (computer::own_device). None when the daemon is missing, unpaired or paired elsewhere.
+fn own_device(app: &AppHandle) -> Option<String> {
+    let hub_url = state(app).settings.lock().unwrap().hub_url.clone();
+    let stable = stable_copy(app).ok().filter(|s| s.exists())?;
+    computer::own_device(&computer::status(&stable.bin).ok()?, hub_url.as_deref())
+}
+
+/// A page at `page` is the hub the app uses now. Capabilities stay granted to earlier hub
+/// origins (grant_hub_ipc), so a window still on an old hub must not reach the folder commands.
+fn on_current_hub(base: Option<&Url>, page: &Url) -> bool {
+    base.is_some_and(|b| b.origin() == page.origin())
+}
+
+/// The main or quick ask window, showing the current hub.
+fn hub_window(window: &WebviewWindow) -> bool {
+    matches!(window.label(), MAIN | QUICK) && window.url().is_ok_and(|u| on_current_hub(hub_base(window.app_handle()).as_ref(), &u))
+}
+
+/// The device id the hub page may open the native folder picker for (web FolderPicker), or null.
+#[tauri::command]
+async fn native_folder_device(window: WebviewWindow) -> Option<String> {
+    if !hub_window(&window) {
+        return None;
+    }
+    let app = window.app_handle().clone();
+    let id = tauri::async_runtime::spawn_blocking(move || own_device(&app)).await.ok().flatten();
+    // the hub may have changed during the daemon check
+    id.filter(|_| hub_window(&window))
+}
+
+/// Where the picker opens: `start` when it is an absolute folder here, else the home folder.
+/// Only a local disk path on Windows: a \\server\share start would make Windows sign in to that server.
+fn start_dir(start: Option<&str>, home: Option<PathBuf>) -> Option<PathBuf> {
+    let disk = |p: &Path| !cfg!(windows) || matches!(p.components().next(), Some(std::path::Component::Prefix(x)) if matches!(x.kind(), std::path::Prefix::Disk(_)));
+    start.map(PathBuf::from).filter(|p| p.is_absolute() && disk(p) && p.is_dir()).or(home)
+}
+
+/// The picked folder as text, None for Cancel.
+fn folder_text(picked: Option<tauri_plugin_dialog::FilePath>) -> Result<Option<String>, String> {
+    let Some(picked) = picked else { return Ok(None) };
+    let path = picked.simplified().into_path().map_err(|_| "The picked folder has no path on this computer.".to_string())?;
+    path.into_os_string().into_string().map(Some).map_err(|_| "The picked folder's path is not valid text.".to_string())
+}
+
+/// One picker at a time: a page cannot stack dialogs.
+static PICKING: AtomicBool = AtomicBool::new(false);
+
+/// The native folder picker for the hub page's Open folder. Only for `device` = this computer's
+/// own proven device (own_device), from the focused main or quick ask window. Returns the folder,
+/// null for Cancel, an error when the picker could not open. Reads nothing: the page gets only
+/// the path the owner picked.
+#[tauri::command]
+async fn pick_folder(window: WebviewWindow, device: String, start: Option<String>) -> Result<Option<String>, String> {
+    let ready = |window: &WebviewWindow| {
+        if !hub_window(window) {
+            return Err("Pick a folder from the Conclave window on the current hub.".to_string());
+        }
+        if !window.is_focused().unwrap_or(false) {
+            return Err("Click Browse in the window first.".to_string());
+        }
+        Ok(())
+    };
+    ready(&window)?;
+    let app = window.app_handle().clone();
+    let proven = {
+        let app = app.clone();
+        tauri::async_runtime::spawn_blocking(move || own_device(&app)).await.map_err(|e| e.to_string())?
+    };
+    if proven.as_deref() != Some(device.as_str()) {
+        return Err("The folder picker opens only for this computer's own device.".into());
+    }
+    // again after the daemon check: the window may have moved to another hub or lost focus
+    ready(&window)?;
+    if PICKING.swap(true, Ordering::SeqCst) {
+        return Err("A folder picker is open already.".into());
+    }
+    let mut dialog = app.dialog().file().set_title("Choose a folder").set_parent(&window);
+    if let Some(dir) = start_dir(start.as_deref(), app.path().home_dir().ok()) {
+        dialog = dialog.set_directory(dir);
+    }
+    let (tx, rx) = std::sync::mpsc::channel();
+    // the plugin's callback form: the dialog runs on the main thread, this thread waits.
+    // None is Cancel, but rfd also returns None for some backend failures (no GTK dialog,
+    // portal errors), so those read as Cancel too. Only a callback dropped unsent (the main
+    // thread could not take the dialog) is reported as an error.
+    dialog.pick_folder(move |picked| {
+        let _ = tx.send(picked);
+    });
+    let picked = tauri::async_runtime::spawn_blocking(move || rx.recv()).await;
+    PICKING.store(false, Ordering::SeqCst);
+    // the path goes only to the hub page that asked, not one the window moved to meanwhile
+    if !hub_window(&window) {
+        return Err("The window left the hub while the picker was open.".into());
+    }
+    match picked {
+        Ok(Ok(picked)) => folder_text(picked),
+        _ => Err("The folder picker did not open.".into()),
+    }
 }
 
 fn focus(win: &WebviewWindow) {
@@ -1944,6 +2050,9 @@ fn main() {
         // no click hook: its open_url call is not granted to the hub page, so it
         // swallowed target="_blank" links; new_window opens them instead
         .plugin(tauri_plugin_opener::Builder::new().open_js_links_on_click(false).build())
+        // for pick_folder only; no page is granted a dialog:* permission. Its init script turns
+        // window.alert/confirm into plugin calls, which the pages do not use (they would be denied)
+        .plugin(tauri_plugin_dialog::init())
         .plugin(panel_plugin())
         .plugin(tauri_plugin_autostart::init(MacosLauncher::LaunchAgent, Some(vec![HIDDEN_ARG])))
         // the app's own updates, checked against the built-in key (update.rs)
@@ -1994,7 +2103,9 @@ fn main() {
             save_download,
             reveal_download,
             open_download,
-            attention
+            attention,
+            native_folder_device,
+            pick_folder
         ])
         .on_window_event(|window, event| {
             // Closing a window hides it. Quit lives in the tray menu.
@@ -2168,6 +2279,79 @@ mod tests {
         assert!(read_capped(&dir, 1 << 20).unwrap_err().contains("is a folder"));
         assert!(dropped.is_empty());
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_folder_picker_starts_in_an_existing_absolute_folder_else_home() {
+        let dir = std::env::temp_dir().join(format!("conclave-pick-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("f.txt");
+        std::fs::write(&file, b"x").unwrap();
+        let home = Some(PathBuf::from("/home/me"));
+        assert_eq!(start_dir(dir.to_str(), home.clone()), Some(dir.clone()));
+        // a file, a missing folder, a relative path or nothing: home
+        for bad in [file.to_str(), dir.join("gone").to_str(), Some("relative/dir"), Some(""), None] {
+            assert_eq!(start_dir(bad, home.clone()), home, "{bad:?}");
+        }
+        assert_eq!(start_dir(Some("relative"), None), None);
+        #[cfg(windows)]
+        assert_eq!(start_dir(Some(r"\\attacker\share"), home.clone()), home);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_picker_returns_the_folder_null_for_cancel() {
+        use tauri_plugin_dialog::FilePath;
+        assert_eq!(folder_text(None), Ok(None));
+        let p = std::env::temp_dir();
+        assert_eq!(folder_text(Some(FilePath::Path(p.clone()))), Ok(Some(p.to_string_lossy().into_owned())));
+        // a URL that is not a local file has no path to hand over
+        assert!(folder_text(Some(FilePath::Url(Url::parse("https://example.com/x").unwrap()))).is_err());
+    }
+
+    #[test]
+    fn only_the_two_folder_commands_reach_the_hub_page_never_dialog_or_fs_permissions() {
+        let main = include_str!("main.rs");
+        let grant = &main[main.find("fn grant_hub_ipc").unwrap()..main.find("fn hub_page(").unwrap()];
+        assert!(grant.contains(".permission(\"allow-native-folder-device\")"));
+        assert!(grant.contains(".permission(\"allow-pick-folder\")"));
+        let capability = include_str!("../capabilities/default.json");
+        for text in [grant, capability] {
+            assert!(!text.contains("\"dialog:") && !text.contains("\"fs:"), "{text}");
+        }
+        // deny-by-default app commands, and the fs plugin is never registered
+        let build = include_str!("../build.rs");
+        assert!(build.contains("\"native_folder_device\"") && build.contains("\"pick_folder\""));
+        assert!(!main.contains(concat!("tauri_plugin_fs", "::init")));
+        // the command checks the current hub window and focus, the proven device, then both again, before any dialog
+        let pick = &main[main.find("async fn pick_folder").unwrap()..];
+        let dialog_at = pick.find(".dialog()").unwrap();
+        let device_at = pick.find("proven.as_deref() != Some(device.as_str())").unwrap();
+        assert!(pick.find("hub_window(window)").is_some_and(|i| i < device_at));
+        assert!(pick.find("is_focused()").is_some_and(|i| i < device_at));
+        assert!(pick[device_at..dialog_at].contains("ready(&window)?"));
+        // and the window is still on the hub when the path goes back
+        assert!(pick[dialog_at..].find("hub_window(&window)").is_some_and(|i| i < pick[dialog_at..].find("folder_text(picked)").unwrap()));
+        let device = &main[main.find("async fn native_folder_device").unwrap()..main.find("fn start_dir").unwrap()];
+        assert!(device.starts_with("async fn native_folder_device(window: WebviewWindow) -> Option<String>"));
+        assert!(device.matches("hub_window(&window)").count() == 2);
+    }
+
+    #[test]
+    fn the_folder_commands_answer_only_a_page_on_the_current_hub() {
+        let url = |s: &str| Url::parse(s).unwrap();
+        let now = url("https://new.example/");
+        assert!(on_current_hub(Some(&now), &url("https://new.example/s/ses_1?quick=1#token=x")));
+        // a window still on the hub the app used before (its capability stays), another port or scheme
+        for page in ["https://old.trycloudflare.com/", "https://new.example:8443/", "http://new.example/", "https://evil.example/"] {
+            assert!(!on_current_hub(Some(&now), &url(page)), "{page}");
+        }
+        // the bundled pages and no hub at all
+        assert!(!on_current_hub(Some(&now), &url("tauri://localhost/index.html")));
+        assert!(!on_current_hub(Some(&url("tauri://localhost/")), &url("tauri://localhost/index.html")));
+        assert!(!on_current_hub(None, &now));
+        // a hub under a path: same origin counts, as allow_navigation does
+        assert!(on_current_hub(Some(&url("https://box.example/conclave/")), &url("https://box.example/conclave/s/1")));
     }
 
     #[test]

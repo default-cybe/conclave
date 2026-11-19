@@ -360,7 +360,7 @@ Production dependencies, direct and transitive, of the hub (`packages/core`, `pa
 | zustand | 5.0.15 | MIT | https://github.com/pmndrs/zustand | web |
 | zwitch | 2.0.4 | MIT | https://github.com/wooorm/zwitch | web |
 
-## Rust crates (562)
+## Rust crates (565)
 
 From `packages/daemon-rs/Cargo.lock` (daemon) and `packages/desktop/src-tauri/Cargo.lock` (desktop app).
 
@@ -692,6 +692,7 @@ From `packages/daemon-rs/Cargo.lock` (daemon) and `packages/desktop/src-tauri/Ca
 | regex-automata | 0.4.18 | see crate | https://crates.io/crates/regex-automata/0.4.18 | daemon, desktop |
 | regex-syntax | 0.8.11 | see crate | https://crates.io/crates/regex-syntax/0.8.11 | daemon, desktop |
 | reqwest | 0.13.5 | see crate | https://crates.io/crates/reqwest/0.13.5 | desktop |
+| rfd | 0.17.2 | see crate | https://crates.io/crates/rfd/0.17.2 | desktop |
 | ring | 0.17.14 | see crate | https://crates.io/crates/ring/0.17.14 | daemon, desktop |
 | rust-ini | 0.21.1 | see crate | https://crates.io/crates/rust-ini/0.21.1 | desktop |
 | rustc_version | 0.4.1 | see crate | https://crates.io/crates/rustc_version/0.4.1 | desktop |
@@ -771,6 +772,8 @@ From `packages/daemon-rs/Cargo.lock` (daemon) and `packages/desktop/src-tauri/Ca
 | tauri-plugin | 2.7.2 | see crate | https://crates.io/crates/tauri-plugin/2.7.2 | desktop |
 | tauri-plugin-autostart | 2.7.0 | see crate | https://crates.io/crates/tauri-plugin-autostart/2.7.0 | desktop |
 | tauri-plugin-deep-link | 2.6.2 | see crate | https://crates.io/crates/tauri-plugin-deep-link/2.6.2 | desktop |
+| tauri-plugin-dialog | 2.8.4 | see crate | https://crates.io/crates/tauri-plugin-dialog/2.8.4 | desktop |
+| tauri-plugin-fs | 2.7.1 | see crate | https://crates.io/crates/tauri-plugin-fs/2.7.1 | desktop |
 | tauri-plugin-global-shortcut | 2.4.1 | see crate | https://crates.io/crates/tauri-plugin-global-shortcut/2.4.1 | desktop |
 | tauri-plugin-notification | 2.7.0 | see crate | https://crates.io/crates/tauri-plugin-notification/2.7.0 | desktop |
 | tauri-plugin-opener | 2.7.2 | see crate | https://crates.io/crates/tauri-plugin-opener/2.7.2 | desktop |
