@@ -9,14 +9,15 @@
  *
  *   cd packages/web && bun test test/folder-check.test.tsx
  */
-import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
+import { afterAll, afterEach, beforeAll, describe, expect, test } from 'bun:test';
 import { createRequire } from 'node:module';
 import { join } from 'node:path';
 import type { ProjectDto } from '@conclave/core/client';
 import type { Session } from '@conclave/core/types';
 import { api, connectClient } from '../src/lib/api';
 import { useHub } from '../src/store/store';
-import { crumbs, filterFolders, folderNameOk, looksLikePath, parentPath, recentFolders } from '../src/features/home/FolderPicker';
+import { crumbs, filterFolders, folderNameOk, looksLikePath, parentPath, recentFolders, useOpenFolder } from '../src/features/home/FolderPicker';
+import { setDesktop } from '../src/overlay/desktop';
 
 const saved: Record<string, unknown> = {};
 const GLOBALS = ['window', 'document', 'navigator', 'HTMLElement', 'Node', 'Event', 'KeyboardEvent', 'matchMedia', 'IS_REACT_ACT_ENVIRONMENT', 'localStorage', 'requestAnimationFrame', 'cancelAnimationFrame', 'getComputedStyle', 'MutationObserver', 'ResizeObserver', 'IntersectionObserver'];
@@ -258,6 +259,158 @@ describe('the folder menu', () => {
     await v.key('Enter');
     expect(v.picked).toEqual(['~/code/anything']);
     await v.unmount();
+  });
+});
+
+describe('native folder routing', () => {
+  afterEach(() => {
+    setDesktop(undefined);
+    useHub.setState({ me: undefined, projects: {} } as never);
+  });
+
+  function native(result: string | null | Error, here: string | null = 'pc') {
+    const calls: Array<[string, Record<string, unknown> | undefined]> = [];
+    setDesktop({
+      listen: async () => () => {},
+      invoke: async <T,>(cmd: string, args?: Record<string, unknown>): Promise<T> => {
+        calls.push([cmd, args]);
+        if (cmd === 'native_folder_device') return here as T;
+        if (result instanceof Error) throw result;
+        return result as T;
+      },
+    });
+    useHub.setState((s) => ({ devices: { ...s.devices, pc: { id: 'pc', name: 'arch-desktop', online: true, info: { home: '/home/kai' } } } }) as never);
+    return calls;
+  }
+
+  test('same device: native success keeps server validation and Add as project before selection', async () => {
+    const calls = native('/home/kai/code/conclave');
+    const v = await chip('pc', '~/code');
+    await v.act(async () => v.button('Open folder…')!.click());
+    await v.act(async () => Bun.sleep(320));
+    expect(calls).toEqual([
+      ['native_folder_device', undefined],
+      ['pick_folder', { device: 'pc', start: '/home/kai/code' }],
+    ]);
+    expect(document.querySelector<HTMLInputElement>('input[aria-label="Folder path"]')?.value).toBe('~/code/conclave');
+    expect(v.picked).toEqual([]);
+    const added: unknown[] = [];
+    const old = api().addProject;
+    api().addProject = async (...args) => {
+      added.push(args);
+      return { id: 'native-project', name: 'conclave', locations: [{ device: 'pc', path: '/home/kai/code/conclave' }] } as ProjectDto;
+    };
+    try {
+      await v.act(async () => v.button('Add as project')!.click());
+      await v.act(async () => v.button('Add and select')!.click());
+      expect(added).toEqual([['pc', '/home/kai/code/conclave', 'conclave']]);
+      expect(v.picked).toEqual(['~/code/conclave']);
+    } finally {
+      api().addProject = old;
+      await v.unmount();
+    }
+  });
+
+  test('cancel preserves selection and opens neither fallback nor error', async () => {
+    const calls = native(null);
+    const v = await chip('pc', '~/code');
+    await v.act(async () => v.button('Open folder…')!.click());
+    expect(calls.map(([c]) => c)).toEqual(['native_folder_device', 'pick_folder']);
+    expect(v.picked).toEqual([]);
+    expect(document.querySelector('input[aria-label="Folder path"]')).toBeNull();
+    expect(document.querySelector('[role=alert]')).toBeNull();
+    await v.unmount();
+  });
+
+  test('native failure explains fallback, using the unchanged current folder', async () => {
+    native(new Error('dialog unavailable'));
+    const v = await chip('pc', '~/code');
+    await v.act(async () => v.button('Open folder…')!.click());
+    await v.act(async () => Bun.sleep(320));
+    expect(document.querySelector('[role=alert]')?.textContent).toContain('native folder picker could not open');
+    expect(document.querySelector<HTMLInputElement>('input[aria-label="Folder path"]')?.value).toBe('~/code');
+    expect(v.picked).toEqual([]);
+    await v.act(async () => v.button('Select this folder')!.click());
+    expect(v.picked).toEqual(['~/code']);
+    await v.unmount();
+  });
+
+  test('remote device with identical name and unproven device keep the browser', async () => {
+    for (const here of ['different-id', null]) {
+      const calls = native('/wrong/folder', here);
+      const v = await chip('pc', '~/code');
+      await v.act(async () => v.button('Open folder…')!.click());
+      expect(calls.map(([c]) => c)).toEqual(['native_folder_device']);
+      expect(document.querySelector<HTMLInputElement>('input[aria-label="Folder path"]')?.value).toBe('~/code');
+      expect(document.querySelector('[role=alert]')).toBeNull();
+      await v.unmount();
+    }
+  });
+
+  test('hub local is never this desktop, even for a member or a misleading native ID', async () => {
+    const calls = native('/wrong/folder', 'local');
+    useHub.setState({ me: { role: 'member' } } as never);
+    const v = await chip('local', '~/code');
+    await v.act(async () => v.button('Open folder…')!.click());
+    expect(calls).toEqual([]);
+    expect(document.querySelector('input[aria-label="Folder path"]')).not.toBeNull();
+    expect(v.picked).toEqual([]);
+    await v.unmount();
+  });
+
+  test('member paired device uses native ID, not the hub alias', async () => {
+    const calls = native('/home/kai/code');
+    useHub.setState({ me: { role: 'member' } } as never);
+    const v = await chip('pc');
+    await v.act(async () => v.button('Open folder…')!.click());
+    await v.act(async () => Bun.sleep(320));
+    expect(calls[1]).toEqual(['pick_folder', { device: 'pc', start: null }]);
+    await v.act(async () => v.button('Select this folder')!.click());
+    expect(v.picked).toEqual(['~/code']);
+    await v.unmount();
+  });
+
+  test('browser and phone without desktop IPC keep the existing folder browser', async () => {
+    const v = await chip('local', '~/code');
+    await v.act(async () => v.button('Open folder…')!.click());
+    expect(document.querySelector<HTMLInputElement>('input[aria-label="Folder path"]')?.value).toBe('~/code');
+    expect(v.picked).toEqual([]);
+    await v.unmount();
+  });
+
+  test('native result missing on server cannot be selected', async () => {
+    native('/home/kai/missing-native');
+    const v = await chip('pc');
+    await v.act(async () => v.button('Open folder…')!.click());
+    await v.act(async () => Bun.sleep(320));
+    expect(v.note()?.textContent).toContain('No folder at /home/kai/missing-native');
+    expect(v.button('Select this folder')?.getAttribute('aria-disabled')).toBe('true');
+    await v.act(async () => v.button('Select this folder')!.click());
+    expect(v.picked).toEqual([]);
+    await v.unmount();
+  });
+
+  test('device changes while native selection waits discard the old device path', async () => {
+    let finish!: (path: string | null) => void;
+    setDesktop({ listen: async () => () => {}, invoke: async <T,>(cmd: string) => (cmd === 'native_folder_device' ? 'pc' : await new Promise<string | null>((resolve) => { finish = resolve; })) as T });
+    const { act } = await import('react');
+    const { createRoot } = await import('react-dom/client');
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    const root = createRoot(host);
+    const picked: string[] = [];
+    function Fixture({ device }: { device: string }) {
+      const browse = useOpenFolder(device, '~/code', (p) => picked.push(p));
+      return <><button onClick={browse.open}>Open</button>{browse.browser}</>;
+    }
+    await act(async () => root.render(<Fixture device="pc" />));
+    await act(async () => host.querySelector('button')!.click());
+    await act(async () => root.render(<Fixture device="local" />));
+    await act(async () => finish('/old-device/path'));
+    expect(document.querySelector('input[aria-label="Folder path"]')).toBeNull();
+    expect(picked).toEqual([]);
+    await act(async () => root.unmount());
+    host.remove();
   });
 });
 

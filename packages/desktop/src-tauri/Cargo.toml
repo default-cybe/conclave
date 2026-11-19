@@ -18,6 +18,9 @@ tauri-plugin-deep-link = "2.6"
 tauri-plugin-global-shortcut = "2.4"
 tauri-plugin-notification = "2.7"
 tauri-plugin-opener = "2.7"
+# the native folder picker for this computer's own device (main.rs pick_folder), called from
+# Rust only: no dialog:* permission is granted to any page
+tauri-plugin-dialog = "2.8"
 # Updates from the signed latest.json on the public releases (src/update.rs, docs/DESIGN.md, Updates)
 tauri-plugin-updater = "2"
 tauri-plugin-single-instance = { version = "2.5", features = ["deep-link"] }

@@ -4,7 +4,9 @@
  * bottom: Search folders…, No folder, Recent (the project's or folder's name
  * over its muted path), Open folder…, then "On <device>" to switch the
  * device. A typed path lists matching folders on the device and is checked
- * as before (folderCheck.tsx). Open folder… opens FolderBrowser over
+ * as before (folderCheck.tsx). On this desktop's proven paired device,
+ * Open folder… first asks the OS, then confirms the folder in FolderBrowser.
+ * Else it opens FolderBrowser over
  * GET /api/devices/:device/files: breadcrumbs, Up, folders only, Show hidden,
  * Home, Desktop and Documents, New folder (POST /api/devices/:device/folder)
  * and Select this folder. A folder that is no project yet can be added as
@@ -26,6 +28,7 @@ import { FolderCheckNote, useFolderCheck, useMissingFolders } from '@/features/c
 import { tildePath } from '@/features/chat/FolderChooser';
 import { placeName } from './start';
 import { computerList } from './Where';
+import { desktop } from '@/overlay/desktop';
 
 const trim = (p: string) => (p.length > 1 ? p.replace(/[\\/]+$/, '') : p);
 const base = (p: string) => trim(p).split(/[\\/]/).pop() || p;
@@ -334,7 +337,7 @@ const joinPath = (dir: string, name: string) => `${trim(dir)}${dir.endsWith('/')
  * The folder browser. Desktop: a dialog; phones: a tall sheet. Typing a path
  * in the bar and Go still works, checked as before.
  */
-export function FolderBrowser({ open, device, start, onSelect, onClose }: { open: boolean; device: string; start?: string; onSelect: (path: string) => void; onClose: () => void }) {
+export function FolderBrowser({ open, device, start, notice, onSelect, onClose }: { open: boolean; device: string; start?: string; notice?: string; onSelect: (path: string) => void; onClose: () => void }) {
   const d = useHub((s) => s.devices[device]);
   const home = d?.info?.home;
   const startAt = expandHome(start && start !== '~' ? start : (home ?? '/'), home);
@@ -441,6 +444,7 @@ export function FolderBrowser({ open, device, start, onSelect, onClose }: { open
         </>
       }
     >
+      {notice && <p role="alert" className="mb-3 text-[13px] text-fault">{notice}</p>}
       <form
         className="flex items-center gap-1.5"
         onSubmit={(e) => {
@@ -525,21 +529,54 @@ export function FolderBrowser({ open, device, start, onSelect, onClose }: { open
   );
 }
 
-/** The menu's way to the browser: state for the browser, and the browser to render beside the menu. */
+/** Native selection still goes through the browser's device checks and optional Add as project. */
 export function useOpenFolder(device: string, cwd: string | undefined, onSelect: (path: string) => void): { open: () => void; browser: ReactNode } {
-  const [open, setOpen] = useState(false);
-  const started = useRef(cwd);
-  if (!open) started.current = cwd;
+  const [browse, setBrowse] = useState<{ device: string; start?: string; notice?: string }>();
+  const current = useRef(device);
+  current.current = device;
+  useEffect(() => setBrowse(undefined), [device]);
+  const pending = useRef(false);
+  const live = useRef(true);
+  useEffect(() => {
+    live.current = true;
+    return () => { live.current = false; };
+  }, []);
+  const open = async () => {
+    if (pending.current) return;
+    pending.current = true;
+    let start = cwd;
+    let notice: string | undefined;
+    try {
+      const app = desktop();
+      // 'local' always means the hub, not the desktop, including a member's stale selection.
+      if (app && device !== 'local') {
+        const here = await app.invoke<string | null>('native_folder_device');
+        if (here === device) {
+          const home = useHub.getState().devices[device]?.info?.home;
+          const picked = await app.invoke<string | null>('pick_folder', { device, start: cwd ? expandHome(cwd, home) : null });
+          if (picked === null) return;
+          start = picked;
+        }
+      }
+    } catch {
+      notice = 'The native folder picker could not open. Use the folder browser below.';
+    } finally {
+      pending.current = false;
+    }
+    // A device change or unmount while the OS dialog was open must not apply its path elsewhere.
+    if (live.current && current.current === device) setBrowse({ device, start, notice });
+  };
   return {
-    open: () => setOpen(true),
-    browser: (
+    open: () => { void open(); },
+    browser: browse?.device === device && (
       <FolderBrowser
-        open={open}
+        open
         device={device}
-        start={started.current}
-        onClose={() => setOpen(false)}
+        start={browse.start}
+        notice={browse.notice}
+        onClose={() => setBrowse(undefined)}
         onSelect={(p) => {
-          setOpen(false);
+          setBrowse(undefined);
           onSelect(p);
         }}
       />

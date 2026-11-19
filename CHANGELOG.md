@@ -14,6 +14,10 @@ like `## [0.4.16] - 2026-10-24`.
 - Windows: commands work on PCs without Git Bash, using cmd.exe batch scripts. Quoted paths, multiline blocks, percent variables, exit codes and working-directory changes stay intact; command timeouts stop the process tree.
 - The agent is told the device's actual execution shell and Windows command syntax instead of assuming Unix commands.
 
+### Changed
+
+- Desktop: Open folder… uses the native OS folder picker for this app's paired computer, then confirms the folder with the existing checks and Add as project. Other devices keep the in-app browser; cancelling keeps the current folder, and a native dialog failure opens the in-app browser with an explanation.
+
 ## [0.4.104] - 2026-11-19
 
 ### Fixed

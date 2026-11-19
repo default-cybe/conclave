@@ -2,7 +2,8 @@ fn main() {
     // Listing the app commands makes them deny-by-default, so only the bundled
     // connection page (see capabilities/default.json) can call them. The hub's
     // remote page never gets them, except computer_status, computer_restart, open_settings,
-    // update_status and update_install (grant_hub_ipc in src/main.rs). The
+    // update_status, update_install, native_folder_device, pick_folder and the others
+    // grant_hub_ipc in src/main.rs lists. The
     // local_hub_* commands start and stop a hub on this computer, so they are
     // the bundled page's only.
     tauri_build::try_build(tauri_build::Attributes::new().app_manifest(
@@ -46,6 +47,9 @@ fn main() {
             "open_download",
             // Dock bounce / taskbar flash and badge while an approval waits (main.rs attention)
             "attention",
+            // the native folder picker, only for this computer's own device (main.rs pick_folder)
+            "native_folder_device",
+            "pick_folder",
             // meeting mode: open and status for the hub page, the rest only for the overlay window
             "meeting_open",
             "meeting_enabled",
