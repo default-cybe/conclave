@@ -601,6 +601,21 @@ async fn cmd_run(args: &Args) -> R<i32> {
     let Some(creds) = read_device() else {
         return Err(CliError::fail("This machine is not paired. Run `conclave-daemon pair --hub URL --code CODE` first."));
     };
+    // one daemon per device: a second (the Run key at sign-in while the app's runs) would only replace the first on the hub, over and over.
+    // `install` stops the one in the pid file before it starts another, so a restart still works. Windows only: systemd and
+    // launchd restart a daemon that exits, and they stop the old one themselves.
+    if let Some(pid) = service::read_pid(&service::pid_file()).filter(|p| cfg!(windows) && *p != std::process::id() && service::pid_alive(Some(*p)) && service::is_daemon(*p)) {
+        // a self-update respawns us before the old one exits: give it a moment to go
+        let mut waited = 0;
+        while waited < 100 && service::pid_alive(Some(pid)) {
+            tokio::time::sleep(Duration::from_millis(100)).await;
+            waited += 1;
+        }
+        if service::pid_alive(Some(pid)) {
+            print(&format!("conclave-daemon already runs here (pid {pid}). Nothing to do."));
+            return Ok(0);
+        }
+    }
     let pinned = args.str("hub");
     let hub = normalize_hub_url(pinned.as_deref().unwrap_or(&creds.hub));
     let name = args.str("name").or_else(|| creds.name.clone()).unwrap_or_else(crate::info::hostname);

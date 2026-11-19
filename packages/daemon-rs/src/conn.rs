@@ -248,7 +248,8 @@ async fn once(opts: &Options, hub: &str, urls: &mut Vec<String>, current: &mut u
     });
 
     let server = MachineServer::new(out_tx.clone());
-    let info = crate::info::info().await;
+    // the hub drops a socket without a hello after 15 s (daemons.ts HELLO_TIMEOUT_MS); nothing here reads it until the loop below
+    let info = crate::info::info_within(Duration::from_secs(8)).await;
     let mut hello = json!({ "type": "hello", "version": PROTOCOL_VERSION, "deviceId": opts.device_id, "info": info });
     if let Some(n) = &opts.name {
         hello["name"] = json!(n);
@@ -321,6 +322,10 @@ async fn once(opts: &Options, hub: &str, urls: &mut Vec<String>, current: &mut u
                         reason = v.get("message").and_then(Value::as_str).unwrap_or("").to_string();
                     }
                     "pong" => {}
+                    // never wait here either: a pong queued behind a stuck socket would freeze this loop, and with it the heartbeat check
+                    "ping" => {
+                        let _ = out_tx.try_send(json!({ "type": "pong", "ts": v.get("ts").cloned().unwrap_or(Value::Null) }).to_string());
+                    }
                     _ => server.handle(v).await,
                 }
             }
@@ -410,6 +415,8 @@ mod tests {
                 for id in 4..104 {
                     sink.send(rpc(id, "resolve", "x")).await.unwrap();
                 }
+                // the hub's own ping (daemons.ts sweep): its pong must not wait in that full queue
+                sink.send(Message::Text(json!({ "type": "ping", "ts": 1 }).to_string().into())).await.unwrap();
                 std::future::pending::<()>().await
             });
             let opts = Options {
