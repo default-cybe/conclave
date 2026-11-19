@@ -200,7 +200,7 @@ describe('Bash', () => {
     const { command, env } = sent[1]!;
     const marker = /(__CONCLAVE_CWD_\w+__)/.exec(script)![1]!;
     expect(script).toBe(wrapCmdCommand(marker, 'cd sub\ndir x'));
-    expect(command).toBe('"%__CONCLAVE_SCRIPT%"');
+    expect(command).toBe('chcp 65001 >nul & "%__CONCLAVE_SCRIPT%"');
     expect(env?.__CONCLAVE_CMD).toBe('cd sub\ndir x');
     expect(removed).toBe(env!.__CONCLAVE_SCRIPT!);
     expect(out.isError).toBe(true);

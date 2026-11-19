@@ -77,7 +77,6 @@ export function extractCwd(text: string, marker: string): { text: string; cwd?: 
 export function wrapCmdCommand(marker: string, command: string): string {
   return [
     '@echo off',
-    'chcp 65001 >nul',
     'call :__conclave_run',
     'set "__conclave_exit=%errorlevel%"',
     'setlocal DisableDelayedExpansion',
@@ -159,7 +158,7 @@ async function runForeground(input: BashInput, ctx: ToolContext): Promise<ToolOu
       script = `${dir.replace(/[\\/]$/, '')}\\${marker}.cmd`;
       await ctx.machine.writeFile(script, wrapCmdCommand(marker, input.command));
     }
-    res = await ctx.machine.exec(script ? '"%__CONCLAVE_SCRIPT%"' : wrapCommand(marker), {
+    res = await ctx.machine.exec(script ? 'chcp 65001 >nul & "%__CONCLAVE_SCRIPT%"' : wrapCommand(marker), {
       cwd: ctx.cwd,
       env: bashEnv(ctx, { __CONCLAVE_CMD: input.command, ...(script ? { __CONCLAVE_SCRIPT: script } : {}) }),
       timeoutMs,

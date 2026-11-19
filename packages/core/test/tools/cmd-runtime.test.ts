@@ -80,14 +80,21 @@ describe.skipIf(process.platform !== 'win32')('Bash tool on cmd.exe (Windows run
       }
     }
     const out = await bash(`"${exe}" "${echoJs}" alpha "two words"`);
-    expect(out.isError).toBeFalsy();
-    expect(out.meta?.exitCode).toBe(0);
+    expect({ isError: out.isError, exitCode: out.meta?.exitCode, out: clean(text(out)) }).toEqual({
+      isError: false,
+      exitCode: 0,
+      out: expect.stringMatching(/^\{/),
+    });
     expect(JSON.parse(clean(text(out))).args).toEqual(['alpha', 'two words']);
   }, TEST_TIMEOUT);
 
   test('starts in a cwd with spaces, parentheses, percent and ampersand, and leaves it unchanged', async () => {
     const out = await bash(`"${bun}" "${echoJs}"`);
-    expect(out.isError).toBeFalsy();
+    expect({ isError: out.isError, exitCode: out.meta?.exitCode, out: clean(text(out)) }).toEqual({
+      isError: false,
+      exitCode: 0,
+      out: expect.stringMatching(/^\{/),
+    });
     expect(same(JSON.parse(clean(text(out))).cwd, root)).toBe(true);
     expect(out.meta?.cwd).toBeUndefined();
     const cd = await bash('cd');
@@ -160,7 +167,11 @@ describe.skipIf(process.platform !== 'win32')('Bash tool on cmd.exe (Windows run
     mkdirSync(sub, { recursive: true });
     // batch semantics: a literal % in the command is written %%
     const out = await bash(`cd /d "${sub.replace(/%/g, '%%')}"\n"${bun}" "${echoJs}"`);
-    expect(out.isError).toBeFalsy();
+    expect({ isError: out.isError, exitCode: out.meta?.exitCode, out: clean(text(out)) }).toEqual({
+      isError: false,
+      exitCode: 0,
+      out: expect.stringMatching(/^\{/),
+    });
     expect(same(out.meta?.cwd as string | undefined, sub)).toBe(true);
     expect(same(JSON.parse(clean(text(out)).split('\n')[0] as string).cwd, sub)).toBe(true);
     // the next call starts where the last one ended
@@ -184,8 +195,11 @@ describe.skipIf(process.platform !== 'win32')('Bash tool on cmd.exe (Windows run
 
   test('runs an npm-style .cmd shim from PATH without CALL', async () => {
     const out = await bash(`set "PATH=${binDir};%PATH%"\ncc-shim hello "two words"`);
-    expect(out.isError).toBeFalsy();
-    expect(out.meta?.exitCode).toBe(0);
+    expect({ isError: out.isError, exitCode: out.meta?.exitCode, out: clean(text(out)) }).toEqual({
+      isError: false,
+      exitCode: 0,
+      out: expect.stringMatching(/^\{/),
+    });
     const lines = clean(text(out)).split('\n');
     expect(lines).toHaveLength(1);
     expect(JSON.parse(lines[0] as string).args).toEqual(['hello', 'two words']);
