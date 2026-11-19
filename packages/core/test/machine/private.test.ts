@@ -42,6 +42,10 @@ describe('the CLIProxyAPI folder is out of reach of tools', () => {
     await expect(m.readFile(join(work, 'link', 'auth', 'claude-me.json'))).rejects.toThrow(/Refused/);
     await expect(m.readdir(join(home, 'cliproxy', 'auth'))).rejects.toThrow(/Refused/);
     await expect(m.writeFile(join(home, 'cliproxy', 'auth', 'x.json'), '{}')).rejects.toThrow(/Refused/);
+    // New folder in the folder browser goes through mkdir (POST /api/devices/:device/folder)
+    await expect(m.mkdir(join(home, 'cliproxy', 'auth', 'new'))).rejects.toThrow(/Refused/);
+    await expect(m.mkdir(join(work, 'link', 'new'))).rejects.toThrow(/Refused/);
+    await m.mkdir(join(work, 'project', 'new'));
     await expect(m.remove(home, { recursive: true })).rejects.toThrow(/Refused/);
     await expect(m.rename(join(home, 'cliproxy', 'config.yaml'), join(work, 'stolen.yaml'))).rejects.toThrow(/Refused/);
     expect(await m.readText(join(home, 'notes.txt'))).toContain('word');

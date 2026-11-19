@@ -405,6 +405,33 @@ export class ProjectsService {
     return this.dto(this.store.get(p.id)!);
   }
 
+  /**
+   * Add as project (the folder picker): make a folder the account's project
+   * under the name the owner gave. A git repository or synced folder is
+   * known by its history; a plain folder gets a marker
+   * (.conclave/project.json) so it can be told apart later. A folder that is
+   * already a project of the account answers that project.
+   */
+  async add(device: string, path: string, name: string, accountId: string = OWNER_ID): Promise<ProjectDto> {
+    const m = this.machine(device);
+    if (!m) throw new EngineError(409, `${this.deviceName(device)} is offline`);
+    const abs = trimSlash(m.resolve(path, (await this.engine.machineHome(m)) ?? '/'));
+    let probe = await this.probe(device, abs);
+    if (!probe.exists) throw new EngineError(400, `${abs} does not exist on ${this.deviceName(device)}`);
+    const root = repoRoot(abs, probe);
+    const found = this.findProject(probe, device, root, accountId);
+    if (found) return this.dto(found);
+    if (!this.identifiable(probe)) {
+      await m.writeFile(`${root}/.conclave/project.json`, `${JSON.stringify({ id: crypto.randomUUID() }, null, 2)}\n`);
+      probe = await this.probe(device, abs);
+    }
+    const p = this.store.create(name.trim() || probe.name, identityOf(probe), accountId);
+    this.store.saveLocation(p.id, { device, path: root, via: 'pinned', pinned: true, head: probe.head });
+    this.engine.audit(undefined, 'project.add', `${p.name}: ${device} ${root}`);
+    this.emitProject(p);
+    return this.dto(p);
+  }
+
   unpin(projectId: string, device: string, path: string): ProjectDto {
     const p = this.store.get(projectId);
     if (!p) throw new EngineError(404, `unknown project ${projectId}`);

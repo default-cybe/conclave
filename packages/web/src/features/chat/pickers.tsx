@@ -16,8 +16,8 @@ import { PickerButton, SelectMenu } from '@/components/ui/Select';
 import { ModelList, ModelPicker } from '@/components/pickers/ModelPicker';
 import { placeName } from '@/features/home/start';
 import { computerList } from '@/features/home/Where';
+import { FolderMenu, useOpenFolder } from '@/features/home/FolderPicker';
 import { MODES, MORE_STYLES, PERMISSION_MODES, STYLE_HEADING } from './modes';
-import { FolderCheckNote, useFolderCheck } from './folderCheck';
 
 export { AgentPicker } from '@/components/pickers/Pickers';
 
@@ -53,11 +53,10 @@ export function DeviceFolderPicker({
   const [open, setOpen] = useState(false);
   const devices = useHub((s) => s.devices);
   const d = device ? devices[device] : undefined;
-  const [path, setPath] = useState(cwd ?? '');
   // the hub first, by its name ("madx (hub)"), then the computers
   const list = computerList(devices);
-  // the folder is asked of the device before Set (folderCheck.tsx)
-  const check = useFolderCheck(device, open && onCwd ? path : '');
+  // the same menu as the folder chip (FolderPicker.tsx); Open folder… opens the browser
+  const browse = useOpenFolder(device ?? 'local', cwd, (p) => onCwd?.(p));
   return (
     <>
       <PickerButton
@@ -69,16 +68,32 @@ export function DeviceFolderPicker({
         aria-haspopup="dialog"
         aria-expanded={open}
         className={className}
-        onClick={() => {
-          setPath(cwd ?? '');
-          setOpen((o) => !o);
-        }}
+        onClick={() => setOpen((o) => !o)}
       >
         {device ? placeName(d, device) : 'hub'}
         {showCwd && cwd && cwd !== '~' && <span className="mono ml-1.5 text-fg-3">{cwd.length > 22 ? `…${cwd.slice(-20)}` : cwd}</span>}
       </PickerButton>
       <Popover anchor={ref} open={open} onClose={() => setOpen(false)} width={340} label="Device and folder" sheetTitle="Device and folder">
-        <div role="listbox" aria-label="Device" className="p-1">
+        {onCwd && (
+          <FolderMenu
+            device={device ?? 'local'}
+            cwd={cwd}
+            onPick={(p) => {
+              onCwd(p);
+              setOpen(false);
+            }}
+            onDevice={(id) => {
+              onDevice(id);
+              if (closeOnDevice) setOpen(false);
+            }}
+            onClose={() => setOpen(false)}
+            onOpenFolder={() => {
+              setOpen(false);
+              browse.open();
+            }}
+          />
+        )}
+        {!onCwd && <div role="listbox" aria-label="Device" className="p-1">
           <div className="px-2 pt-1.5 pb-1 text-[12px] text-fg-3">Device</div>
           {list.map((dev) => (
             <button
@@ -97,39 +112,9 @@ export function DeviceFolderPicker({
               <span className={cn('text-[12px]', dev.online ? 'text-ok' : 'text-fg-3')}>{dev.online ? 'online' : 'offline'}</span>
             </button>
           ))}
-        </div>
-        {onCwd && (
-          <form
-            className="border-t border-rule p-2"
-            onSubmit={(e) => {
-              e.preventDefault();
-              if (!check.ready) return;
-              onCwd(path.trim() || '~');
-              setOpen(false);
-            }}
-          >
-            <label className="mb-1.5 block px-1 text-[12px] text-fg-3" htmlFor="chat-folder">
-              Folder
-            </label>
-            <div className="flex gap-1.5">
-              <Input id="chat-folder" mono size="sm" value={path} onChange={(e) => setPath(e.target.value)} placeholder="~/code/project" className="flex-1" />
-              <Button type="submit" size="md" variant="outline" disabled={!check.ready}>
-                Set
-              </Button>
-            </div>
-            <FolderCheckNote check={check} className="mt-1.5 px-1" />
-            {d?.roots?.length ? (
-              <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 px-1">
-                {d.roots.map((r) => (
-                  <button key={r} type="button" onClick={() => setPath(r)} className="mono text-[12px] text-fg-3 hover:text-fg">
-                    {r}
-                  </button>
-                ))}
-              </div>
-            ) : null}
-          </form>
-        )}
+        </div>}
       </Popover>
+      {onCwd && browse.browser}
     </>
   );
 }

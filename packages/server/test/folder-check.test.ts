@@ -18,10 +18,10 @@ let t: TestEngine;
 let running: RunningServer;
 const root = mkdtempSync(join(tmpdir(), 'folder-check-'));
 
-async function call(method: string, path: string, json?: unknown): Promise<{ status: number; body: any }> {
+async function call(method: string, path: string, json?: unknown, token = OWNER): Promise<{ status: number; body: any }> {
   const res = await fetch(`${running.url}${path}`, {
     method,
-    headers: { authorization: `Bearer ${OWNER}`, ...(json !== undefined ? { 'content-type': 'application/json' } : {}) },
+    headers: { authorization: `Bearer ${token}`, ...(json !== undefined ? { 'content-type': 'application/json' } : {}) },
     ...(json !== undefined ? { body: JSON.stringify(json) } : {}),
   });
   const text = await res.text();
@@ -64,6 +64,29 @@ describe('folder check', () => {
     expect(made.body).toEqual({ path: want, exists: true });
     expect(existsSync(want)).toBe(true);
     expect((await call('GET', `/api/devices/local/folder?path=${encodeURIComponent(want)}`)).body.exists).toBe(true);
+  });
+
+  test('a path with a NUL or line break is refused before it reaches the device', async () => {
+    for (const bad of [`${root}/a\nb`, `${root}/a\u0000b`]) {
+      expect((await call('POST', '/api/devices/local/folder', { path: bad })).status).toBe(400);
+      expect((await call('GET', `/api/devices/local/folder?path=${encodeURIComponent(bad)}`)).status).toBe(400);
+      expect((await call('GET', `/api/devices/local/files?path=${encodeURIComponent(bad)}`)).status).toBe(400);
+    }
+    expect(existsSync(join(root, 'a'))).toBe(false);
+  });
+
+  test("a member cannot browse, make a folder or add a project on another account's device", async () => {
+    const made = await call('POST', '/api/people', { name: 'bob', password: 'correct horse battery staple', providers: { mock: { monthlyUsd: 5 } } });
+    expect(made.status).toBe(200);
+    const login = (await fetch(`${running.url}/api/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ account: 'bob', password: 'correct horse battery staple', name: 'bob web', platform: 'web' }) }).then((r) => r.json())) as { token: string };
+    const want = join(root, 'bob-made');
+    expect((await call('GET', `/api/devices/local/files?path=${encodeURIComponent(root)}`, undefined, login.token)).status).toBe(404);
+    expect((await call('GET', `/api/devices/local/folder?path=${encodeURIComponent(root)}`, undefined, login.token)).status).toBe(404);
+    expect((await call('POST', '/api/devices/local/folder', { path: want }, login.token)).status).toBe(404);
+    expect((await call('POST', '/api/projects', { device: 'local', path: root, name: 'x' }, login.token)).status).toBe(404);
+    expect(existsSync(want)).toBe(false);
+    // the owner still lists it, folders and files
+    expect((await call('GET', `/api/devices/local/files?path=${encodeURIComponent(root)}`)).status).toBe(200);
   });
 
   test('an unknown device answers 404, not a guess', async () => {

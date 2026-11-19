@@ -58,7 +58,7 @@ import { registerWatchRoutes } from './routes-watches';
 import { registerBrowserRoutes } from './routes-browser';
 import { registerPreviewRoutes } from './routes-preview';
 import { registerFlowRoutes } from './routes-flows';
-import { patchSession, registerProjectRoutes } from './routes-projects';
+import { pathString, patchSession, registerProjectRoutes } from './routes-projects';
 import { registerGithubRoutes } from './routes-github';
 import { registerImportRoutes } from './routes-import';
 import { registerWorkflowRoutes } from './routes-workflows';
@@ -1167,20 +1167,22 @@ export function registerRoutes(app: Hono<HonoEnv>, ctx: ServerContext): void {
   app.get('/api/devices/:device/files', async (c) => {
     const device = c.req.param('device');
     deviceMachine(device);
-    return c.json(await engine.browse(device, c.req.query('path') ?? ''));
+    const path = c.req.query('path');
+    return c.json(await engine.browse(device, path ? pathString(path, 'path') : ''));
   });
 
   // the folder pickers ask before Choose or Start (core machine/folder-check.ts); 409 when the device is offline
   app.get('/api/devices/:device/folder', async (c) => {
     const device = c.req.param('device');
     deviceMachine(device);
-    return c.json(await engine.folderCheck(device, requireString(c.req.query('path'), 'path')));
+    return c.json(await engine.folderCheck(device, pathString(c.req.query('path'), 'path')));
   });
 
   app.post('/api/devices/:device/folder', async (c) => {
     const device = c.req.param('device');
     deviceMachine(device);
-    const path = requireString((await readJson<{ path?: unknown }>(c)).path, 'path');
+    // New folder and Create folder: one path, no NUL or line break; the device's own mkdir keeps out of the hub's private folders
+    const path = pathString((await readJson<{ path?: unknown }>(c)).path, 'path');
     const made = await engine.makeFolder(device, path);
     audit(c, 'device.folder.create', made.path, { device });
     return c.json(made);
