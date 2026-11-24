@@ -315,6 +315,12 @@ export function machineShell(machine: unknown): string | undefined {
   return typeof m.shell === 'function' ? m.shell() : undefined;
 }
 
+/** A call's readOnly as the shell will run it: on cmd.exe the Bash tool's own bash reading can miss a command (echo hi #& del x). */
+export function callReadOnly(tool: Tool, input: Record<string, any>, shell: string | undefined): boolean {
+  if (tool.name !== 'Bash' || !shell || !isCmd(shell) || typeof input?.command !== 'string') return toolIsReadOnly(tool, input);
+  return tool.readOnly !== false && !input.run_in_background && cmdReadOnly(input.command.trim());
+}
+
 export interface CheckInput {
   tool: Tool;
   input: Record<string, any>;

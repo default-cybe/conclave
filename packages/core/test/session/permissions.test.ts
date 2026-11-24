@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { bashRuleTargets, checkPermission, type CheckInput } from '../../src/session/permissions';
+import { bashRuleTargets, callReadOnly, checkPermission, type CheckInput } from '../../src/session/permissions';
 import { gatedConstructs, HEREDOC_WORD, maskSafeHeredocs, substitutionBodies, suggestBashRule } from '../../src/tools/bash-rules';
 import { toolByName } from '../../src/tools';
 import type { PermissionMode } from '../../src/types';
@@ -252,6 +252,14 @@ describe('a Bash command on a cmd.exe machine', () => {
   test('the bash reading calls the payload read-only (why cmd needs its own)', () => {
     expect(check(payload, {}, 'plan').decision).toBe('allow');
     expect(check(payload, { deny: ['Bash(mkdir:*)'] }, 'bypass').decision).toBe('allow');
+  });
+
+  test('callReadOnly reads a cmd line as cmd, so the runner audits and serializes it', () => {
+    expect(callReadOnly(bash, { command: payload }, undefined)).toBe(true);
+    expect(callReadOnly(bash, { command: payload }, 'C:\\Windows\\System32\\cmd.exe')).toBe(false);
+    expect(callReadOnly(bash, { command: 'echo hi #& del /q x' }, 'cmd.exe')).toBe(false);
+    expect(callReadOnly(bash, { command: 'dir' }, 'cmd.exe')).toBe(true);
+    expect(callReadOnly(bash, { command: 'dir', run_in_background: true }, 'cmd.exe')).toBe(false);
   });
 
   test('single quotes hide no command from a deny rule, in every mode', () => {

@@ -78,6 +78,9 @@ function killTree(pid: number | undefined, signal: NodeJS.Signals): void {
 
 export const isCmd = (shell: string) => /(^|[\\/])cmd(\.exe)?$/i.test(shell);
 
+/** cmd.exe looks in the current folder before PATH: a repo's git.bat would run under a Bash(git status) rule. Bash never does. */
+export const CMD_ENV = { NoDefaultCurrentDirectoryInExePath: '1' };
+
 /**
  * The argv that runs one command line: cmd.exe takes /d /v:off /s /c, every
  * other shell -c. On Windows cmd's line goes in quotes that /s strips, with
@@ -670,7 +673,7 @@ export class LocalMachine implements Machine {
     try {
       proc = Bun.spawn(argv, {
         cwd,
-        env: this.env(opts.env),
+        env: verbatim ? { ...this.env(opts.env), ...CMD_ENV } : this.env(opts.env),
         stdin: opts.stdin !== undefined ? 'pipe' : 'ignore',
         stdout: 'pipe',
         stderr: 'pipe',
@@ -776,7 +779,7 @@ export class LocalMachine implements Machine {
     const verbatim = viaShell && isCmd(shell);
     const proc = Bun.spawn(viaShell ? shellArgv(shell, args[1] as string) : [command, ...args], {
       cwd,
-      env: this.env(opts.env),
+      env: verbatim ? { ...this.env(opts.env), ...CMD_ENV } : this.env(opts.env),
       stdin: 'pipe',
       stdout: 'pipe',
       stderr: 'pipe',

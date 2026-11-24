@@ -253,6 +253,13 @@ fn shell_command(sh: &str, command: &str) -> tokio::process::Command {
     cmd
 }
 
+/// cmd.exe looks in the current folder before PATH, so a repo's git.bat would run under an allow rule for git; bash never does.
+fn no_cwd_lookup(cmd: &mut tokio::process::Command, sh: &str) {
+    if is_cmd(sh) {
+        cmd.env("NoDefaultCurrentDirectoryInExePath", "1");
+    }
+}
+
 fn configure(cmd: &mut tokio::process::Command, own_group: bool) {
     #[cfg(unix)]
     if own_group {
@@ -338,6 +345,7 @@ pub async fn exec(command: String, opts: ExecOpts, mut abort: watch::Receiver<bo
     let sh = shell();
     let mut cmd = shell_command(sh, &command);
     cmd.current_dir(&cwd).env_clear().envs(crate::env::tool_env(opts.env.as_ref()));
+    no_cwd_lookup(&mut cmd, sh);
     cmd.stdin(if opts.stdin.is_some() { Stdio::piped() } else { Stdio::null() });
     cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
     configure(&mut cmd, true);
@@ -511,6 +519,9 @@ pub fn spawn(command: &str, args: &[String], cwd: &str, env: Option<&Map<String,
         c
     };
     cmd.current_dir(&cwd).env_clear().envs(envs);
+    if via_shell {
+        no_cwd_lookup(&mut cmd, shell());
+    }
     cmd.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
     configure(&mut cmd, true);
     let mut child = cmd.spawn().map_err(|e| spawn_error(&e, command))?;
