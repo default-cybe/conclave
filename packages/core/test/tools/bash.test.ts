@@ -199,7 +199,7 @@ describe('Bash', () => {
     const out = await BashTool.run({ command: 'cd sub\ndir x' }, makeCtx({ cwd: 'D:\\proj', machine }));
     const { command, env } = sent[1]!;
     expect(script).toBe(wrapCmdCommand('cd sub\ndir x'));
-    expect(command).toMatch(/^chcp 65001 >nul & call "%__CONCLAVE_SCRIPT%" & call set "__conclave_exit=%\^errorlevel%" & >&2 <nul set \/p "=__CONCLAVE_CWD_\w+__" & >&2 cd & call exit \/b %\^__conclave_exit%$/);
+    expect(command).toMatch(/^chcp 65001 >nul & call "%__CONCLAVE_SCRIPT%" & call set __conclave_exit=%\^errorlevel%& >&2 <nul set \/p "=__CONCLAVE_CWD_\w+__" & >&2 cd & call exit \/b %\^__conclave_exit%$/);
     expect(env?.__CONCLAVE_CMD).toBe('cd sub\ndir x');
     expect(removed).toBe(env!.__CONCLAVE_SCRIPT!);
     expect(out.isError).toBe(true);

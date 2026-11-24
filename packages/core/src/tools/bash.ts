@@ -147,7 +147,7 @@ async function runForeground(input: BashInput, ctx: ToolContext): Promise<ToolOu
       await ctx.machine.writeFile(script, wrapCmdCommand(input.command));
     }
     res = await ctx.machine.exec(
-      script ? `chcp 65001 >nul & call "%__CONCLAVE_SCRIPT%" & call set "__conclave_exit=%^errorlevel%" & >&2 <nul set /p "=${marker}" & >&2 cd & call exit /b %^__conclave_exit%` : wrapCommand(marker),
+      script ? `chcp 65001 >nul & call "%__CONCLAVE_SCRIPT%" & call set __conclave_exit=%^errorlevel%& >&2 <nul set /p "=${marker}" & >&2 cd & call exit /b %^__conclave_exit%` : wrapCommand(marker),
       {
       cwd: ctx.cwd,
       env: bashEnv(ctx, { __CONCLAVE_CMD: input.command, ...(script ? { __CONCLAVE_SCRIPT: script } : {}) }),
