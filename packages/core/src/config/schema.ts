@@ -856,7 +856,7 @@ export const DEFAULT_CONFIG: ConclaveConfig = {
       apiKeyEnv: 'ZAI_API_KEY',
       subscription: 'zai-coding',
       // the Coding Plan's models, newest first (the first one tests the key); keep in step with providers/catalog.ts
-      models: ['glm-5.3', 'glm-5.2', 'glm-5.1', 'glm-5', 'glm-5.3-flash', 'glm-4.7', 'glm-4.5-air'],
+      models: ['glm-5.4', 'glm-5.3', 'glm-5.2', 'glm-5.1', 'glm-5', 'glm-5.3-flash', 'glm-4.7', 'glm-4.5-air'],
     },
     openrouter: { type: 'openai', baseUrl: 'https://openrouter.ai/api/v1', apiKeyEnv: 'OPENROUTER_API_KEY' },
     ollama: { type: 'openai', name: 'Ollama', baseUrl: 'http://127.0.0.1:11434/v1', apiKey: 'ollama', enabled: false },

@@ -56,7 +56,7 @@ describe('normalizeModelId and fuzzy lookup', () => {
   test('another model on a catalog name (a custom provider fine-tune) keeps its name and capabilities, not the vendor price', () => {
     const custom = new OpenAIProvider({ id: 'experientiallabs', config: { type: 'openai', baseUrl: 'https://api.experientiallabs.ai/v1' }, apiKey: 'k' });
     const glm = custom.model('glm-5.3-uncensored');
-    expect(glm).toMatchObject({ name: 'GLM-5.3 Uncensored', inputPrice: 0, outputPrice: 0, cacheReadPrice: 0, contextWindow: 1_000_000, tools: true, thinking: true, tier: 'deep' });
+    expect(glm).toMatchObject({ name: 'GLM-5.3 Uncensored', inputPrice: 0, outputPrice: 0, cacheReadPrice: 0, contextWindow: 1_000_000, tools: true, thinking: true, tier: 'smart' });
     expect(findCatalogEntry('glm-5.3-uncensored')?.family).toBe('zai');
     // nor its vision: the vendor's Flash reads images, this build's route may not (a 400 "accepts text only")
     expect(custom.model('glm-5.3-flash-uncensored')).toMatchObject({ name: 'GLM-5.3 Flash Uncensored', inputPrice: 0, vision: false });

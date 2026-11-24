@@ -90,7 +90,7 @@ const CLAUDE_ALIASES: Record<string, string> = {
 };
 
 /** Preference order for the "deep" alias. */
-const DEEP_ORDER = ['claude-opus-5-5', 'gpt-5.5', 'gemini-3.1-pro-preview', 'glm-5.3', 'kimi-k3', 'deepseek-v4-pro', 'qwen3.8-max'];
+const DEEP_ORDER = ['claude-opus-5-5', 'gpt-5.5', 'gemini-3.1-pro-preview', 'glm-5.4', 'glm-5.3', 'kimi-k3', 'deepseek-v4-pro', 'qwen3.8-max'];
 
 /** Default provider ids that should win when several serve the same family. */
 const FAMILY_HOME: Partial<Record<ModelFamily, string>> = { anthropic: 'anthropic', openai: 'openai', gemini: 'google', zai: 'zai' };

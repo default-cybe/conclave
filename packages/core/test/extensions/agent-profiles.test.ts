@@ -115,8 +115,8 @@ describe('model tiers resolve per session', () => {
   });
 
   test('a provider that lists models offers its first listed deep one', () => {
-    const h = host({ providers: { z: { type: 'openai', baseUrl: 'https://api.z.ai/api/paas/v4', apiKey: 'k', models: ['glm-4.6', 'glm-5.3'] } } as never, defaultModel: 'z/glm-4.6' });
-    expect(deepTierModel(h, 'z/glm-4.6')).toBe('z/glm-5.3');
+    const h = host({ providers: { z: { type: 'openai', baseUrl: 'https://api.z.ai/api/paas/v4', apiKey: 'k', models: ['glm-4.6', 'glm-5.4'] } } as never, defaultModel: 'z/glm-4.6' });
+    expect(deepTierModel(h, 'z/glm-4.6')).toBe('z/glm-5.4');
   });
 
   test('models.tiers wins; fast is smallModel; smart is the session model', () => {
