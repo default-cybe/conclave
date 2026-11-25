@@ -250,6 +250,42 @@ describe('OpenAIProvider request mapping', () => {
     expect(m[4]).toEqual({ role: 'tool', tool_call_id: 'call_x', content: 'Error: boom' });
   });
 
+  test('image sizes: over 8000 px a side is a note for any model; over 20 images, over 3000 px only for Claude', () => {
+    const be32 = (n: number) => [n >>> 24, (n >>> 16) & 0xff, (n >>> 8) & 0xff, n & 0xff];
+    const png = (w: number, h: number) =>
+      Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13, 0x49, 0x48, 0x44, 0x52, ...be32(w), ...be32(h), 8, 6, 0, 0, 0]).toString('base64');
+    const small = { type: 'image' as const, mediaType: 'image/png', data: png(800, 600) };
+    const cliproxy = new OpenAIProvider({
+      id: 'cliproxy',
+      config: { type: 'openai', baseUrl: 'http://127.0.0.1:8317/v1', modelOverrides: { 'claude-opus-5-5': { vision: true }, 'gpt-6.1-sol': { vision: true } } },
+    });
+    // the big one is a tool result's image (a Read of a full-page screenshot), the rest are attachments
+    const tool = (model: string, w: number, h: number, smalls: number) => {
+      const { messages } = cliproxy.buildBody({
+        model,
+        system: [],
+        messages: [
+          { role: 'user', content: Array.from({ length: smalls }, () => small) },
+          { role: 'assistant', content: [{ type: 'tool_use', id: 'call_1', name: 'Read', input: { file_path: 'shot.png' } }] },
+          { role: 'user', content: [{ type: 'tool_result', toolUseId: 'call_1', content: [{ type: 'image', mediaType: 'image/png', data: png(w, h) }] }] },
+        ],
+      }) as any;
+      return messages.slice(messages.findIndex((m: any) => m.role === 'tool'));
+    };
+    const kept = (w: number, h: number) => [
+      { role: 'tool', tool_call_id: 'call_1', content: '(image output follows)' },
+      { role: 'user', content: [{ type: 'text', text: 'Images returned by tool call call_1:' }, { type: 'image_url', image_url: { url: `data:image/png;base64,${png(w, h)}` } }] },
+    ];
+    const note = (why: string) => [{ role: 'tool', tool_call_id: 'call_1', content: `[image (image/png) left out: ${why}; ask for a smaller copy]` }];
+    for (const model of ['claude-opus-5-5', 'gpt-6.1-sol']) {
+      expect(tool(model, 1280, 8100, 0)).toEqual(note('too large (1280x8100), over 8000 px a side'));
+      expect(tool(model, 1280, 8000, 0)).toEqual(kept(1280, 8000));
+    }
+    expect(tool('claude-opus-5-5', 3100, 100, 20)).toEqual(note('too large (3100x100) for a request with more than 20 images'));
+    expect(tool('claude-opus-5-5', 3100, 100, 19)).toEqual(kept(3100, 100));
+    expect(tool('gpt-6.1-sol', 3100, 100, 20)).toEqual(kept(3100, 100));
+  });
+
   test('official OpenAI: max_completion_tokens, prompt_cache_key, reasoning_effort, no temperature for reasoning models', () => {
     const body = official().buildBody({ ...ask('x'), model: 'gpt-5.5', maxTokens: 500, cacheKey: 'sess-1', temperature: 0.3, thinking: { effort: 'high' } }) as any;
     expect(body.max_completion_tokens).toBe(500);

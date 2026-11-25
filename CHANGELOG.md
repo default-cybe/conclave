@@ -9,6 +9,10 @@ like `## [0.4.16] - 2026-10-24`.
 
 ## [Unreleased]
 
+### Fixed
+
+- A picture too large for the model no longer fails the chat or a subagent through CLIProxyAPI: on the OpenAI-compatible wire, as on the Anthropic one, an image over 8000 px a side goes as a note, and for Claude, once a request holds more than 20 images and PDFs, so does one over 3000 px. The stored history keeps the picture. A remaining "image dimensions exceed max allowed size" 400 drops the picture and retries instead of falling back to another model. A full-page browser screenshot of a page wider than 7900 px stops at 7900 px.
+
 ### Changed
 
 - Desktop: Open folder… uses the native OS folder picker for this app's paired computer, then confirms the folder with the existing checks and Add as project. Other devices keep the in-app browser; cancelling keeps the current folder, and a native dialog failure opens the in-app browser with an explanation.
