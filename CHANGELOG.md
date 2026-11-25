@@ -9,6 +9,10 @@ like `## [0.4.16] - 2026-10-24`.
 
 ## [Unreleased]
 
+### Fixed
+
+- Android: opening a very big chat (a 90 MB transcript full of screenshots) no longer crashes the app. It reads the newest 200 messages with large blocks left out, the same paged API as the web, and reads older pages as you scroll to the top. A picture or document a page left out is read from the hub when it shows or when Edit or Retry sends it again, and chat images are decoded at about the size they show.
+
 ### Changed
 
 - Desktop: Open folder… uses the native OS folder picker for this app's paired computer, then confirms the folder with the existing checks and Add as project. Other devices keep the in-app browser; cancelling keeps the current folder, and a native dialog failure opens the in-app browser with an explanation.

@@ -6,7 +6,10 @@ import dev.conclave.client.model.ApprovalRequest
 import dev.conclave.client.model.ApprovalResponse
 import dev.conclave.client.model.AuditEntry
 import dev.conclave.client.model.BtwAnswer
+import dev.conclave.client.logic.BlockRef
+import dev.conclave.client.logic.Trimmed
 import dev.conclave.client.model.Checkpoint
+import dev.conclave.client.model.ContentBlock
 import dev.conclave.client.model.CommandDef
 import dev.conclave.client.model.CommandResult
 import dev.conclave.client.model.ConfigResponse
@@ -15,6 +18,7 @@ import dev.conclave.client.model.CreateSessionInput
 import dev.conclave.client.model.Device
 import dev.conclave.client.model.DevicePatch
 import dev.conclave.client.model.DiffResult
+import dev.conclave.client.model.DocumentBlock
 import dev.conclave.client.model.ExportResult
 import dev.conclave.client.model.ExternalSessionInfo
 import dev.conclave.client.model.FileContent
@@ -24,6 +28,7 @@ import dev.conclave.client.model.FolderPath
 import dev.conclave.client.model.GatewayKey
 import dev.conclave.client.model.HubIdentity
 import dev.conclave.client.model.HubInfo
+import dev.conclave.client.model.ImageBlock
 import dev.conclave.client.model.IdentityProof
 import dev.conclave.client.model.LimitState
 import dev.conclave.client.model.LoginRequest
@@ -76,6 +81,7 @@ import dev.conclave.client.model.Task
 import dev.conclave.client.model.TaskInput
 import dev.conclave.client.model.TaskStatus
 import dev.conclave.client.model.Todo
+import dev.conclave.client.model.ToolResultBlock
 import dev.conclave.client.model.ToolInfo
 import dev.conclave.client.model.UsageRecord
 import dev.conclave.client.model.UsageSummary
@@ -97,6 +103,7 @@ import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.builtins.MapSerializer
 import kotlinx.serialization.builtins.serializer
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
@@ -521,8 +528,27 @@ class ConclaveClient(
         Session.serializer(),
     )
 
-    suspend fun messages(id: String, afterSeq: Long? = null): List<Message> =
-        get(p("api", "sessions", id, "messages"), ListSerializer(Message.serializer()), mapOf("afterSeq" to afterSeq))
+    /**
+     * The transcript, whole when no cursor or [limit] is given. [limit] without [afterSeq] is the newest page,
+     * [beforeSeq] the page before it. [trim]: blocks over 100 KB come light; their pictures get a [BlockRef] url (Trimmed.kt).
+     */
+    suspend fun messages(id: String, afterSeq: Long? = null, beforeSeq: Long? = null, limit: Int? = null, trim: Boolean = false): List<Message> {
+        val list = get(
+            p("api", "sessions", id, "messages"), ListSerializer(Message.serializer()),
+            mapOf("afterSeq" to afterSeq, "beforeSeq" to beforeSeq, "limit" to limit, "trim" to if (trim) 1 else null),
+        )
+        return if (trim) list.map(Trimmed::mark) else list
+    }
+
+    /** The base64 of the picture or document [ref] names, read from the hub's block route; null when the block holds none. */
+    suspend fun blockData(ref: BlockRef): String? {
+        val block = get(p("api", "sessions", ref.sessionId, "messages", ref.messageId, "blocks", ref.index.toString()), ContentBlock.serializer())
+        if (block is ImageBlock) return block.data
+        if (block is DocumentBlock) return block.data
+        // a tool's picture: the hub's {data} or Anthropic's {source: {data}} (Media.toolImages)
+        val part = ((block as? ToolResultBlock)?.content as? JsonArray)?.getOrNull(ref.part ?: -1) as? JsonObject ?: return null
+        return ((part["data"] ?: (part["source"] as? JsonObject)?.get("data")) as? JsonPrimitive)?.contentOrNull
+    }
 
     suspend fun send(id: String, input: SendInput): SendResult =
         send("POST", p("api", "sessions", id, "messages"), SendInput.serializer(), input, SendResult.serializer())

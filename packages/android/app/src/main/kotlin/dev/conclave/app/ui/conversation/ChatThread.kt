@@ -59,6 +59,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import dev.conclave.app.ui.chat.ApprovalPrompt
 import dev.conclave.app.ui.chat.NotesStrip
 import dev.conclave.app.ui.chat.NotesViewModel
+import dev.conclave.app.ui.chat.OlderOnTop
 import dev.conclave.app.ui.chat.QuestionPrompt
 import dev.conclave.app.ui.common.ConfirmDialog
 import dev.conclave.app.ui.common.ErrorBanner
@@ -320,6 +321,7 @@ fun ChatThreadScreen(
     }
 
     val listState = rememberLazyListState()
+    OlderOnTop(listState, vm::loadOlder)
     val reduced = reducedMotion()
     // sending brings you back to the bottom
     LaunchedEffect(pending?.at) {

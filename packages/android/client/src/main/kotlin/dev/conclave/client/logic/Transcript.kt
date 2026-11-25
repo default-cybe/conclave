@@ -37,6 +37,8 @@ data class Transcript(
     val sending: List<Sending> = emptyList(),
     /** session.queue events applied, so a load never lays an older list over a newer one. */
     val queueVersion: Int = 0,
+    /** The hub has messages before the first one held: scrolling to the top reads the page before it. */
+    val older: Boolean = false,
 ) {
     val lastSeq: Long get() = messages.maxOfOrNull { it.seq } ?: 0L
 
@@ -45,6 +47,19 @@ data class Transcript(
 }
 
 object TranscriptReducer {
+
+    /** Messages a load or an older page reads at once (the web's store.ts PAGE): a big chat never comes whole. */
+    const val PAGE = 200
+
+    /** A load: [paged] when it read the newest page (no cursor), which says whether older messages wait. */
+    fun loaded(t: Transcript, fetched: List<Message>, paged: Boolean): Transcript =
+        merge(t, fetched).let { if (paged) it.copy(older = fetched.size >= PAGE) else it }
+
+    /** The page before the first message held, laid in front of it. */
+    fun olderPage(t: Transcript, page: List<Message>): Transcript = merge(t, page).copy(older = page.size >= PAGE)
+
+    /** The seq the next older page reads before, or null when there is none to read. */
+    fun olderBefore(t: Transcript): Long? = t.messages.firstOrNull()?.seq?.takeIf { t.older }
 
     /**
      * Merge messages fetched over REST (initial load or after a reconnect).

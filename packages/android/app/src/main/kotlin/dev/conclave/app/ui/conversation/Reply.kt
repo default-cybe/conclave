@@ -83,6 +83,8 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import dev.conclave.app.data.HubRepository
+import dev.conclave.app.ui.common.LocalAppContainer
 import dev.conclave.app.ui.common.ModelName
 import dev.conclave.app.ui.motion.Fold
 import dev.conclave.app.ui.motion.Knot
@@ -93,6 +95,7 @@ import dev.conclave.app.ui.motion.Steps
 import dev.conclave.app.ui.motion.Swap
 import dev.conclave.app.ui.theme.Conclave
 import dev.conclave.app.ui.theme.ConclaveType
+import dev.conclave.client.logic.BlockRef
 import dev.conclave.client.logic.ChatLive
 import dev.conclave.client.logic.ChatSources
 import dev.conclave.client.logic.ChatTools
@@ -112,6 +115,7 @@ import dev.conclave.client.model.ThinkingBlock
 import dev.conclave.client.model.ToolResultBlock
 import dev.conclave.client.model.plainText
 import dev.conclave.client.motion.KnotState
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
@@ -219,7 +223,7 @@ fun UserBubble(
         val max = maxWidth * 0.85f
         Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.End) {
             images.forEach { img ->
-                val open = if (img.data.isNullOrBlank()) Modifier else Modifier.clickable(onClickLabel = "Open full screen") { shown = img }
+                val open = if (img.data.isNullOrBlank() && BlockRef.of(img.url) == null) Modifier else Modifier.clickable(onClickLabel = "Open full screen") { shown = img }
                 Box(Modifier.padding(bottom = 6.dp).widthIn(max = max)) { ChatImage(img, maxHeight = 160.dp, modifier = open) }
             }
             files.forEach { name ->
@@ -264,10 +268,11 @@ fun UserBubble(
 @Composable
 fun ChatImage(block: ImageBlock, maxHeight: Dp, modifier: Modifier = Modifier) {
     val c = Conclave.colors
+    val hub = LocalAppContainer.current.hub
     val data = block.data
     val target = with(LocalDensity.current) { (maxHeight * 2).roundToPx() }
-    val bitmap by produceState<ImageBitmap?>(null, data, target) {
-        value = if (data.isNullOrBlank()) null else withContext(Dispatchers.Default) { decodeScaled(data, target) }
+    val bitmap by produceState<ImageBitmap?>(null, block, target) {
+        value = withContext(Dispatchers.Default) { hub.imageData(block)?.let { decodeScaled(it, target) } }
     }
     val img = bitmap
     if (img != null) {
@@ -277,7 +282,7 @@ fun ChatImage(block: ImageBlock, maxHeight: Dp, modifier: Modifier = Modifier) {
             contentScale = ContentScale.Fit,
             modifier = modifier.heightIn(max = maxHeight).clip(RoundedCornerShape(5.dp)).border(1.dp, c.rule, RoundedCornerShape(5.dp)),
         )
-    } else if (data.isNullOrBlank()) {
+    } else if (data.isNullOrBlank() && BlockRef.of(block.url) == null) {
         Text("Image", style = ConclaveType.meta, color = c.fg3, modifier = modifier.border(1.dp, c.rule, RoundedCornerShape(5.dp)).padding(horizontal = 10.dp, vertical = 6.dp))
     }
 }
@@ -285,7 +290,10 @@ fun ChatImage(block: ImageBlock, maxHeight: Dp, modifier: Modifier = Modifier) {
 /** An image in a message, over everything and fitted to the screen: pinch to zoom, a tap, Back or Close shuts it. Save and Share sit at the bottom (FileCards.kt ImageActions); [name] names the saved file. */
 @Composable
 internal fun FullImage(block: ImageBlock, name: String? = null, onDismiss: () -> Unit) {
-    val data = block.data
+    val hub = LocalAppContainer.current.hub
+    // one a trimmed page left out is read while the viewer is open, so Save and Share have its bytes
+    val fetched by produceState<String?>(block.data, block) { if (value.isNullOrBlank()) value = hub.imageData(block) }
+    val data = fetched
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         BoxWithConstraints(Modifier.fillMaxSize().background(Color.Black).clickable(onClickLabel = "Close", onClick = onDismiss), contentAlignment = Alignment.Center) {
             val target = maxOf(constraints.maxWidth, constraints.maxHeight)
@@ -314,9 +322,25 @@ internal fun FullImage(block: ImageBlock, name: String? = null, onDismiss: () ->
             IconButton(onClick = onDismiss, modifier = Modifier.align(Alignment.TopEnd).statusBarsPadding().padding(8.dp)) {
                 Icon(Icons.Outlined.Close, contentDescription = "Close", tint = Color.White)
             }
-            if (bitmap != null) ImageActions(block, name, Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(8.dp))
+            if (bitmap != null) ImageActions(block.copy(data = data), name, Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(8.dp))
         }
     }
+}
+
+/** An image's base64 to draw: its own, or for one a trimmed page left out (Trimmed.kt) read from the hub now. Null when neither or it fails. */
+internal suspend fun HubRepository.imageData(block: ImageBlock): String? = try {
+    blockData(block.data, block.url)
+} catch (e: CancellationException) {
+    throw e
+} catch (_: Exception) {
+    null
+}
+
+/** A block's base64: [data], or the hub's copy when [url] is a trimmed page's ref (Trimmed.kt). Throws when the hub cannot say. */
+internal suspend fun HubRepository.blockData(data: String?, url: String?): String? {
+    data?.takeIf { it.isNotBlank() }?.let { return it }
+    val ref = BlockRef.of(url) ?: return null
+    return api { it.blockData(ref) }
 }
 
 /** A bitmap no more than about [target] px on its long side, or null when the data is not an image. */

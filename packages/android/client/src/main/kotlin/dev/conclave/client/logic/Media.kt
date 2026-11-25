@@ -100,10 +100,13 @@ object Media {
             val o = el as? JsonObject ?: return@mapNotNull null
             if (o.str("type") != "image") return@mapNotNull null
             val src = o["source"] as? JsonObject
-            val data = (o.str("data") ?: src?.str("data"))?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
+            val data = (o.str("data") ?: src?.str("data"))?.takeIf { it.isNotBlank() }
+            // a picture a trimmed page left out comes by its ref when it shows (Trimmed.kt)
+            val ref = o.str("url")?.takeIf { data == null && BlockRef.of(it) != null }
+            if (data == null && ref == null) return@mapNotNull null
             val type = o.str("mediaType") ?: src?.str("media_type") ?: src?.str("mediaType") ?: "image/png"
             if (FileCards.extension(type) == null) return@mapNotNull null
-            ImageBlock(mediaType = type, data = data)
+            ImageBlock(mediaType = type, data = data, url = ref)
         }
     }
 
