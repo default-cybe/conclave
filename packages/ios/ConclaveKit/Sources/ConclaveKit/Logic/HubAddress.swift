@@ -103,7 +103,7 @@ public enum HubAddresses {
     /// Pairing: `attempt` at each of `urls` in order (the code's best address, then its alts),
     /// moving on only when an address does not answer. The hub's own answer (a wrong or used code)
     /// and another machine at the address stop at once. Throws the last failure.
-    public static func firstAnswer<T>(
+    public static func firstAnswer<T: Sendable>(
         _ urls: [String], isolation: isolated (any Actor)? = #isolation, _ attempt: (String) async throws -> T
     ) async throws -> (url: String, result: T) {
         var failure: Error?
