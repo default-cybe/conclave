@@ -13,6 +13,8 @@ final class HubModel {
     private(set) var error: String?
     /// Sessions an open approval or question shows in: their row gets the waiting dot.
     private(set) var waiting: Set<String> = []
+    /// The hub's model list, read when a picker first opens.
+    private(set) var models: [ModelGroup] = []
 
     private let transport: any LiveTransport
     private var chats: [String: ChatModel] = [:]
@@ -103,6 +105,20 @@ final class HubModel {
     }
 
     func session(_ id: String) -> Session? { sessions.first { $0.id == id } }
+
+    func loadModels() async {
+        guard models.isEmpty, let m = try? await client.models() else { return }
+        models = m
+    }
+
+    /// A model or effort pick is the chat's default from now on (PATCH, as Android).
+    func update(_ id: String, _ patch: SessionPatch) async {
+        do {
+            apply(.sessionUpdated(try await client.updateSession(id, patch)))
+        } catch {
+            self.error = error.localizedDescription
+        }
+    }
 
     /// A new chat; its id to open. Each window keeps its own selection.
     func newChat() async -> String? {

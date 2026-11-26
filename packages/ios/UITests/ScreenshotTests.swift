@@ -21,7 +21,8 @@ final class ScreenshotTests: XCTestCase {
             for o in orientations {
                 XCUIDevice.shared.orientation = o == "landscape" ? .landscapeLeft : .portrait
                 app.launch()
-                XCTAssert(app.staticTexts["Here is the icon colour."].waitForExistence(timeout: 30))
+                // the last things the transcript draws: the approval and question cards from the mock hub
+                XCTAssert(app.buttons["Allow once"].waitForExistence(timeout: 30))
                 sleep(2)
                 let url = URL(fileURLWithPath: dir).appendingPathComponent("\(prefix)-\(o)-\(a).png")
                 try Self.upright(XCUIScreen.main.screenshot().image).write(to: url)

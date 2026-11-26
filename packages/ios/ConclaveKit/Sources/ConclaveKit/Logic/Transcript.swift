@@ -97,6 +97,22 @@ public enum TranscriptReducer {
         return out
     }
 
+    /// The owner took waiting message [id] off (or out to edit it): it leaves at once, before the hub's answer.
+    public static func removed(_ t: Transcript, _ id: String) -> Transcript {
+        var out = t
+        out.queue.removeAll { $0.id == id }
+        out.sending.removeAll { $0.item.id == id }
+        return out
+    }
+
+    /// The hub refused the remove: [item] waits again where the hub's list puts it, else at the end.
+    public static func unremoved(_ t: Transcript, _ item: QueuedMessage) -> Transcript {
+        guard !t.pending.contains(where: { $0.id == item.id }) else { return t }
+        var out = t
+        out.sending.append(Sending(item))
+        return out
+    }
+
     /// Where a reload after a reconnect starts: just before the last reply when it is still open
     /// here (it may have ended meanwhile), else after the newest message. Nil loads everything.
     public static func reloadAfter(_ t: Transcript) -> Int64? {

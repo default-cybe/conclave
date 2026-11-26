@@ -155,7 +155,8 @@ public struct SendInput: Sendable, Hashable, Codable {
     public var pendingId: String?
     public var attachmentLoss: String?
 
-    public init(text: String, attachments: [Attachment]? = nil, mode: SessionMode? = nil, model: String? = nil, whenBusy: String? = nil, pendingId: String? = nil) {
+    public init(text: String, attachments: [Attachment]? = nil, mode: SessionMode? = nil, model: String? = nil, whenBusy: String? = nil, pendingId: String? = nil, attachmentLoss: String? = nil) {
+        self.attachmentLoss = attachmentLoss
         self.text = text
         self.attachments = attachments
         self.mode = mode
@@ -185,6 +186,11 @@ public struct SendResult: Sendable, Hashable, Codable {
 public struct QueuedAttachment: Sendable, Hashable, Codable {
     public var name: String?
     public var mediaType = ""
+
+    public init(name: String?, mediaType: String) {
+        self.name = name
+        self.mediaType = mediaType
+    }
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)

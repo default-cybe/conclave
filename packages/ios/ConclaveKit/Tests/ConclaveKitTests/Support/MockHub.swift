@@ -128,6 +128,19 @@ func encode(_ v: some Encodable) throws -> String {
     String(decoding: try Wire.encoder().encode(v), as: UTF8.self)
 }
 
+/// The same numbers for the same seed (SplitMix64), as Kotlin's Random(seed) in the ported tests.
+struct SeededRandom: RandomNumberGenerator {
+    private var state: UInt64
+    init(_ seed: UInt64) { state = seed }
+    mutating func next() -> UInt64 {
+        state &+= 0x9E37_79B9_7F4A_7C15
+        var z = state
+        z = (z ^ (z >> 30)) &* 0xBF58_476D_1CE4_E5B9
+        z = (z ^ (z >> 27)) &* 0x94D0_49BB_1331_11EB
+        return z ^ (z >> 31)
+    }
+}
+
 /// A JSON file under Tests/ConclaveKitTests/Fixtures.
 func fixture(_ name: String) throws -> String {
     let url = try #require(Bundle.module.url(forResource: name, withExtension: "json", subdirectory: "Fixtures"))

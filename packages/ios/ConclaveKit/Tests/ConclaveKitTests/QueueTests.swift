@@ -55,6 +55,30 @@ struct QueueTests {
 
         #expect(PendingQueue.pendingIds(user("u", 1, "a", "b")) == ["a", "b"])
         #expect(PendingQueue.pendingIds(user("u", 1)).isEmpty)
+        #expect(PendingQueue.replacesPending(user("u", 1, "a")))
+        // the row of the stored message keeps the waiting one's key
+        #expect(PendingQueue.keyOf(user("u", 1, "a")) == "p:a")
+        #expect(PendingQueue.keyOf(user("u", 1)) == "u")
+
+        var r1 = SeededRandom(1), r2 = SeededRandom(2)
+        let id = PendingQueue.newId(now: 1_700_000_000_000, using: &r1)
+        #expect(PendingQueue.validId(id), "\(id)")
+        #expect(id.hasPrefix("a_"))
+        #expect(!PendingQueue.validId("no spaces!"))
+        #expect(id != PendingQueue.newId(now: 1_700_000_000_000, using: &r2))
+    }
+
+    @Test func theWords() {
+        #expect(PendingQueue.pendingWord("queue") == "Queued")
+        #expect(PendingQueue.pendingWord("steer") == "Sending to the running turn")
+        #expect(PendingQueue.pendingWord("queue", held: true) == "Stopped")
+        #expect(PendingQueue.storedWord(user("u", 1, "a", whenBusy: "queue").meta) == "Queued")
+        #expect(PendingQueue.storedWord(user("u", 1, "a", whenBusy: "steer").meta) == "Steered the running turn")
+        #expect(PendingQueue.storedWord(user("u", 1).meta) == nil)
+        let item = PendingQueue.item("a_1", text: "look", attachments: [Attachment(mediaType: "image/png", data: "eA==", name: "x.png")], whenBusy: "steer", at: 9)
+        var want = QueuedMessage(id: "a_1", text: "look", at: 9, whenBusy: "steer")
+        want.attachments = [QueuedAttachment(name: "x.png", mediaType: "image/png")]
+        #expect(item == want)
     }
 
     @Test func yoursShowsAtOnceAndTheHubsListTakesItOver() {
@@ -101,6 +125,18 @@ struct QueueTests {
         t = TranscriptReducer.sent(t, q("a_3"))
         t = TranscriptReducer.answered(t, "a_3", nil)
         #expect(ids(t) == ["a_1"])
+    }
+
+    @Test func removeTakesItOffAndARefusalPutsItBack() {
+        var t = TranscriptReducer.apply(Transcript(sessionId: "s1"), .sessionQueue(sessionId: "s1", queue: [q("a"), q("b")]))
+        t = TranscriptReducer.sent(t, q("c"))
+        t = TranscriptReducer.removed(t, "a")
+        t = TranscriptReducer.removed(t, "c")
+        #expect(ids(t) == ["b"])
+        t = TranscriptReducer.unremoved(t, q("a"))
+        #expect(ids(t) == ["b", "a"])
+        // never twice
+        #expect(TranscriptReducer.unremoved(t, q("b")) == t)
     }
 
     @Test func aLoadNeverLaysAnOlderListOverANewerOne() {

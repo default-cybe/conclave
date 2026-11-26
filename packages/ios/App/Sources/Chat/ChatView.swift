@@ -1,10 +1,11 @@
 import ConclaveKit
 import SwiftUI
 
-/// The transcript, read only (the composer is phase 3). Opens at the newest message; scrolling to the
-/// top reads the page before it and keeps the message you were on in place.
+/// The transcript and its composer. Opens at the newest message; scrolling to the top reads the page
+/// before it and keeps the message you were on in place. Approvals and questions show at the end.
 struct ChatView: View {
     let chat: ChatModel
+    let hub: HubModel
     let title: String
     @State private var position = ScrollPosition(edge: .bottom)
 
@@ -20,6 +21,13 @@ struct ChatView: View {
                 ForEach(t.messages) { m in
                     MessageView(message: m, transcript: t, client: chat.client)
                 }
+                if let o = chat.outgoing { OutgoingBubble(outgoing: o) }
+                ForEach(t.approvals) { a in
+                    ApprovalCard(request: a, viewing: chat.sessionId) { await chat.answer(a, $0) }
+                }
+                ForEach(t.questions) { q in
+                    QuestionCard(request: q, viewing: chat.sessionId) { await chat.answer(q, $0) }
+                }
             }
             .scrollTargetLayout()
             .padding(.vertical)
@@ -29,6 +37,17 @@ struct ChatView: View {
         }
         .scrollPosition($position)
         .defaultScrollAnchor(.bottom)
+        .scrollDismissesKeyboard(.interactively)
+        .safeAreaInset(edge: .bottom) {
+            ComposerView(chat: chat, hub: hub)
+                .frame(maxWidth: 820)
+                .padding(.horizontal, 12)
+                .frame(maxWidth: .infinity)
+                .padding(.bottom, 8)
+                .background(.bar)
+        }
+        // a sent message scrolls into view
+        .onChange(of: chat.outgoing != nil) { _, now in if now { withAnimation { position.scrollTo(edge: .bottom) } } }
         .overlay {
             if !chat.loaded { ProgressView() } else if let e = chat.error, t.messages.isEmpty {
                 ContentUnavailableView("Could not load this chat", systemImage: "exclamationmark.triangle", description: Text(e))
@@ -79,7 +98,7 @@ private struct MessageView: View {
                     case .thinking(let th): Fold(title: th.durationMs.map { "Thought for \(max(1, $0 / 1000))s" } ?? "Thinking", icon: "brain") {
                         Text(th.thinking).font(.callout).foregroundStyle(Tone.fg2).textSelection(.enabled)
                     }
-                    case .toolUse(let u): ToolFold(use: u, result: transcript.toolResults[u.id], running: transcript.runningTools.contains(u.id), client: client)
+                    case .toolUse(let u): ToolFold(use: u, result: transcript.toolResults[u.id], running: transcript.runningTools.contains(u.id), progress: transcript.toolProgress[u.id], client: client)
                     case .image(let m): PictureView(media: m, client: client)
                     default: EmptyView()
                     }
@@ -89,10 +108,41 @@ private struct MessageView: View {
     }
 }
 
+/// Your message as it goes, until the hub's copy takes its place.
+private struct OutgoingBubble: View {
+    let outgoing: Outgoing
+
+    var body: some View {
+        VStack(alignment: .trailing, spacing: 4) {
+            if !outgoing.text.isEmpty {
+                Text(outgoing.text)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 10)
+                    .background(Tone.raise, in: RoundedRectangle(cornerRadius: 18))
+                    .overlay(RoundedRectangle(cornerRadius: 18).stroke(Tone.rule))
+            }
+            Text(outgoing.files.isEmpty ? "Sending" : "Sending, \(Attach.filesWord(outgoing.files.count))").font(.caption).foregroundStyle(Tone.fg3)
+        }
+        .frame(maxWidth: .infinity, alignment: .trailing)
+        .padding(.leading, 60)
+    }
+}
+
+extension JSONObject {
+    /// Pretty JSON for a tool's input or an approval's details; nil when empty.
+    var pretty: String? {
+        guard !isEmpty else { return nil }
+        let e = JSONEncoder()
+        e.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
+        return (try? e.encode(self)).map { String(decoding: $0, as: UTF8.self) }
+    }
+}
+
 /// Collapsed until tapped, as Android's thought and call rows.
 struct Fold<Content: View>: View {
     let title: String
     let icon: String
+    var note: String? = nil
     @ViewBuilder let content: () -> Content
     @State private var open = false
 
@@ -111,6 +161,9 @@ struct Fold<Content: View>: View {
             }
             .buttonStyle(.plain)
             .accessibilityValue(open ? "Open" : "Closed")
+            if let note, !open {
+                Text(note).font(.caption.monospaced()).foregroundStyle(Tone.fg3).lineLimit(1).padding(.leading, 26)
+            }
             if open { content().padding(.leading, 26) }
         }
     }
@@ -120,19 +173,15 @@ private struct ToolFold: View {
     let use: ToolUseBlock
     let result: ToolResultBlock?
     let running: Bool
+    /// The running tool's latest line (tool.progress).
+    let progress: String?
     let client: ConclaveClient
-
-    private static func pretty(_ input: JSONObject) -> String? {
-        let e = JSONEncoder()
-        e.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
-        return (try? e.encode(input)).map { String(decoding: $0, as: UTF8.self) }
-    }
 
     var body: some View {
         let failed = result?.isError == true
-        Fold(title: ToolSummary.of(use.name, use.input) + (failed ? ", failed" : running ? ", running" : ""), icon: failed ? "exclamationmark.triangle" : "wrench.and.screwdriver") {
+        Fold(title: ToolSummary.of(use.name, use.input) + (failed ? ", failed" : running ? ", running" : ""), icon: failed ? "exclamationmark.triangle" : "wrench.and.screwdriver", note: running ? progress : nil) {
             VStack(alignment: .leading, spacing: 8) {
-                if !use.input.isEmpty, let json = Self.pretty(use.input) {
+                if let json = use.input.pretty {
                     CodeBlockView(language: use.name, text: json)
                 }
                 if let result, !result.text.isEmpty {

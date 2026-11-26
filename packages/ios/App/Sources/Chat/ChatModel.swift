@@ -7,10 +7,21 @@ import Observation
 final class ChatModel {
     let sessionId: String
     let client: ConclaveClient
-    private(set) var transcript: Transcript
+    // set by the send side too (ChatModel+Send.swift)
+    var transcript: Transcript
     private(set) var loaded = false
     private(set) var loadingOlder = false
     private(set) var error: String?
+
+    // the composer (ChatModel+Send.swift)
+    var draft = ""
+    var files: [Attachment] = []
+    /// A message sent while idle, shown at once until the hub's copy arrives.
+    var outgoing: Outgoing?
+    /// Why the last send, stop or answer failed, for the composer's line.
+    var sendError: String?
+    /// The hub could not read a file: the words to ask "Send without it?" with.
+    var lostFile: String?
 
     init(sessionId: String, client: ConclaveClient) {
         self.sessionId = sessionId
@@ -28,6 +39,7 @@ final class ChatModel {
             let page = try await client.messages(sessionId, limit: TranscriptReducer.page, trim: true)
             transcript = TranscriptReducer.loaded(Transcript(sessionId: sessionId), page, paged: true)
             error = nil
+            await loadWaiting()
         } catch {
             self.error = error.localizedDescription
         }
@@ -61,5 +73,6 @@ final class ChatModel {
 
     func apply(_ e: EngineEvent) {
         transcript = TranscriptReducer.apply(transcript, e)
+        if case .messageCreated(let m) = e, let o = outgoing, o.isAnswered(by: m) { outgoing = nil }
     }
 }

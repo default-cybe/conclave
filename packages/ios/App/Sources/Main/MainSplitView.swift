@@ -15,7 +15,7 @@ struct MainSplitView: View {
             } detail: {
                 Group {
                     if let id = selection {
-                        ChatView(chat: hub.chat(id), title: hub.session(id).map(Panel.title) ?? "")
+                        ChatView(chat: hub.chat(id), hub: hub, title: hub.session(id).map(Panel.title) ?? "")
                             .id(id)
                     } else {
                         ContentUnavailableView("Pick a chat", systemImage: "bubble.left.and.bubble.right")
@@ -35,7 +35,10 @@ struct MainSplitView: View {
             }
             #if DEBUG
             // CI screenshots open a chat with `-openChat <id>`
-            .onAppear { selection = selection ?? UserDefaults.standard.string(forKey: "openChat") }
+            .onAppear {
+                selection = selection ?? UserDefaults.standard.string(forKey: "openChat")
+                if ProcessInfo.processInfo.arguments.contains("-mockHub"), let id = selection { MockHub.fillComposer(hub.chat(id)) }
+            }
             #endif
             .onChange(of: hub.sessions.map(\.id)) { _, ids in
                 if let s = selection, !ids.contains(s) { selection = nil }
