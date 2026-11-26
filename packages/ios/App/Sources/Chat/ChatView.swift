@@ -121,11 +121,17 @@ private struct ToolFold: View {
     let running: Bool
     let client: ConclaveClient
 
+    private static func pretty(_ input: JSONObject) -> String? {
+        let e = JSONEncoder()
+        e.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
+        return (try? e.encode(input)).map { String(decoding: $0, as: UTF8.self) }
+    }
+
     var body: some View {
         let failed = result?.isError == true
         Fold(title: ToolSummary.of(use.name, use.input) + (failed ? ", failed" : running ? ", running" : ""), icon: failed ? "exclamationmark.triangle" : "wrench.and.screwdriver") {
             VStack(alignment: .leading, spacing: 8) {
-                if !use.input.isEmpty, let json = try? String(decoding: Wire.encoder().encode(use.input), as: UTF8.self) {
+                if !use.input.isEmpty, let json = Self.pretty(use.input) {
                     CodeBlockView(language: use.name, text: json)
                 }
                 if let result, !result.text.isEmpty {

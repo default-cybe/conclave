@@ -56,7 +56,8 @@ struct ModelPicksTests {
         #expect(!all.contains("codex/default"))
         #expect(!all.contains("openrouter/anthropic/claude-opus-5-5"))
         #expect(all.count == Set(all).count)
-        #expect(groups.last!.rows.allSatisfy(\.harness))
+        let harnessOnly = groups.last!.rows.allSatisfy { $0.harness }
+        #expect(harnessOnly)
     }
 
     @Test func opensOnTheMakerOfTheCurrentModel() {
