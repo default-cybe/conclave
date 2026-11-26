@@ -65,7 +65,7 @@ export async function asPng(f: File): Promise<File> {
  * WKWebView and WebKitGTK for a screenshot, WebView2 for a picture copied
  * only as "PNG". Not Android, whose app has its own box.
  */
-export const pasteApp = (ua = navigator.userAgent) => (/Mac OS X|Macintosh|Linux|Windows/.test(ua) && !/Android/.test(ua) ? desktop() : undefined);
+export const pasteApp = (ua = navigator.userAgent) => iosClipboard() ?? (/Mac OS X|Macintosh|Linux|Windows/.test(ua) && !/Android/.test(ua) ? desktop() : undefined);
 
 type AppPaste = { paths?: string[]; image?: string | null; mime?: string | null };
 
@@ -92,6 +92,62 @@ export async function clipboardImages(board: Board): Promise<File[]> {
   } catch {
     return [];
   }
+}
+
+/**
+ * The iPhone and iPad app (packages/mobile): its Clipboard plugin reads a
+ * picture, as the desktop app's paste_files does. WKWebView on iOS offers no
+ * Paste in a <textarea> when the clipboard holds only a picture
+ * (WKContentViewInteraction canPerformAction:paste: takes text and URLs
+ * outside rich editing), so no paste event comes: Cmd+V (onPasteKey) and
+ * Paste picture in the + menu ask the app instead.
+ */
+export function iosClipboard(w: unknown = globalThis): Desktop | undefined {
+  const cap = (w as { Capacitor?: { isPluginAvailable?(n: string): boolean; nativePromise?<T>(p: string, m: string, o: object): Promise<T> } }).Capacitor;
+  if (typeof cap?.nativePromise !== 'function' || !cap.isPluginAvailable?.('Clipboard')) return undefined;
+  const read = cap.nativePromise.bind(cap);
+  return {
+    invoke: (async (cmd: string) => {
+      if (cmd !== 'paste_files') throw new Error(`${cmd} is not in the iOS app`);
+      const r = await read<{ type?: string; value?: string }>('Clipboard', 'read', {});
+      return r.type?.startsWith('image/') && r.value ? { image: r.value.replace(/^data:[^,]*,/, ''), mime: r.type } : {};
+    }) as Desktop['invoke'],
+    listen: async () => () => undefined,
+  };
+}
+
+/** The pictures the app finds on the clipboard, attached; false when there were none. */
+export async function pasteFromApp(app: Desktop, add: (files: File[]) => void): Promise<boolean> {
+  const files = await Promise.all((await clipboardFiles(app)).map(asPng));
+  if (files.length) add(files);
+  return files.length > 0;
+}
+
+/** Paste picture in a + menu, in the iOS app only. */
+export function pastePictureItem(add: (files: File[]) => void, app = iosClipboard()) {
+  return app ? [{ label: 'Paste picture', onSelect: () => void pasteFromApp(app, add).then((ok) => ok || toast({ title: 'There is no picture to paste. Copy one first.' })) }] : [];
+}
+
+/**
+ * onKeyDown for a message box in the iOS app: Cmd+V with no paste event
+ * after it (a picture alone on the clipboard) reads the picture through the
+ * app. A paste that came (text) is left alone.
+ */
+export function onPasteKey(
+  e: { key: string; metaKey: boolean; ctrlKey: boolean; shiftKey: boolean; altKey: boolean; currentTarget: Pick<EventTarget, 'addEventListener' | 'removeEventListener'> },
+  add: (files: File[]) => void,
+  app: Desktop | undefined = iosClipboard(),
+  wait = 120,
+): void {
+  if (!app || !(e.metaKey || e.ctrlKey) || e.shiftKey || e.altKey || e.key.toLowerCase() !== 'v') return;
+  const box = e.currentTarget;
+  let pasted = false;
+  const saw = () => void (pasted = true);
+  box.addEventListener('paste', saw);
+  setTimeout(() => {
+    box.removeEventListener('paste', saw);
+    if (!pasted) void pasteFromApp(app, add);
+  }, wait);
 }
 
 /**

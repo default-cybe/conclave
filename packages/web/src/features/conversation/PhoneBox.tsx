@@ -15,6 +15,7 @@ import { forwardRef, useRef, useState, type ReactNode } from 'react';
 import { Plus, SlidersHorizontal } from 'lucide-react';
 import { MenuList, Popover, type MenuItem } from '@/components/ui/Overlay';
 import { Rim, SendStopButton, type RimState } from '@/components/motion';
+import { pastePictureItem } from '@/lib/pasteFiles';
 
 /** Lines the box grows to before it scrolls. */
 export const PHONE_LINES = 6;
@@ -131,6 +132,7 @@ export function AddButton({ onFiles, accept, items = [] }: { onFiles: (files: Fi
             { label: 'Photos', onSelect: pick(photos) },
             { label: 'Camera', onSelect: pick(camera) },
             { label: 'Files', onSelect: pick(files) },
+            ...pastePictureItem(onFiles),
             ...(items.length ? [{ separator: true, label: '' }, ...items] : []),
           ]}
         />

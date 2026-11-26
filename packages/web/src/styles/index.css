@@ -244,8 +244,9 @@
 @custom-variant phone (@media (max-width: 767px));
 @custom-variant coarse (@media (pointer: coarse));
 /* hover and press that skip disabled controls (aria-disabled or :disabled) */
+/* any-hover: an iPad's primary pointer is touch (hover: none) even with a trackpad, which can hover */
 @custom-variant hov {
-  @media (hover: hover) {
+  @media (any-hover: hover) {
     &:hover:not([aria-disabled='true'], :disabled) {
       @slot;
     }

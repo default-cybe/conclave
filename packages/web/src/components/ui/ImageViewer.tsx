@@ -19,11 +19,11 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { createRoot, type Root } from 'react-dom/client';
-import { ChevronLeft, ChevronRight, Copy, Download, MoreHorizontal, X } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Copy, Download, MoreHorizontal, Share, X } from 'lucide-react';
 import { cn } from '@/lib/text';
 import { langFromPath } from '@/lib/highlight';
 import { isDesktopApp } from '@/lib/notify';
-import { openInApp, saveFile } from '@/lib/saveFile';
+import { openInApp, saveFile, shareApp } from '@/lib/saveFile';
 import { toast } from '@/store/store';
 import { kindWord, opensInTab, sizeWords } from '@/features/files/words';
 import { CodeBlock } from './Code';
@@ -134,9 +134,9 @@ function message(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
 }
 
-/** The browser's download, or the desktop app saves it to Downloads (lib/saveFile.ts). */
+/** The browser's download, the desktop app saves it to Downloads, the iOS app shares it (lib/saveFile.ts). */
 export async function downloadMedia(item: MediaItem) {
-  await saveFile(item.name, item.src && !isDesktopApp() ? item.src : await blobOf(item));
+  await saveFile(item.name, item.src && !isDesktopApp() && !shareApp() ? item.src : await blobOf(item));
 }
 
 /** PNG bytes of a picture: the clipboard takes PNG everywhere. */
@@ -264,9 +264,11 @@ export function MediaViewer({ items: list, start, onClose }: { items: MediaItem[
   const facts = [item.caption ?? '', kindWord(item.mediaType), item.size !== undefined ? sizeWords(item.size) : '', n > 1 ? `${at + 1} of ${n}` : ''].filter(Boolean).join(', ');
   const act = (f: () => Promise<void>) => () => void f().catch((e: unknown) => toast({ title: message(e), level: 'error' }));
   const desktopApp = isDesktopApp();
+  // the iOS app: Download is the share sheet, which also opens it in another app
+  const ios = !!shareApp();
   // quiet extras behind More: the main bar keeps Download, Copy and Close
   const extras: Array<{ label: string; run: () => void }> = [
-    ...(tabSafe(item.mediaType) ? [{ label: desktopApp ? 'Open in app' : 'Open in new tab', run: act(() => openOutside(item)) }] : []),
+    ...(tabSafe(item.mediaType) && !ios ? [{ label: desktopApp ? 'Open in app' : 'Open in new tab', run: act(() => openOutside(item)) }] : []),
     ...(item.jump ? [{ label: 'Jump to message', run: () => (onClose(), item.jump!()) }] : []),
   ];
 
@@ -306,7 +308,11 @@ export function MediaViewer({ items: list, start, onClose }: { items: MediaItem[
             {facts}
           </p>
         </div>
-        {item.src && !desktopApp ? (
+        {ios ? (
+          <BarButton label="Share or save" onClick={act(() => downloadMedia(item))}>
+            <Share aria-hidden />
+          </BarButton>
+        ) : item.src && !desktopApp ? (
           // a plain anchor: a data: or hub URL downloads where a router Link would navigate; the desktop app saves through lib/saveFile.ts
           <a href={item.src} download={item.name} title="Download" className={BAR_BTN}>
             <Download aria-hidden />

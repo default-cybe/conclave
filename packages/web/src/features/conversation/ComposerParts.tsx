@@ -25,7 +25,7 @@ import { cyberLabel, type CyberProgram } from '@conclave/core/providers/access-p
 import { filesWord, isZip, mediaTypeFor, takeFiles, UPLOAD_MAX_BYTES } from '@conclave/core/attachments/limits';
 import { api } from '@/lib/api';
 import { isModelImage, unreadablePicture } from '@conclave/core/attachments/image';
-import { asPng, pictureType } from '@/lib/pasteFiles';
+import { asPng, pastePictureItem, pictureType } from '@/lib/pasteFiles';
 import { toast, useHub } from '@/store/store';
 import { cn } from '@/lib/text';
 import { bytes, compact, usd } from '@/lib/format';
@@ -367,7 +367,7 @@ export function PlusMenu({ items, onFiles, accept, label = 'Add files and more' 
   const ref = useRef<HTMLButtonElement>(null);
   const input = useRef<HTMLInputElement>(null);
   const [open, setOpen] = useState(false);
-  const all: MenuItem[] = [{ label: 'Attach files and images', onSelect: () => setTimeout(() => input.current?.click(), 0) }, ...(items.length ? [{ separator: true, label: '' }, ...items] : [])];
+  const all: MenuItem[] = [{ label: 'Attach files and images', onSelect: () => setTimeout(() => input.current?.click(), 0) }, ...pastePictureItem(onFiles), ...(items.length ? [{ separator: true, label: '' }, ...items] : [])];
   return (
     <>
       <button ref={ref} type="button" aria-label={label} aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen((o) => !o)} className="grid size-[30px] shrink-0 place-items-center rounded-full text-fg-2 transition-colors duration-[var(--dur-1)] hov:bg-hover hov:text-fg aria-expanded:bg-hover aria-expanded:text-fg">

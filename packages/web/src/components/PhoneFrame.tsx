@@ -497,16 +497,30 @@ function MainRow({ Icon, label, to, onClick, active, children }: { Icon: Compone
  * page to show the field. The frame takes the visible part's height and
  * follows its scroll instead, so the bar stays at the top and the composer
  * sits on the keyboard. Returns whether the keyboard is open.
+ *
+ * An iPad does the same at every width, the desktop layout too (Shell), and
+ * there a hardware keyboard leaves only its shortcut bar (about 55pt) over
+ * the composer: in the iOS app, which has no toolbars that come and go, any
+ * cover counts. A pinch zoom shrinks the visible part too; it is no keyboard.
  */
+export function keyboardCovers(innerHeight: number, vv: Pick<VisualViewport, 'height' | 'scale'>, app: boolean): boolean {
+  return Math.abs(vv.scale - 1) < 0.01 && innerHeight - vv.height > (app ? 1 : 80);
+}
+
+/** An iPhone or iPad, whose keyboard covers the page instead of resizing it. iPadOS says Macintosh, but has touch. */
+export function iosKeyboard(nav: Pick<Navigator, 'userAgent' | 'maxTouchPoints'> = navigator): boolean {
+  return /iPhone|iPad|iPod/.test(nav.userAgent) || (/Macintosh/.test(nav.userAgent) && nav.maxTouchPoints > 1);
+}
+
 export function useVisibleViewport(on: boolean): boolean {
   const [open, setOpen] = useState(false);
   useEffect(() => {
     const vv = window.visualViewport;
     const root = document.documentElement;
     if (!on || !vv) return;
+    const app = location.protocol === 'capacitor:';
     const fit = () => {
-      const covered = window.innerHeight - vv.height;
-      const kb = covered > 80;
+      const kb = keyboardCovers(window.innerHeight, vv, app);
       setOpen(kb);
       if (kb) {
         root.style.setProperty('--vv-h', `${vv.height}px`);

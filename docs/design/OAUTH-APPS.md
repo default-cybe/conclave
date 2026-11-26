@@ -35,7 +35,7 @@ refresh tokens.
   there with the query kept.
 - `google.ios`: filled in. The iOS app registers the reversed client id,
   `com.googleusercontent.apps.318321774791-q1ql9qqdrrq0vnfmt666s4vlvshpjt5e`,
-  as a URL scheme (`packages/mobile`, `add:ios`). The in-app sign-in on the
+  as a URL scheme (`packages/mobile`, its Info.plist). The in-app sign-in on the
   iPhone is not built yet; the hub side is (`client: "ios"`).
 - `google.android`: empty.
 - `microsoft`: empty, until the Entra app below exists.

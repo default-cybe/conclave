@@ -28,7 +28,7 @@ import type { EffortSetting } from '@/lib/effort';
 import type { Attachment } from '@conclave/core/client';
 import { api } from '@/lib/api';
 import { acceptFileDrag, droppedFiles } from '@/lib/fileDrop';
-import { onPasteFiles } from '@/lib/pasteFiles';
+import { onPasteFiles, onPasteKey } from '@/lib/pasteFiles';
 import { askBtw, attempt, sendQueued, toast, upsertSeat, upsertSession, useHub } from '@/store/store';
 import { BtwCards } from './Pending';
 import { CommentTray } from './CommentTray';
@@ -355,6 +355,7 @@ export function Composer({ session, narrow }: { session: Session; /** A column o
   };
 
   const onKey = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    onPasteKey(e, (list) => void addFiles(list));
     if (menu) {
       if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
         e.preventDefault();

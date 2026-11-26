@@ -1,19 +1,27 @@
-# Conclave for iPhone (Capacitor)
+# Conclave for iPhone and iPad (Capacitor)
 
-A native iOS wrapper around the Conclave web app. Most people do not need it:
-the web app installed from Safari ("Add to Home Screen") does the same job.
-Build this when you want a real app icon and app switcher entry.
+A native iOS wrapper around the Conclave web app, for iPhone and iPad. An
+iPad gets the desktop layout at wide widths and the phone layout in a narrow
+Split View or Slide Over window; it runs in every orientation and in Stage
+Manager. Most people do not need it: the web app installed from Safari
+("Add to Home Screen") does the same job. Build this when you want a real
+app icon, the share sheet for saving files, and pasting pictures.
+
+The Xcode project (`ios/`) is committed. Every change to `packages/mobile`
+or `packages/web` builds it on a Mac runner (`.github/workflows/ios.yml`):
+for an iPad simulator, and unsigned for a device (artifact
+`conclave-ios-unsigned`).
 
 The app bundles `packages/web/dist` and asks for your hub on first launch. No
 hub address is compiled in. iOS only allows HTTPS to remote hosts, so give
 the hub an https address first: turn on the quick tunnel in Settings, Remote
 access, or run `conclave remote quick` (see `docs/INSTALL.md`, section 2).
 
-## Build and install on your iPhone
+## Build and install on your iPhone or iPad
 
-You need a Mac with Xcode, Bun, and this repo cloned. A free Apple ID works;
-apps signed with it expire after 7 days (rebuild to renew). A paid developer
-account lasts a year.
+You need a Mac with Xcode (from the App Store), Bun, and this repo cloned. A
+free Apple ID works; apps signed with it expire after 7 days (rebuild to
+renew). A paid developer account lasts a year.
 
 1. Install dependencies from the repo root:
 
@@ -21,17 +29,13 @@ account lasts a year.
    bun install
    ```
 
-2. Create the Xcode project (once). It lives in `packages/mobile/ios`, which
-   is not committed. The script also puts the camera's reason in its
-   Info.plist, so Scan QR code can ask for the camera, registers the
-   Google sign-in scheme (the shared iOS client id reversed,
-   docs/design/OAUTH-APPS.md) so Google can send a sign-in back to the app,
-   and runs `bun run assets:ios` (see Light and dark launch below):
-
-   ```sh
-   cd packages/mobile
-   bun run add:ios
-   ```
+2. The Xcode project is in `packages/mobile/ios`. Its Info.plist has the
+   camera's reason (Scan QR code), the photo library's (Save Image from the
+   share sheet), the Google sign-in scheme (the shared iOS client id
+   reversed, docs/design/OAUTH-APPS.md), iPad orientations and
+   `UIRequiresFullScreen` false. Its plugins: Filesystem and Share (saving a
+   file opens the share sheet), Clipboard (a picture alone on the clipboard,
+   which iOS does not paste into a text box: Cmd+V or + > Paste picture).
 
 3. Build the web app and copy it into the Xcode project. Repeat this after
    every web change or `git pull`:
@@ -48,8 +52,9 @@ account lasts a year.
 
 5. In Xcode, select the **App** target, open **Signing & Capabilities**, tick
    **Automatically manage signing** and pick your team (your Apple ID).
-6. Plug in the iPhone, pick it as the run destination, and press Run.
-7. On the phone, the first launch is blocked until you trust the developer:
+6. Plug in the iPhone or iPad (trust the Mac on it), pick it as the run
+   destination, and press Run.
+7. On the device, the first launch is blocked until you trust the developer:
    **Settings > General > VPN & Device Management**, tap your Apple ID, then
    **Trust**. Turn on **Settings > Privacy & Security > Developer Mode** if
    iOS asks for it.
@@ -84,11 +89,24 @@ bun run assets:ios
 bun run sync
 ```
 
+## Next: push notifications
+
+Not built. They need:
+
+- A paid Apple Developer team (a free Apple ID cannot use push).
+- An APNs auth key (.p8, its key id and team id) stored on the hub as a
+  secret.
+- A hub sender that posts to APNs (HTTP/2, token auth) next to the web push
+  it sends now, with the device token the app registers.
+- The Push Notifications capability: the `aps-environment` entitlement on
+  the App target, and `@capacitor/push-notifications` to get the token.
+
 ## Notes
 
 - App id: `dev.conclave.app`. Icon: `assets/icon-1024.png`; launch images:
-  `assets/Splash.imageset`. `bun run add:ios` copies them in; after a logo
-  change run `bun run assets:ios`. They are drawn by
+  `assets/Splash.imageset`. After a logo change run `bun run assets:ios` and
+  commit what it changed in `ios/`. The icon is one 1024 universal image;
+  Xcode makes the iPhone and iPad sizes from it. They are drawn by
   `bun scripts/brand/knot.ts` from `docs/design/brand/knot.json`, which also
   writes both `Contents.json` files.
 - The launch follows the phone's appearance, not the theme picked in

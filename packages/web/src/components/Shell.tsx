@@ -21,7 +21,7 @@ import { setRailOpen, useChatUi } from '@/features/conversation/state';
 import { setIncognito } from '@/features/conversation/incognito';
 import { CommandPalette } from './CommandPalette';
 import { ShortcutsSheet } from './ShortcutsSheet';
-import { ShellBar, SidePanel, phonePlace, useVisibleViewport } from './PhoneFrame';
+import { ShellBar, SidePanel, iosKeyboard, phonePlace, useVisibleViewport } from './PhoneFrame';
 import { NewChatSheet } from '@/features/chat/NewChatSheet';
 import { OfflineBanner } from '@/features/connect/OfflineBanner';
 import { UpdateBanners } from '@/components/UpdateBanners';
@@ -68,7 +68,9 @@ export function Shell({ children }: { children: ReactNode }) {
   const bp = useBreakpoint();
   const phone = bp === 'phone';
   const [loc] = useLocation();
-  const keyboardOpen = useVisibleViewport(phone);
+  // an iPad keeps the desktop layout but has the phone's keyboard (PhoneFrame useVisibleViewport)
+  const fitKeyboard = phone || iosKeyboard();
+  const keyboardOpen = useVisibleViewport(fitKeyboard);
   useGlobalKeys();
   useDocumentTitle(loc);
   useMarkSeen(loc);
@@ -76,8 +78,8 @@ export function Shell({ children }: { children: ReactNode }) {
   return (
     <div
       className="flex h-full w-full overflow-hidden bg-bg"
-      // phones: the part the keyboard leaves, so the bar stays at the top and the composer on the keyboard
-      style={phone ? { height: 'var(--vv-h, 100%)', transform: 'translateY(var(--vv-top, 0px))' } : undefined}
+      // phones and iPads: the part the keyboard leaves, so the bar stays at the top and the composer on the keyboard
+      style={fitKeyboard ? { height: 'var(--vv-h, 100%)', transform: 'translateY(var(--vv-top, 0px))' } : undefined}
       // the shell never scrolls: a scrollIntoView that ran out of room in a page moved it, and the bar with it
       onScroll={(e) => {
         if (e.target === e.currentTarget && e.currentTarget.scrollTop) e.currentTarget.scrollTop = 0;
@@ -91,7 +93,7 @@ export function Shell({ children }: { children: ReactNode }) {
         {phone && phonePlace(loc) !== 'conversation' && <ShellBar path={loc} />}
         <OfflineBanner />
         <UpdateBanners />
-        {/* Phones: the keyboard covers the home indicator, so pages inside never pad for it while it is open. */}
+        {/* Phones and iPads: the keyboard covers the home indicator, so pages inside never pad for it while it is open. */}
         <main id="main" className={cn('relative flex min-h-0 flex-1 flex-col', !phone && 'pt-safe', keyboardOpen && '[--safe-b:0px]')}>
           {children}
         </main>

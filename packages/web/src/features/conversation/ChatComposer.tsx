@@ -26,7 +26,7 @@ import type { Attachment } from '@conclave/core/client';
 import type { CyberProgram } from '@conclave/core/providers/access-programs';
 import type { Session } from '@conclave/core/types';
 import { askBtw, useHub } from '@/store/store';
-import { onPasteFiles } from '@/lib/pasteFiles';
+import { onPasteFiles, onPasteKey } from '@/lib/pasteFiles';
 import { BtwCards } from '@/features/chat/Pending';
 import { btwQuestion } from '@/features/chat/slash';
 import { cn, fuzzyFilter } from '@/lib/text';
@@ -388,6 +388,7 @@ export function ChatComposer({
   };
 
   const onKey = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    onPasteKey(e, (list) => void addFiles(list));
     if (menuOpen && !e.nativeEvent.isComposing) {
       if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
         e.preventDefault();
@@ -565,7 +566,8 @@ export function ChatComposer({
     );
 
   return (
-    <div className="mx-auto w-full max-w-[784px] px-8 pb-3 phone:px-4 phone:pb-3">
+    // pb: an iPad's home indicator (safe-b) when it is taller than the gap
+    <div className="mx-auto w-full max-w-[784px] px-8 pb-[max(12px,var(--safe-b))] phone:px-4 phone:pb-3">
       <div className="relative">
         {commandList}
         {session && <BtwCards sessionId={session.id} />}

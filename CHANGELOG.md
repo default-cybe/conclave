@@ -7,6 +7,12 @@ from the section of its version (`scripts/releases/notes.ts`); a release
 without one fails. At tag time, rename `[Unreleased]` to the version and date,
 like `## [0.4.16] - 2026-10-24`.
 
+## [Unreleased]
+
+### Added
+
+- An iPad app: the iOS Xcode project (`packages/mobile/ios`) is committed and runs on iPhone and iPad, in every iPad orientation and in Split View, Slide Over and Stage Manager; a new iOS workflow builds it for an iPad simulator and, unsigned, for a device (`conclave-ios-unsigned`). In the app, Download opens the iOS share sheet, a picture alone on the clipboard pastes with Cmd+V or + > Paste picture, the composer stays above the on-screen keyboard and a hardware keyboard's shortcut bar in the desktop layout too, and hover works with a trackpad.
+
 ## [0.4.106] - 2026-11-26
 
 ### Added
