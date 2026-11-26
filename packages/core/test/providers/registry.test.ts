@@ -129,7 +129,7 @@ describe('ProviderRegistry.groups, costOf, test', () => {
     expect(by.openai.configured).toBe(true);
     expect(by.openai.models.some((m) => m.id === 'gpt-5.5')).toBe(true);
 
-    expect(by.zai.models.map((m) => m.id)).toEqual(['glm-5.3', 'glm-5.2', 'glm-5.1', 'glm-5', 'glm-5.3-flash', 'glm-4.7', 'glm-4.5-air']);
+    expect(by.zai.models.map((m) => m.id)).toEqual(['glm-5.4', 'glm-5.3', 'glm-5.2', 'glm-5.1', 'glm-5', 'glm-5.3-flash', 'glm-4.7', 'glm-4.5-air']);
     expect(by.ollama.enabled).toBe(false);
     expect(by['claude-code'].type).toBe('acp');
     expect(by['claude-code'].models.map((m) => m.id)).toEqual(['default', 'opus', 'sonnet', 'haiku']);

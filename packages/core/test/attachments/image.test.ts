@@ -137,5 +137,16 @@ describe('the API could not read a picture', () => {
     const big = classifyHttpError('cliproxy', 400, undefined, JSON.stringify({ type: 'error', error: { type: 'invalid_request_error', message: many } }));
     expect(big.kind).toBe('bad_request');
     expect(isUnreadableImageError(big)).toBe(true);
+    // any image over 8000 px a side (hub log 2026-11-11), from cliproxy in either error shape and from Anthropic direct
+    const side = 'messages.1.content.29.image.source.base64.data: At least one of the image dimensions exceed max allowed size: 8000 pixels';
+    for (const [provider, body] of [
+      ['cliproxy', { type: 'error', error: { type: 'invalid_request_error', message: side } }],
+      ['cliproxy', { error: { message: side, type: 'invalid_request_error', code: null } }],
+      ['anthropic', { type: 'error', error: { type: 'invalid_request_error', message: side } }],
+    ] as const) {
+      const err = classifyHttpError(provider, 400, undefined, JSON.stringify(body));
+      expect(err.kind).toBe('bad_request');
+      expect(isUnreadableImageError(err)).toBe(true);
+    }
   });
 });

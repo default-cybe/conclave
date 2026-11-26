@@ -587,10 +587,10 @@ export function classifyHttpError(
 
 /**
  * Anthropic's "Could not process image" (and "Image does not match the provided media type"), OpenAI's "Invalid image" and image_parse_error.
- * Also Anthropic's "image dimensions exceed max allowed size for many-image requests" for a picture whose size the wire cap could not read
- * (anthropic.ts capManyImages): each drop takes one image out, so the request falls to 20 images, where the cap no longer applies.
+ * Also Anthropic's "image dimensions exceed max allowed size: 8000 pixels" and "... for many-image requests: 3000 pixels" (direct or through
+ * CLIProxyAPI) for a picture whose size the wire cap could not read (common.ts capImageSizes): each drop takes one image out of the history.
  */
-const UNREADABLE_IMAGE_RE = /could not process image|image does not match the provided media type|invalid[ _]image|image_parse_error|exceed max allowed size for many-image requests/i;
+const UNREADABLE_IMAGE_RE = /could not process image|image does not match the provided media type|invalid[ _]image|image_parse_error|image dimensions exceed max allowed size/i;
 
 export function isUnreadableImageText(text: string): boolean {
   return UNREADABLE_IMAGE_RE.test(text);
