@@ -93,29 +93,16 @@ jobs:
           xcodebuild test -project Conclave.xcodeproj -scheme Conclave \
             -destination "id=$SIM" -derivedDataPath build -resultBundlePath logs/unit.xcresult $TEST_TIMEOUTS \
             CODE_SIGNING_ALLOWED=NO 2>&1 | tee logs/unit.log \
-            | grep -E --line-buffered "error:|Test Case .*(passed|failed)|Executed|TEST (SUCCEEDED|FAILED)" \
+            | grep -E --line-buffered "error:|Test run with|Test .* failed|Executed|TEST (SUCCEEDED|FAILED)" \
             || { tail -60 logs/unit.log; exit 1; }
 
-      - name: Screenshot the connect screen
+      # UITests/ScreenshotTests.swift turns the device and writes the PNGs; TEST_RUNNER_ vars reach it.
+      # The connect screen is shot there too: simctl install took 7.5 minutes in run 45871676418.
+      - name: Screenshot connect, sidebar and transcript on iPad (mock hub)
         timeout-minutes: 10
         run: |
           set -o pipefail
-          xcrun simctl boot "$SIM" || true
-          xcrun simctl bootstatus "$SIM" -b
-          xcrun simctl install "$SIM" build/Build/Products/Debug-iphonesimulator/Conclave.app
-          xcrun simctl launch "$SIM" dev.conclave.app
-          sleep 8
-          xcrun simctl io "$SIM" screenshot shots/ipad-connect-light.png
-          xcrun simctl ui "$SIM" appearance dark
-          sleep 3
-          xcrun simctl io "$SIM" screenshot shots/ipad-connect-dark.png
-
-      # UITests/ScreenshotTests.swift turns the device and writes the PNGs; TEST_RUNNER_ vars reach it
-      - name: Screenshot sidebar and transcript on iPad (mock hub)
-        timeout-minutes: 10
-        run: |
-          set -o pipefail
-          TEST_RUNNER_SHOTS="$PWD/shots" TEST_RUNNER_SHOT_PREFIX=ipad \
+          TEST_RUNNER_SHOTS="$PWD/shots" TEST_RUNNER_SHOT_PREFIX=ipad TEST_RUNNER_SHOT_CONNECT=1 \
           TEST_RUNNER_SHOT_ORIENTATIONS=landscape,portrait TEST_RUNNER_SHOT_APPEARANCES=light,dark \
           xcodebuild test -project Conclave.xcodeproj -scheme Screenshots \
             -destination "id=$SIM" -derivedDataPath build -resultBundlePath logs/shots-ipad.xcresult $TEST_TIMEOUTS \

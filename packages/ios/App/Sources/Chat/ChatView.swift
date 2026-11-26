@@ -33,7 +33,8 @@ struct ChatView: View {
             .padding(.vertical)
             // a fixed width: a wide code line or table must not widen the column past the margins
             .containerRelativeFrame(.horizontal) { w, _ in min(w - 32, 820) }
-            .frame(maxWidth: .infinity)
+            // centred in the full width: frame(maxWidth: .infinity) left it at x 0 with 32 pt on the right
+            .containerRelativeFrame(.horizontal)
         }
         .scrollPosition($position)
         .defaultScrollAnchor(.bottom)
@@ -41,7 +42,8 @@ struct ChatView: View {
         .safeAreaInset(edge: .bottom) {
             ComposerView(chat: chat, hub: hub)
                 .frame(maxWidth: 820)
-                .padding(.horizontal, 12)
+                // the transcript's 16 pt margins, so the composer lines up with the cards
+                .padding(.horizontal, 16)
                 .frame(maxWidth: .infinity)
                 .padding(.bottom, 8)
                 .background(.bar)
