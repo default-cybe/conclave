@@ -247,4 +247,4 @@ public enum TranscriptReducer {
     }
 }
 
-func nowMs() -> Int64 { Int64(Date().timeIntervalSince1970 * 1000) }
+public func nowMs() -> Int64 { Int64(Date().timeIntervalSince1970 * 1000) }
