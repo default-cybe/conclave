@@ -88,24 +88,25 @@ jobs:
           xcrun simctl io "$SIM" screenshot shots/ipad-connect-dark.png
 
       - name: Screenshot sidebar and transcript (mock hub)
+        # UITests/ScreenshotTests.swift turns the device and writes the PNGs; TEST_RUNNER_ vars reach it
         run: |
-          app=build/Build/Products/Debug-iphonesimulator/Conclave.app
-          shot() { # device, name, orientation, appearance
-            xcrun simctl ui "$1" appearance "$4"
-            xcrun simctl terminate "$1" dev.conclave.app || true
-            xcrun simctl launch "$1" dev.conclave.app -mockHub -openChat s1 -orientation "$3"
-            sleep 8
-            xcrun simctl io "$1" screenshot "shots/$2-$3-$4.png"
+          shots() { # device id, prefix, orientations, appearances
+            TEST_RUNNER_SHOTS="$PWD/shots" TEST_RUNNER_SHOT_PREFIX="$2" \
+            TEST_RUNNER_SHOT_ORIENTATIONS="$3" TEST_RUNNER_SHOT_APPEARANCES="$4" \
+            xcodebuild test -project Conclave.xcodeproj -scheme Screenshots \
+              -destination "id=$1" -derivedDataPath build \
+              CODE_SIGNING_ALLOWED=NO > "/tmp/shots-$2.log" 2>&1 \
+              || { grep -E "error:|failed|Skipped" "/tmp/shots-$2.log" | head -60; tail -40 "/tmp/shots-$2.log"; exit 1; }
           }
-          for o in landscape portrait; do for a in light dark; do shot "$SIM" ipad "$o" "$a"; done; done
+          shots "$SIM" ipad landscape,portrait light,dark
+          # one simulator at a time: booting a second next to the iPad took 15 minutes
+          xcrun simctl shutdown "$SIM"
           phone=$(xcrun simctl list devices available -j | python3 -c '
           import json, sys
           d = json.load(sys.stdin)["devices"]
           print([x for rt, xs in d.items() if "iOS" in rt for x in xs if x["name"].startswith("iPhone")][-1]["udid"])')
-          xcrun simctl boot "$phone" || true
-          xcrun simctl bootstatus "$phone" -b
-          xcrun simctl install "$phone" "$app"
-          shot "$phone" iphone portrait light
+          shots "$phone" iphone portrait light
+          ls -la shots
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: always()

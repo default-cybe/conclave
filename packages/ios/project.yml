@@ -63,6 +63,17 @@ targets:
       base:
         GENERATE_INFOPLIST_FILE: YES
         PRODUCT_BUNDLE_IDENTIFIER: dev.conclave.app.tests
+  ConclaveUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources: [UITests]
+    dependencies:
+      - target: Conclave
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        PRODUCT_BUNDLE_IDENTIFIER: dev.conclave.app.uitests
+        TEST_TARGET_NAME: Conclave
 schemes:
   Conclave:
     build:
@@ -71,3 +82,11 @@ schemes:
         ConclaveTests: [test]
     test:
       targets: [ConclaveTests]
+  # CI screenshots against the mock hub (UITests/ScreenshotTests.swift)
+  Screenshots:
+    build:
+      targets:
+        Conclave: all
+        ConclaveUITests: [test]
+    test:
+      targets: [ConclaveUITests]

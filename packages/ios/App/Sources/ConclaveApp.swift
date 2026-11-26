@@ -44,8 +44,5 @@ struct RootView: View {
             if now == .active { model.hub?.start() } else if now == .background { model.hub?.stop() }
         }
         .onChange(of: model.hub.map(ObjectIdentifier.init)) { if phase == .active { model.hub?.start() } }
-        #if DEBUG
-        .task { MockHub.applyOrientation() }
-        #endif
     }
 }

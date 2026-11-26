@@ -1,7 +1,6 @@
 #if DEBUG
 import ConclaveKit
 import Foundation
-import UIKit
 
 /// `-mockHub`: a paired hub with fixed sessions and one transcript, served by URLProtocol, and a
 /// socket that says hello and stays open. For CI screenshots only; never in a release build.
@@ -33,14 +32,6 @@ enum MockHub {
         static let shared = Gate()
         private var said = false
         func first() -> Bool { defer { said = true }; return !said }
-    }
-
-    /// `-orientation landscape|portrait`: simctl cannot turn the simulator, the window scene can.
-    @MainActor
-    static func applyOrientation() {
-        guard let o = UserDefaults.standard.string(forKey: "orientation"),
-              let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene else { return }
-        scene.requestGeometryUpdate(.iOS(interfaceOrientations: o == "landscape" ? .landscapeRight : .portrait)) { _ in }
     }
 
     static func reply(_ path: String) -> String {
