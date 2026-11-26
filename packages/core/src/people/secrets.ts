@@ -10,6 +10,7 @@ import { join } from 'node:path';
 import type { ConfigStore } from '../config';
 import { markHubHome, markHubPrivate } from '../machine/private';
 import { OWNER_ID } from './context';
+import { managedBy, secretPrefix, type SecretInfo } from '../config/secret-names';
 
 interface Secrets {
   providers: Record<string, string>;
@@ -129,6 +130,19 @@ export class AccountSecrets {
     if (accountId === OWNER_ID) return this.config.secretNames();
     const s = this.read(accountId);
     return { providers: Object.keys(s.providers), values: Object.keys(s.values) };
+  }
+
+  /** A member's named values as their Settings > Secrets lists them: names and a prefix, never a value, never the hub part. */
+  list(accountId: string): SecretInfo[] {
+    if (accountId === OWNER_ID) return this.config.secretList();
+    return Object.entries(this.read(accountId).values)
+      .filter(([name]) => !name.startsWith('browser.login.'))
+      .map(([name, v]) => {
+        const by = managedBy(name);
+        const prefix = by ? undefined : secretPrefix(v);
+        return { name, ...(prefix ? { prefix } : {}), ...(by ? { managedBy: by } : {}) };
+      })
+      .sort((a, b) => Number(!!a.managedBy) - Number(!!b.managedBy) || a.name.localeCompare(b.name));
   }
 
   /** Forget a removed member's keys. */

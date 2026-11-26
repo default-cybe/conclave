@@ -165,7 +165,8 @@ export function registerBuiltinHooks(engine: Engine, hooks: Hooks): () => void {
   const offFile = hooks.register(
     'PreToolUse',
     async (input: HookInput) => {
-      if (!isOn(engine, 'file-recall')) return;
+      // a member who turned their memory off gets no notes either (engine.memorySettings)
+      if (!isOn(engine, 'file-recall') || !engine.memorySettings(engine.sessionAccount(input.session_id)).enabled) return;
       const path = (input.tool_input as { file_path?: unknown } | undefined)?.file_path;
       if (typeof path !== 'string' || !path) return;
       const abs = isAbsolute(path) ? path : resolve(input.cwd, path);

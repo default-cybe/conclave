@@ -103,7 +103,7 @@ export async function runCommand(engine: Engine, sessionId: string, line: string
     }
     case 'debate': {
       const [a, b, rounds] = rest;
-      engine.updateSession(sessionId, { mode: 'debate', modeConfig: { ...s.modeConfig, debate: { a: a ?? s.model, b: b ?? engine.config.get().modes.reviewer, rounds: Number(rounds) || 2 } } });
+      engine.updateSession(sessionId, { mode: 'debate', modeConfig: { ...s.modeConfig, debate: { a: a ?? s.model, b: b ?? engine.reviewerFor(s.accountId), rounds: Number(rounds) || 2 } } });
       return { output: 'Debate mode on.' };
     }
     case 'export': {

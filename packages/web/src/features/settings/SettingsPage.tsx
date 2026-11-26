@@ -36,6 +36,7 @@ import { OWNER_PAGES, PHONE_ADVANCED, PHONE_PAGES, useInboxCount } from '@/compo
 import { groupSections, searchSections, settingsRedirect } from './nav';
 import { ProvidersSection } from './providers';
 import { DefaultsSection } from './defaults';
+import { MemberDefaultsSection } from './member-defaults';
 import { MemberPermissionsSection, PermissionsSection } from './permissions';
 import { NotificationsSection } from './notifications';
 import { AssistantSection } from './assistant';
@@ -154,7 +155,8 @@ const ALL_SECTIONS: SectionDef[] = [
     label: 'Defaults',
     desc: 'What a new session uses when you do not choose, and how memory works.',
     C: DefaultsSection,
-    owner: true,
+    // a member's own defaults on their account (PATCH /api/me); the hub's config.json stays the owner's
+    member: { C: MemberDefaultsSection, desc: 'What your new sessions use when you do not choose, and how your memory works. Yours only.' },
   },
   {
     id: 'permissions',
@@ -238,8 +240,8 @@ const ALL_SECTIONS: SectionDef[] = [
     label: 'Secrets',
     desc: 'Named values that ${secret:name} reads in MCP servers and other settings. Saved on the hub, never shown again.',
     C: SecretsSection,
-    // the hub's secrets are the owner's (route-policy GET /api/secrets is admin)
-    owner: true,
+    // the hub's secrets are the owner's (route-policy GET /api/secrets is admin); a member's are their own (/api/me/secrets)
+    member: { C: SecretsSection, desc: 'Your own named values that ${secret:name} reads in your MCP servers and settings. Saved in your account, never shown again.' },
   },
   {
     id: 'apps',

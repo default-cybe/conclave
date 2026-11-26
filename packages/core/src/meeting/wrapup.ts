@@ -185,7 +185,7 @@ export async function wrapUp(engine: Engine, m: Meeting, segs: StoredSegment[], 
   const day = new Date(m.startedAt ?? m.createdAt).toISOString().slice(0, 10);
   const line = (filled.summary.split(/(?<=[.!?])\s/)[0] || 'no summary').slice(0, 300);
   // a summary of untrusted speech: it waits in Memory, To review, and recall skips it until the owner accepts it
-  if (engine.config.get().memory.enabled) {
+  if (engine.memorySettings(m.accountId).enabled) {
     engine.memoryFor(m.accountId).saveLearnedEpisode({ content: `Meeting ${m.title} on ${day}: ${line}`, scope: opts.memoryKey ? 'project' : 'global', ...(opts.memoryKey ? { scopeKey: opts.memoryKey } : {}), tags: ['meeting'], sourceSessionId: m.sessionId, meta: { source: 'meeting', review: 'pending', untrusted: true, observedAt: m.startedAt ?? m.createdAt } });
   }
   return { notes: { ...filled, markdown }, ...(notesPath ? { notesPath } : {}) };

@@ -31,6 +31,8 @@ import { contactName, shownName, SPLIT_MAX, PINS_MAX, type AccountRef, type Invi
 import { isMember } from '@conclave/core/people/context.ts';
 import { PeopleError, accountKey, type HubAccount, type ProviderGrants } from '@conclave/core/people/store.ts';
 import { MEMBER_ALLOW_KEY } from '@conclave/core/engine/permissions-view.ts';
+import { MEMBER_DEFAULT_KEYS } from '@conclave/core/people/member-defaults.ts';
+import { SECRET_NAME, managedBy } from '@conclave/core/config/secret-names.ts';
 import { forgetAssistant } from '@conclave/core/assistant/registry.ts';
 import { forgetPim } from '@conclave/core/pim/registry.ts';
 import { meetingsOf } from '@conclave/core/meeting/index.ts';
@@ -215,6 +217,10 @@ export function registerPeopleRoutes(app: Hono<HonoEnv>, ctx: ServerContext): vo
         ...(a.settings.defaultModel ? { defaultModel: a.settings.defaultModel } : {}),
         ...(a.settings.smallModel ? { smallModel: a.settings.smallModel } : {}),
         ...(a.settings.defaultAgent ? { defaultAgent: a.settings.defaultAgent } : {}),
+        ...(a.settings.defaultDevice ? { defaultDevice: a.settings.defaultDevice } : {}),
+        ...(a.settings.reviewer ? { reviewer: a.settings.reviewer } : {}),
+        ...(a.settings.hiddenModels?.length ? { hiddenModels: a.settings.hiddenModels } : {}),
+        ...(a.settings.memory ? { memory: a.settings.memory } : {}),
         ...(a.settings.importWatch ? { importWatch: true } : {}),
         ...(a.settings.splitView?.length ? { splitView: a.settings.splitView } : {}),
         ...(a.settings.pinnedModels?.length ? { pinnedModels: a.settings.pinnedModels } : {}),
@@ -256,6 +262,33 @@ export function registerPeopleRoutes(app: Hono<HonoEnv>, ctx: ServerContext): vo
     return c.json({ ok: true });
   });
 
+  // a member's own named secrets for ${secret:name} in their own config (people/config-view.ts): values only, never the hub part
+  const memberOnly = (c: Context<HonoEnv>): string => {
+    const acct = accountOf(c);
+    if (!isMember(acct)) throw badRequest('Your secrets are the hub\'s, in Settings > Secrets (GET /api/secrets).');
+    return acct;
+  };
+
+  app.get('/api/me/secrets', (c) => c.json({ values: engine.accountSecrets.list(memberOnly(c)) }));
+
+  app.put('/api/me/secrets', async (c) => {
+    const acct = memberOnly(c);
+    const body = await readJson<{ key?: unknown; value?: unknown }>(c);
+    if (typeof body.key !== 'string' || !SECRET_NAME.test(body.key)) throw badRequest('A secret name is 1 to 64 lowercase letters, digits, dots, dashes and underscores.');
+    const where = managedBy(body.key);
+    if (where) throw badRequest(`${body.key} is set in ${where}.`);
+    if (body.value !== null && body.value !== undefined && (typeof body.value !== 'string' || body.value.length > 16_384)) throw badRequest('value must be a string of at most 16 KB, or null');
+    const value = typeof body.value === 'string' && body.value.trim() ? body.value.trim() : undefined;
+    if (value) {
+      const no = engine.diskRefusal(acct, Buffer.byteLength(value));
+      if (no) throw new HttpError(413, no);
+    }
+    engine.accountSecrets.set(acct, 'values', body.key, value);
+    engine.bus.emit({ type: 'config.updated' });
+    audit(c, 'secret.set', `values.${body.key}${value ? '' : ' (removed)'} (own secret)`);
+    return c.json({ ok: true });
+  });
+
   // someone's picture: yours, a contact's, or anyone's for the owner; everyone else's answers as missing
   app.get('/api/avatars/:id', (c) => {
     const caller = accountOf(c);
@@ -268,13 +301,27 @@ export function registerPeopleRoutes(app: Hono<HonoEnv>, ctx: ServerContext): vo
     const acct = accountOf(c);
     const body = await readJson<MePatch>(c);
     const a = requirePerson(acct);
-    const settings = { ...a.settings };
-    for (const k of ['defaultModel', 'smallModel', 'defaultAgent'] as const) {
-      const v = body[k];
-      if (v === undefined) continue;
-      if (v !== null && (typeof v !== 'string' || v.length > 200)) throw badRequest(`${k} must be a model or agent name`);
-      if (v) settings[k] = v;
-      else delete settings[k];
+    let settings = { ...a.settings };
+    if (isMember(acct)) {
+      // a member's Settings > Defaults: their own account, each model one they can call (people/member-defaults.ts); never config.json
+      const patch = Object.fromEntries(MEMBER_DEFAULT_KEYS.filter((k) => body[k] !== undefined).map((k) => [k, body[k]]));
+      if (Object.keys(patch).length) {
+        try {
+          settings = engine.checkMemberDefaults(acct, patch);
+        } catch (err) {
+          peopleError(err);
+        }
+      }
+    } else {
+      for (const k of ['defaultModel', 'smallModel', 'defaultAgent'] as const) {
+        const v = body[k];
+        if (v === undefined) continue;
+        if (v !== null && (typeof v !== 'string' || v.length > 200)) throw badRequest(`${k} must be a model or agent name`);
+        if (v) settings[k] = v;
+        else delete settings[k];
+      }
+      // the owner's are the hub's config (Settings > Defaults, PATCH /api/config)
+      if (body.defaultDevice !== undefined || body.reviewer !== undefined || body.hiddenModels !== undefined || body.memory !== undefined) throw badRequest('Your defaults are the hub\'s, in Settings > Defaults.');
     }
     if (body.importWatch !== undefined) {
       if (typeof body.importWatch !== 'boolean') throw badRequest('importWatch must be true or false');

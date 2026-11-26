@@ -100,6 +100,45 @@ describe('a member', () => {
   });
 });
 
+describe("a member's own secrets (GET/PUT /api/me/secrets)", () => {
+  test('saved in their own file, read by ${secret:name} in their config only; the hub and the hub part untouched', async () => {
+    engine.config.setSecret('values', 'shared-name', VALUE);
+    const alice = engine.people.list().find((a) => a.name === 'alice')!.id;
+    engine.accountSecrets.setHubValue(alice, 'cliproxy.key', 'hub-part-value-1234567');
+    expect((await call(member, 'PUT', '/api/me/secrets', { key: 'shared-name', value: 'alice-own-value-123456' })).status).toBe(200);
+    const list = await call(member, 'GET', '/api/me/secrets');
+    expect(list.status).toBe(200);
+    expect(list.body.values).toEqual([{ name: 'shared-name', prefix: 'alic' }]);
+    expect(list.text).not.toContain('alice-own-value-123456');
+    expect(list.text).not.toContain('hub-part');
+    // the hub's value is the owner's and stays
+    expect(engine.config.secretValue('shared-name')).toBe(VALUE);
+    expect(engine.accountSecrets.value(alice, 'shared-name')).toBe('alice-own-value-123456');
+    expect(engine.accountSecrets.hubValue(alice, 'cliproxy.key')).toBe('hub-part-value-1234567');
+    // bad names and names other pages keep are refused
+    for (const key of ['Bad Name', '__proto__', 'search.tavily', 'stt.deepgram', 'cliproxy.key']) expect((await call(member, 'PUT', '/api/me/secrets', { key, value: 'x' })).status).toBe(400);
+    expect((await call(member, 'PUT', '/api/me/secrets', { key: 'shared-name', value: null })).status).toBe(200);
+    expect(engine.accountSecrets.value(alice, 'shared-name')).toBeUndefined();
+    // the owner's are the hub's, on GET /api/secrets
+    expect((await call(OWNER, 'GET', '/api/me/secrets')).status).toBe(400);
+  });
+
+  test("a member's PATCH /api/me defaults never reach the hub config; PATCH /api/config stays the owner's", async () => {
+    const before = JSON.stringify(engine.config.get());
+    expect((await call(member, 'PATCH', '/api/me', { memory: { enabled: false }, hiddenModels: ['zai/*'] })).status).toBe(200);
+    expect((await call(member, 'PATCH', '/api/me', { defaultModel: 'nope/not-a-model' })).status).toBe(400);
+    expect((await call(member, 'PATCH', '/api/config', { defaultModel: 'nope/x', memory: { enabled: false } })).status).toBe(403);
+    expect(JSON.stringify(engine.config.get())).toBe(before);
+    const me = await call(member, 'GET', '/api/me');
+    expect(me.body.preferences).toMatchObject({ memory: { enabled: false }, hiddenModels: ['zai/*'] });
+    // their own memory switch shows in their config; the owner's stays the hub's
+    expect((await call(member, 'GET', '/api/config')).body.config.memory.enabled).toBe(false);
+    expect((await call(OWNER, 'GET', '/api/config')).body.config.memory.enabled).toBe(engine.config.get().memory.enabled);
+    // the owner's own defaults are the hub's: these keys are not theirs on /api/me
+    expect((await call(OWNER, 'PATCH', '/api/me', { memory: { enabled: false } })).status).toBe(400);
+  });
+});
+
 describe('names', () => {
   test('a new name must be lowercase letters, digits, dots, dashes and underscores', async () => {
     for (const bad of ['Caido', 'has space', 'a/b', '../../etc/passwd', 'x'.repeat(65), '${x}', '__proto__', 'constructor']) {

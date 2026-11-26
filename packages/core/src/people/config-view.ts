@@ -12,12 +12,14 @@ import type { ConclaveConfig } from '../config/schema';
 import type { KvRepo } from '../storage/repos';
 import type { AccountSecrets } from './secrets';
 import { accountKey } from './store';
+import type { MemberMemory } from '../client/people';
+import { mergedMemory } from './member-defaults';
 
 const CONNECTIONS_KEY = 'memory.connections';
 
 type Connections = NonNullable<ConclaveConfig['memory']['connections']>;
 
-export function accountConfigView(config: ConfigStore, opts: { accountId: string; kv: KvRepo; secrets: AccountSecrets }): ConfigStore {
+export function accountConfigView(config: ConfigStore, opts: { accountId: string; kv: KvRepo; secrets: AccountSecrets; memory?: () => MemberMemory | undefined }): ConfigStore {
   const key = accountKey(opts.accountId, CONNECTIONS_KEY);
   const listeners = new Set<() => void>();
   const read = (): Connections => opts.kv.get<Connections>(key, []);
@@ -32,7 +34,8 @@ export function accountConfigView(config: ConfigStore, opts: { accountId: string
     get: () => {
       const c = config.get();
       // no hub MCP server by name, and no legacy hub-wide external store
-      return { ...c, mcpServers: {}, memory: { ...c.memory, external: undefined, connections: read() } };
+      // the member's own memory switches (Settings > Defaults) over the hub's, so their store recalls as they chose
+      return { ...c, mcpServers: {}, memory: { ...mergedMemory(c.memory, opts.memory?.()), external: undefined, connections: read() } };
     },
     getUser: () => ({ memory: { connections: read() } }),
     update: (patch: Partial<ConclaveConfig>) => {

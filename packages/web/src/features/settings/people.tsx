@@ -34,7 +34,7 @@ import { PersonApps, SignedInGroup } from './signedin';
 const MIN_PASSWORD = 12;
 
 /** Refresh who is signed in after a change to it. */
-async function reloadMe(): Promise<void> {
+export async function reloadMe(): Promise<void> {
   try {
     const me = await api().me();
     useHub.setState({ me });
@@ -781,15 +781,11 @@ export function YourAccountSection() {
 
       {member && (
         <Group title="Defaults">
-          <SettingRow label="Model for new chats" htmlFor="me-model" help="Yours only. Left empty, the hub's default.">
-            <Select id="me-model" value={me.preferences.defaultModel ?? ''} onChange={(e) => void setDefault(e.target.value)} className="w-full md:w-[260px]">
-              <option value="">The hub's default</option>
-              {models.flatMap((g) => g.models.map((m) => (
-                <option key={m.ref} value={m.ref}>
-                  {m.name}
-                </option>
-              )))}
-            </Select>
+          {/* the model for new chats and the rest are on their own page now (member-defaults.tsx) */}
+          <SettingRow label="Models, computer and memory" help="Yours only.">
+            <Link href="/settings/defaults" className="link text-[13px]">
+              Defaults
+            </Link>
           </SettingRow>
           {me.disk && <SettingRow label="Disk on the hub" help="Your browser, downloads and files on the hub. The owner sets the cap.">{`${gbWords(me.disk.usedBytes)} of ${gbWords(me.disk.limitBytes)} GB`}</SettingRow>}
         </Group>

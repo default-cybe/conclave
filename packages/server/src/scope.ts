@@ -66,7 +66,8 @@ export function memberConfig(engine: EngineApi, accountId: string): { config: Re
     smallModel: prefs.smallModel ?? c.smallModel,
     defaultAgent: prefs.defaultAgent ?? c.defaultAgent,
     providers,
-    memory: { enabled: c.memory.enabled, autoExtract: c.memory.autoExtract, autoInject: c.memory.autoInject, injectLimit: c.memory.injectLimit },
+    // the member's own memory switches (Settings > Defaults) over the hub's
+    memory: { enabled: c.memory.enabled, autoExtract: c.memory.autoExtract, autoInject: c.memory.autoInject, injectLimit: c.memory.injectLimit, ...prefs.memory },
     notifications: c.notifications ? { on: c.notifications.on, idleSeconds: c.notifications.idleSeconds } : undefined,
     chat: (c as unknown as Record<string, unknown>).chat,
     // the hub's speech-to-text choice; the member's own stt.* keys are in secrets.values

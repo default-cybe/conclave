@@ -16,7 +16,12 @@ import { Button } from '@/components/ui/Button';
 import { Field, Input, SECRET_FIELD } from '@/components/ui/Field';
 import { ConfirmDialog, Dialog } from '@/components/ui/Overlay';
 import { EmptyState, LoadingRows } from '@/components/ui/EmptyState';
+import { isOwnerNow } from '@/lib/people';
 import { agoWords, Group } from './parts';
+
+// a member's are their own (GET/PUT /api/me/secrets, their secrets.json); the owner's are the hub's
+const listSecrets = () => (isOwnerNow() ? api().secrets() : api().mySecrets());
+const putSecret = (name: string, value: string | null) => (isOwnerNow() ? api().setSecret('values', name, value) : api().setMySecret(name, value));
 
 /** Why a name typed in Add cannot be saved, or undefined. Pure, for the test. */
 export function secretNameError(name: string, taken: string[]): string | undefined {
@@ -34,7 +39,7 @@ function Meta({ s, now }: { s: SecretInfo; now: number }) {
 export function SecretsSection() {
   const mobile = useIsMobile();
   const size = mobile ? 'touch' : 'sm';
-  const list = useLoad(() => api().secrets(), []);
+  const list = useLoad(listSecrets, []);
   const now = useNow(60_000);
   const [edit, setEdit] = useState<{ name?: string } | null>(null);
   const [remove, setRemove] = useState<string | null>(null);
@@ -108,7 +113,7 @@ export function SecretsSection() {
         confirm="Delete"
         busy="Deleting"
         onConfirm={async () => {
-          if (remove && (await attempt(() => api().setSecret('values', remove, null)))) {
+          if (remove && (await attempt(() => putSecret(remove, null)))) {
             changed();
             toast({ title: `${remove} deleted.` });
           }
@@ -136,7 +141,7 @@ function SecretDialog({ open, name, taken, onClose, onSaved }: { open: boolean; 
   };
   const submit = async () => {
     setBusy(true);
-    const ok = await attempt(() => api().setSecret('values', slug, value.trim()));
+    const ok = await attempt(() => putSecret(slug, value.trim()));
     setBusy(false);
     if (!ok) return;
     toast({ title: `${slug} saved.` });
