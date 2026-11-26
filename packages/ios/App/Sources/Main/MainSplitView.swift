@@ -1,3 +1,4 @@
+import ConclaveKit
 import SwiftUI
 
 /// The iPad layout: sidebar, transcript and an inspector. On iPhone and in a narrow window it
