@@ -148,5 +148,19 @@ describe('the API could not read a picture', () => {
       expect(err.kind).toBe('bad_request');
       expect(isUnreadableImageError(err)).toBe(true);
     }
+    // one image over the route's byte limit (hub log 2026-11-26, cliproxy)
+    const bytes = 'messages.550.content.1.image.source.base64: image exceeds 10 MB maximum: 13048560 bytes > 10485760 bytes';
+    const heavy = classifyHttpError('cliproxy', 400, undefined, JSON.stringify({ type: 'error', error: { type: 'invalid_request_error', message: bytes } }));
+    expect(heavy.kind).toBe('bad_request');
+    expect(isUnreadableImageError(heavy)).toBe(true);
+  });
+
+  test('a request over the byte limit is a long context the runner compacts, not a bad image or a failover', () => {
+    const gemini = classifyHttpError('cliproxy', 400, undefined, JSON.stringify({ type: 'error', error: { type: 'invalid_request_error', message: 'The message size (46932931 bytes) exceeds 30.000MB limit.' } }));
+    expect(gemini.kind).toBe('context_length');
+    expect(isUnreadableImageError(gemini)).toBe(false);
+    const anthropic = classifyHttpError('anthropic', 413, undefined, JSON.stringify({ type: 'error', error: { type: 'request_too_large', message: 'Request exceeds the maximum size' } }));
+    expect(anthropic.kind).toBe('context_length');
+    expect(classifyHttpError('anthropic', 413, undefined, 'Payload Too Large').kind).toBe('context_length');
   });
 });

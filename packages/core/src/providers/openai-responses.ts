@@ -1,5 +1,5 @@
 import type { ContentBlock, ImageBlock, StopReason, Usage } from '../types';
-import { BaseProvider, dataUrl, documentsForWire, effortOf, parseToolInput, toolResultMedia, toolResultString, wantsThinking } from './common';
+import { BaseProvider, capImageBytes, dataUrl, documentsForWire, effortOf, parseToolInput, toolResultMedia, toolResultString, wantsThinking } from './common';
 import { classifyStreamError, parseRateLimitHeaders } from './errors';
 import { hostOf, openStream, trimSlash } from './http';
 import { OPENAI_DEFAULT_BASE, listOpenAIModels, openaiEmbed, openaiGenerateImage, openaiHeaders, openaiUsage } from './openai-shared';
@@ -54,7 +54,8 @@ function userPart(b: ContentBlock): Wire | undefined {
 /** Conversation as Responses input items. Encrypted reasoning is replayed only for the model that produced it. */
 export function responsesInput(req: ChatRequest, names: ToolNameMap, vision = true): Wire[] {
   const items: Wire[] = [];
-  for (const m of req.messages) {
+  const wire = capImageBytes(req.messages.map((m) => (m.role === 'user' ? documentsForWire(m.content, true, vision) : m.content)));
+  for (const [i, m] of req.messages.entries()) {
     if (m.role === 'assistant') {
       let text: string[] = [];
       const flush = () => {
@@ -80,7 +81,7 @@ export function responsesInput(req: ChatRequest, names: ToolNameMap, vision = tr
     }
 
     const parts: Wire[] = [];
-    for (const b of documentsForWire(m.content, true, vision)) {
+    for (const b of wire[i]) {
       if (b.type === 'tool_result') {
         // images and PDFs ride in the output itself, tied to their call; a later user message reads as unrelated
         const media = toolResultMedia(b)

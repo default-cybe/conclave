@@ -464,6 +464,35 @@ describe('AnthropicProvider request mapping', () => {
     expect(tall).toEqual({ type: 'text', text: '[image (image/png) left out: too large (1280x13000), over 8000 px a side; ask for a smaller copy]' });
   });
 
+  test('image bytes: one over 5 MB is a note; past 16 MB of media the oldest go first, the last message and documents stay', () => {
+    const be32 = (n: number) => [n >>> 24, (n >>> 16) & 0xff, (n >>> 8) & 0xff, n & 0xff];
+    // a real PNG header padded to `bytes` of base64
+    const head = (w: number, h: number) => Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13, 0x49, 0x48, 0x44, 0x52, ...be32(w), ...be32(h), 8, 6, 0, 0, 0]).toString('base64');
+    const img = (bytes: number, w = 1920, h = 1080) => ({ type: 'image' as const, mediaType: 'image/png', data: head(w, h) + 'A'.repeat(bytes - head(w, h).length) });
+    // the 13 MB screenshot (hub log: "image exceeds 10 MB maximum: 13048560 bytes"), alone in the last message
+    const huge = (provider().buildBody(base({ messages: [{ role: 'user', content: [img(13_048_560, 3840, 2160)] }] })) as any).messages[0].content[0];
+    expect(huge).toEqual({ type: 'text', text: '[image (image/png) left out: too large (12.4 MB), over 5.0 MB an image; ask for a smaller copy]' });
+    // 40 images of 1.2 MB, one per user turn, with a PDF in the first turn
+    const pdf = { type: 'document' as const, mediaType: 'application/pdf', data: Buffer.from('%PDF-1.4 fake').toString('base64'), title: 'a.pdf' };
+    const messages: ChatRequest['messages'] = [];
+    for (let i = 0; i < 40; i++) {
+      messages.push({ role: 'user', content: i === 0 ? [pdf, img(1_200_000)] : [img(1_200_000)] });
+      messages.push({ role: 'assistant', content: [{ type: 'text', text: 'ok' }] });
+    }
+    messages.pop();
+    const body = provider().buildBody(base({ messages })) as any;
+    const users = body.messages.filter((m: any) => m.role === 'user');
+    const kept = users.map((m: any) => m.content.some((b: any) => b.type === 'image'));
+    const total = users.flatMap((m: any) => m.content).reduce((n: number, b: any) => n + (b.source?.data?.length ?? 0), 0);
+    expect(total).toBeLessThanOrEqual(16 * 1024 * 1024);
+    // oldest first: every dropped turn comes before every kept one, the newest stays
+    expect(kept.indexOf(true)).toBeGreaterThan(0);
+    expect(kept.slice(kept.indexOf(true)).every(Boolean)).toBe(true);
+    expect(kept.filter(Boolean).length).toBe(13);
+    expect(users[0].content[0].type).toBe('document');
+    expect(users[0].content[1].text).toContain("an older image left out to keep this request's images under 16.0 MB");
+  });
+
   test('responseSchema uses output_config on the first-party API only', () => {
     const native = new AnthropicProvider({ id: 'anthropic', config: { type: 'anthropic' }, apiKey: 'k' });
     const schema = { type: 'object', properties: { a: { type: 'string' } } };
