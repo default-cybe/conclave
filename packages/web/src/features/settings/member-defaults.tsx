@@ -14,7 +14,7 @@ import { useIsMobile, useLoad } from '@/lib/hooks';
 import { toast, useHub } from '@/store/store';
 import { AgentPicker } from '@/components/pickers/Pickers';
 import { ModelPicker } from '@/components/pickers/ModelPicker';
-import { Input, OnOff, Select, Textarea } from '@/components/ui/Field';
+import { OnOff, Segmented, Select, Textarea } from '@/components/ui/Field';
 import { Button } from '@/components/ui/Button';
 import { errText, Group, SettingRow } from './parts';
 import { reloadMe } from './people';
@@ -47,7 +47,7 @@ export function MemberDefaultsSection() {
 
   return (
     <div className="space-y-9">
-      <Group title="New sessions" help="Yours only. Left empty, the hub's default. Only models you can use are offered.">
+      <Group title="New sessions" help="Left empty, the hub's default. Only models you can use are offered.">
         <SettingRow label="Default model" help="What a new chat or session runs on.">
           <ModelPicker look="field" label="Default model" value={p.defaultModel ?? hub?.defaultModel ?? ''} onChange={(m) => void saveMe({ defaultModel: m || null })} harnesses={false} className="md:max-w-[300px]" />
         </SettingRow>
@@ -95,20 +95,15 @@ export function MemberDefaultsSection() {
         <SettingRow label="Give relevant notes" help="Notes that match your message ride along with it.">
           <OnOff label="Give relevant notes" disabled={!memOn} checked={on('autoInject', true)} onChange={(v) => void saveMe({ memory: { autoInject: v } })} size={size} />
         </SettingRow>
-        <SettingRow label="Notes per turn" htmlFor="md-limit" help="1 to 50.">
-          <Input
-            id="md-limit"
-            type="number"
-            min={1}
-            max={50}
+        <SettingRow label="Notes per turn" help="More notes cost more tokens on every turn.">
+          {/* the same choices as the owner's page (defaults.tsx) */}
+          <Segmented
+            label="Notes per turn"
             disabled={!memOn}
-            className="w-[90px]"
-            defaultValue={mem.injectLimit ?? (hubMem.injectLimit as number | undefined) ?? 5}
-            key={mem.injectLimit}
-            onBlur={(e) => {
-              const n = Number(e.target.value);
-              if (Number.isInteger(n) && n >= 1 && n <= 50 && n !== mem.injectLimit) void saveMe({ memory: { injectLimit: n } });
-            }}
+            size={size}
+            value={String(mem.injectLimit ?? (hubMem.injectLimit as number | undefined) ?? 6)}
+            onChange={(v) => void saveMe({ memory: { injectLimit: Number(v) } })}
+            options={['3', '6', '10', '15'].map((v) => ({ value: v, label: v }))}
           />
         </SettingRow>
         <SettingRow label="Past session summaries" help="Recall may bring back what earlier sessions did.">

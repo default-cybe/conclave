@@ -87,7 +87,7 @@ export function SecretsSection() {
       </Group>
 
       {managed.length > 0 && (
-        <Group title="Set by other pages" count={managed.length} help="The hub saves these for itself. Change them where they are set.">
+        <Group title="Set by other pages" count={managed.length} help={isOwnerNow() ? 'The hub saves these for itself. Change them where they are set.' : 'Other pages save these in your account. Change them where they are set.'}>
           {managed.map((s) => (
             <div key={s.name} className="flex items-center gap-3 py-2.5 phone:py-3">
               <div className="min-w-0 flex-1">

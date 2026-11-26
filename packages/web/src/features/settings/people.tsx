@@ -24,7 +24,7 @@ import { compact, relTime, shortDate, usd } from '@/lib/format';
 import { hubKeyProviders, providerInfo } from '@/lib/providers';
 import { toast, useHub } from '@/store/store';
 import { Button } from '@/components/ui/Button';
-import { Checkbox, Field, Input, SECRET_FIELD, Segmented, Select } from '@/components/ui/Field';
+import { Checkbox, Field, Input, SECRET_FIELD, Segmented } from '@/components/ui/Field';
 import { ConfirmDialog, Dialog } from '@/components/ui/Overlay';
 import { Command } from '@/components/ui/Code';
 import { LoadingRows } from '@/components/ui/EmptyState';
@@ -685,7 +685,6 @@ export function YourAccountSection() {
       .then(setUsage)
       .catch(() => {});
   }, []);
-  const models = useHub((s) => s.models);
   const saved = savedAccounts();
   useEffect(() => {
     setShown(me?.displayName ?? '');
@@ -721,14 +720,6 @@ export function YourAccountSection() {
       toast({ title: `Could not change it. ${errText(e)}`, level: 'error' });
     }
     setBusy(undefined);
-  };
-  const setDefault = async (ref: string) => {
-    try {
-      await api().updateMe({ defaultModel: ref || null });
-      await reloadMe();
-    } catch (e) {
-      toast({ title: `Could not save. ${errText(e)}`, level: 'error' });
-    }
   };
 
   return (
