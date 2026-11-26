@@ -15,7 +15,7 @@ import type {
 } from '../types';
 import type { SendInput, SendResult } from '../client';
 import type { ReadMark, Tool, ToolContext, ToolOutput } from '../tools/types';
-import { coerceInput, timeoutOutput, toolIsReadOnly, validateInput } from '../tools/types';
+import { coerceInput, timeoutOutput, validateInput } from '../tools/types';
 import type { AgentDef } from '../extensions/types';
 import type { ProviderMessage, SystemBlock, ToolSpec } from '../providers/types';
 import { ProviderError } from '../providers/types';
@@ -32,7 +32,7 @@ import { seesImages } from '../providers/common';
 import { pickedName } from '../attachments/prepare';
 import { refusalPlanFor } from './member-fallbacks';
 import { refusalStepOf, refusalWords, RefusalWalk, servedLabel, stepOfTarget, type FallbackTarget } from './refusal-fallback';
-import { checkPermission, dangerousCommand } from './permissions';
+import { callReadOnly, checkPermission, dangerousCommand, machineShell } from './permissions';
 import { ReadTool } from '../tools/read';
 import { maybeCompact, estimateRequestTokens, meteredTokens, partHash, type TokenMeter } from './compaction';
 import { applyClearing } from './context-edit';
@@ -272,7 +272,7 @@ interface PromptSnapshot {
 
 /** The parts of a prompt read again once per user turn; the same text keeps the snapshot. */
 function partsSignature(p: PromptParts): string {
-  return JSON.stringify([p.projectInstructions, p.skills.map((k) => [k.name, k.description]), p.isGitRepo, p.testCommand ?? '', p.workspace ?? {}, p.platform, p.hostname ?? '', p.deviceName, p.conclave ?? null, p.modelPin ?? '']);
+  return JSON.stringify([p.projectInstructions, p.skills.map((k) => [k.name, k.description]), p.isGitRepo, p.testCommand ?? '', p.workspace ?? {}, p.platform, p.shell ?? '', p.hostname ?? '', p.deviceName, p.conclave ?? null, p.modelPin ?? '']);
 }
 
 /** Every memory the snapshot shows is still there with the same text (new ones wait for the next rebuild). */
@@ -1604,7 +1604,7 @@ export class SessionRunner {
             continue;
           }
           const tool = resolveTool(toolMap, use.name);
-          const safe = tool && (toolIsReadOnly(tool, use.input) || CONCURRENT_TOOLS.has(tool.name));
+          const safe = tool && (callReadOnly(tool, use.input, machineShell(engine.machineFor(this.session))) || CONCURRENT_TOOLS.has(tool.name));
           if (safe) {
             batch.push(use);
             continue;
@@ -1975,6 +1975,8 @@ export class SessionRunner {
     const home = (await engine.machineHome(machine)) ?? '/';
     // a moved session's file tools map old paths to the current folder, so rules judge the path the tool will touch
     const oldRoots = engine.runnerExtensions.toolContext(session).pathMap?.roots;
+    // cmd.exe reads quotes and separators unlike bash, so a command is judged in the shell it runs in
+    const shell = machineShell(machine);
     const judge = (inp: Record<string, any>) => {
       let content: string | undefined;
       try {
@@ -1992,6 +1994,7 @@ export class SessionRunner {
         cwd: session.cwd,
         home,
         workspaceRoots: [session.cwd, ...cfg.permissions.additionalDirectories],
+        shell,
       });
     };
     let decision: { decision: 'allow' | 'ask' | 'deny'; reason: string };
@@ -2021,7 +2024,7 @@ export class SessionRunner {
 
     if (decision.decision === 'deny') return fail(`Permission denied: ${decision.reason}`, { denied: 'rule' });
     // runner extensions (runner-ext.ts), for example the folder check after a session moved
-    const callCtx = { sessionId: this.id, session, tool, input, toolUseId: use.id, depth: this.depth, readOnly: toolIsReadOnly(tool, input), signal };
+    const callCtx = { sessionId: this.id, session, tool, input, toolUseId: use.id, depth: this.depth, readOnly: callReadOnly(tool, input, shell), signal };
     const extVerdict = await engine.runnerExtensions.beforeTool(callCtx, { failClosed: untrusted });
     if (extVerdict?.decision === 'deny') return fail(extVerdict.reason, { denied: 'extension' });
     if (extVerdict?.decision === 'ask' && decision.decision === 'allow') decision = { decision: 'ask', reason: extVerdict.reason };
@@ -2170,7 +2173,7 @@ export class SessionRunner {
     // after the offload, so a long result never cuts the instructions
     if (scoped) content = typeof content === 'string' ? `${content}\n\n${scoped}` : [...content, { type: 'text', text: scoped } as TextBlock];
 
-    if (!toolIsReadOnly(tool, input)) {
+    if (!callReadOnly(tool, input, shell)) {
       engine.audit(this.id, `tool:${tool.name}`, tool.summarize?.(input) ?? oneLine(JSON.stringify(input), 300));
     }
 

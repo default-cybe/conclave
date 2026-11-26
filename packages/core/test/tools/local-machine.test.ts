@@ -1,7 +1,7 @@
 import { afterAll, describe, expect, test } from 'bun:test';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { LocalMachine } from '../../src/machine/local';
+import { LocalMachine, shellArgv } from '../../src/machine/local';
 import { tempDir } from './helpers';
 
 const m = new LocalMachine();
@@ -86,9 +86,26 @@ describe('LocalMachine', () => {
     expect(await s.exited).toBeNull();
   });
 
+  test('cmd.exe runs its line with /d /v:off /s /c', async () => {
+    const cmd = new LocalMachine();
+    // stands in for cmd.exe: a script that prints the argv it got
+    const fake = join(dir, 'cmd.exe');
+    await cmd.writeFile(fake, '#!/bin/sh\nprintf "%s|" "$@"\n');
+    await cmd.exec(`chmod 755 '${fake}'`, { cwd: dir });
+    (cmd as any).shellPath = fake;
+    const r = await cmd.exec('ver & call echo x', { cwd: dir });
+    expect(r.stdout).toBe('/d|/v:off|/s|/c|ver & call echo x|');
+    // a background shell's bash -c goes to cmd.exe too
+    const p = cmd.spawn('bash', ['-c', 'ver'], { cwd: dir });
+    expect(await new Response(p.stdout as never).text()).toBe('/d|/v:off|/s|/c|ver|');
+    expect(shellArgv('C:\\WINDOWS\\system32\\cmd.exe', 'ver')).toEqual(['C:\\WINDOWS\\system32\\cmd.exe', '/d', '/v:off', '/s', '/c', 'ver']);
+    expect(shellArgv('/usr/bin/bash', 'ver')).toEqual(['/usr/bin/bash', '-c', 'ver']);
+  });
+
   test('info lists platform and cached CLIs', async () => {
     const info = await m.info();
     expect(info.platform).toBe(process.platform);
+    expect(info.shell).toBe(m.shell());
     expect(info.home).toBe(homedir());
     expect(info.clis.bun).toMatch(/^\d+\.\d+/);
     const again = await m.info();

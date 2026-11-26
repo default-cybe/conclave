@@ -20,6 +20,8 @@ like `## [0.4.16] - 2026-10-24`.
 ### Fixed
 
 - A picture too large for the model no longer fails the chat or a subagent through CLIProxyAPI: on the OpenAI-compatible wire, as on the Anthropic one, an image over 8000 px a side goes as a note, and for Claude, once a request holds more than 20 images and PDFs, so does one over 3000 px. The stored history keeps the picture. A remaining "image dimensions exceed max allowed size" 400 drops the picture and retries instead of falling back to another model. A full-page browser screenshot of a page wider than 7900 px stops at 7900 px.
+- Windows: commands work on PCs without Git Bash, using cmd.exe batch scripts. Quoted paths, multiline blocks, percent variables, exit codes and working-directory changes stay intact; command timeouts stop the process tree.
+- The agent is told the device's actual execution shell and Windows command syntax instead of assuming Unix commands.
 
 ## [0.4.104] - 2026-11-19
 

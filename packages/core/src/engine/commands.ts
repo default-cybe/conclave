@@ -1,6 +1,6 @@
 import type { Engine } from './engine';
 import { expandCommand } from '../extensions/commands';
-import { checkPermission, dangerousCommand } from '../session/permissions';
+import { checkPermission, dangerousCommand, machineShell } from '../session/permissions';
 import { BashTool } from '../tools/bash';
 import { ReadTool } from '../tools/read';
 import type { Tool } from '../tools/types';
@@ -172,6 +172,7 @@ export async function bashRefusal(engine: Engine, s: Session, command: string, s
     cwd: s.cwd,
     home: (await engine.machineHome(engine.machineFor(s))) ?? '/',
     workspaceRoots: [s.cwd, ...engine.config.get().permissions.additionalDirectories],
+    shell: machineShell(engine.machineFor(s)),
   });
   if (v.decision === 'allow' && dangerousCommand(command)) v = { decision: 'ask', reason: 'Potentially destructive command' };
   if (v.decision === 'deny') return v.reason;

@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { bashRuleTargets, checkPermission, type CheckInput } from '../../src/session/permissions';
+import { bashRuleTargets, callReadOnly, checkPermission, type CheckInput } from '../../src/session/permissions';
 import { gatedConstructs, HEREDOC_WORD, maskSafeHeredocs, substitutionBodies, suggestBashRule } from '../../src/tools/bash-rules';
 import { toolByName } from '../../src/tools';
 import type { PermissionMode } from '../../src/types';
@@ -230,5 +230,124 @@ describe('a quote ends where bash ends it', () => {
   test('a quoted heredoc body stays text', () => {
     expect(check("cat <<'EOF'\nit's $(touch pwned)\nEOF", { allow: ['Bash'], deny: ['Bash(touch:*)'] }).decision).toBe('allow');
     expect(gatedConstructs("cat <<'EOF'\nit's\nEOF")).toEqual([]);
+  });
+});
+
+describe('a Bash command on a cmd.exe machine', () => {
+  const cmdCheck = (command: string, rules: { allow?: string[]; deny?: string[]; ask?: string[] } = {}, mode: PermissionMode = 'default', shell = 'cmd.exe') =>
+    checkPermission({
+      tool: bash,
+      input: { command },
+      content: command.trim(),
+      mode,
+      rules: { allow: rules.allow ?? [], deny: rules.deny ?? [], ask: rules.ask ?? [] },
+      sessionAllow: [],
+      cwd: '/work',
+      home: '/home/me',
+      workspaceRoots: ['/work'],
+      shell,
+    });
+  const payload = "echo 'safe & mkdir cc-review-owned & echo '";
+
+  test('the bash reading calls the payload read-only (why cmd needs its own)', () => {
+    expect(check(payload, {}, 'plan').decision).toBe('allow');
+    expect(check(payload, { deny: ['Bash(mkdir:*)'] }, 'bypass').decision).toBe('allow');
+  });
+
+  test('callReadOnly reads a cmd line as cmd, so the runner audits and serializes it', () => {
+    expect(callReadOnly(bash, { command: payload }, undefined)).toBe(true);
+    expect(callReadOnly(bash, { command: payload }, 'C:\\Windows\\System32\\cmd.exe')).toBe(false);
+    expect(callReadOnly(bash, { command: 'echo hi #& del /q x' }, 'cmd.exe')).toBe(false);
+    expect(callReadOnly(bash, { command: 'dir' }, 'cmd.exe')).toBe(true);
+    expect(callReadOnly(bash, { command: 'dir', run_in_background: true }, 'cmd.exe')).toBe(false);
+  });
+
+  test('single quotes hide no command from a deny rule, in every mode', () => {
+    for (const mode of ['default', 'plan', 'bypass', 'acceptEdits'] as PermissionMode[]) {
+      expect(cmdCheck(payload, { deny: ['Bash(mkdir:*)'] }, mode).decision).toBe('deny');
+    }
+    // the full path of cmd.exe, as a paired device reports it
+    expect(cmdCheck(payload, { deny: ['Bash(mkdir:*)'] }, 'bypass', 'C:\\Windows\\System32\\cmd.exe').decision).toBe('deny');
+  });
+
+  test('the payload is not read-only: plan denies, default asks, an echo rule does not cover it', () => {
+    expect(cmdCheck(payload, {}, 'plan').decision).toBe('deny');
+    expect(cmdCheck(payload).decision).toBe('ask');
+    expect(cmdCheck(payload, { allow: ['Bash(echo:*)'] }).decision).toBe('ask');
+    expect(cmdCheck(payload, { ask: ['Bash(mkdir:*)'] }, 'bypass').decision).toBe('ask');
+  });
+
+  test('backslashes, # and case hide no command', () => {
+    expect(cmdCheck('echo \\& mkdir x', { deny: ['Bash(mkdir:*)'] }, 'bypass').decision).toBe('deny');
+    expect(cmdCheck('git status # & mkdir x', { allow: ['Bash(git status:*)'], deny: ['Bash(mkdir:*)'] }, 'bypass').decision).toBe('deny');
+    expect(cmdCheck('git status # & mkdir x', { allow: ['Bash(git status:*)'] }).decision).toBe('ask');
+    expect(cmdCheck('echo hi & @MKDIR x', { deny: ['Bash(mkdir:*)'] }).decision).toBe('deny');
+    expect(cmdCheck('echo hi & "mkdir.exe",x', { deny: ['Bash(mkdir:*)'] }).decision).toBe('deny');
+  });
+
+  test('syntax the check cannot read fails closed against command deny and ask rules, even under an exact grant', () => {
+    for (const c of ['echo %X% & dir', 'mk^dir x', 'echo !X!', '(mkdir x)', 'if exist a mkdir x', 'echo "open', 'echo a\nmkdir x', 'cmd /c mkdir x']) {
+      expect(cmdCheck(c, { allow: [`Bash(${c})`], deny: ['Bash(mkdir:*)'] }, 'bypass').decision).toBe('deny');
+      expect(cmdCheck(c, { ask: ['Bash(mkdir:*)'] }, 'bypass').decision).toBe('ask');
+      expect(cmdCheck(c, {}, 'plan').decision).toBe('deny');
+    }
+    expect(cmdCheck('git log > out.txt', { allow: ['Bash(git log:*)'] }).reason).toBe('Needs approval: redirect is not covered by Bash(git log:*)');
+  });
+
+  test('plain commands behave as before', () => {
+    expect(cmdCheck('dir', {}, 'plan').decision).toBe('allow');
+    expect(cmdCheck('cd src && type README.md', {}, 'plan').decision).toBe('allow');
+    expect(cmdCheck('echo "a & b"', {}, 'plan').decision).toBe('allow');
+    expect(cmdCheck('DIR /s', {}, 'plan').decision).toBe('allow');
+    // a program, not a built-in: it may be a script in the folder, so it is not read-only
+    expect(cmdCheck('git status', {}, 'plan').decision).toBe('deny');
+    expect(cmdCheck('git status', { allow: ['Bash(git status:*)'] }).decision).toBe('allow');
+    expect(cmdCheck('npm test && git diff', { allow: ['Bash(npm test:*)', 'Bash(git diff:*)'] }).decision).toBe('allow');
+    expect(cmdCheck('npm test & mkdir x', { allow: ['Bash(npm test:*)'] }).decision).toBe('ask');
+    expect(cmdCheck('mkdir x', { deny: ['Bash(mkdir:*)'] }).decision).toBe('deny');
+    expect(cmdCheck('mkdir x', {}, 'bypass').decision).toBe('allow');
+    expect(cmdCheck('echo %PATH%', {}, 'bypass').decision).toBe('allow');
+  });
+
+  test('Windows programs with POSIX names are not read-only', () => {
+    for (const c of ['sort /o output.txt input.txt', 'date 11-20-2026', 'find "x" a.txt', 'where git', 'hostname', 'tree']) {
+      expect(cmdCheck(c).decision).toBe('ask');
+      expect(cmdCheck(c, {}, 'plan').decision).toBe('deny');
+      expect(cmdCheck(c, {}, 'bypass').decision).toBe('allow');
+    }
+  });
+
+  test('a script or quoted name is not trusted as the built-in it is named after', () => {
+    for (const c of ['dir.cmd', 'dir.bat /s', '"dir"', 'echo.bat hi', '.\\type.cmd x', 'dir & type.bat']) {
+      expect(cmdCheck(c).decision).toBe('ask');
+      expect(cmdCheck(c, {}, 'plan').decision).toBe('deny');
+    }
+    // a deny rule still sees the script under its plain name
+    expect(cmdCheck('mkdir.bat x', { deny: ['Bash(mkdir:*)'] }, 'bypass').decision).toBe('deny');
+    expect(cmdCheck('C:\\tools\\mkdir.exe x', { deny: ['Bash(mkdir:*)'] }, 'bypass').decision).toBe('deny');
+  });
+
+  test('a nested shell by path or glued switch fails closed against deny rules', () => {
+    for (const c of [
+      'C:\\Windows\\System32\\cmd.exe /c mkdir owned',
+      '"C:\\Windows\\System32\\cmd.exe" /c mkdir owned',
+      'C:/Windows/System32/cmd.exe /c mkdir owned',
+      'cmd.exe/c mkdir owned',
+      'cmd/c mkdir owned',
+      'echo hi & C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe -c mkdir owned',
+      '"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -c ni owned',
+    ]) {
+      for (const mode of ['default', 'plan', 'bypass'] as PermissionMode[]) {
+        expect(cmdCheck(c, { deny: ['Bash(mkdir:*)'] }, mode).decision).toBe('deny');
+        expect(cmdCheck(c, { allow: ['Bash'], deny: ['Bash(mkdir:*)'] }, mode).decision).toBe('deny');
+      }
+      expect(cmdCheck(c, { ask: ['Bash(mkdir:*)'] }, 'bypass').decision).toBe('ask');
+      expect(cmdCheck(c, {}, 'plan').decision).toBe('deny');
+    }
+  });
+
+  test('a bash shell keeps the bash reading', () => {
+    expect(cmdCheck("echo 'a & b'", { allow: ['Bash(echo:*)'] }, 'default', '/bin/bash').decision).toBe('allow');
+    expect(cmdCheck(payload, {}, 'plan', '/usr/bin/bash').decision).toBe('allow');
   });
 });

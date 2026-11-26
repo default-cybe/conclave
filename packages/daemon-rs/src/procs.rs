@@ -82,8 +82,21 @@ pub fn kill_tree(pid: u32, sig: Sig) {
 
 #[cfg(windows)]
 pub fn kill_tree(pid: u32, _sig: Sig) {
+    use std::os::windows::process::CommandExt;
     use windows_sys::Win32::Foundation::CloseHandle;
     use windows_sys::Win32::System::Threading::{OpenProcess, TerminateProcess, PROCESS_TERMINATE};
+    // no process groups on Windows: taskkill /T ends the shell and everything it started
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+    let tree = std::process::Command::new("taskkill")
+        .args(["/pid", &pid.to_string(), "/T", "/F"])
+        .creation_flags(CREATE_NO_WINDOW)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status();
+    if matches!(tree, Ok(s) if s.success()) {
+        return;
+    }
     // SAFETY: plain Win32 calls on a process handle we open and close here.
     unsafe {
         let h = OpenProcess(PROCESS_TERMINATE, 0, pid);
@@ -183,6 +196,13 @@ pub fn shell() -> &'static str {
     })
 }
 
+/// cmd.exe (also as ComSpec's full path), which takes /d /s /c instead of -c.
+fn is_cmd(sh: &str) -> bool {
+    let l = sh.to_ascii_lowercase();
+    let base = l.rsplit(|c: char| c == '\\' || c == '/').next().unwrap_or("");
+    base == "cmd.exe" || base == "cmd"
+}
+
 /// The WSL launcher (WindowsApps or System32 bash.exe) runs Linux, where D:\ paths and Windows tools do not exist.
 fn is_wsl_launcher(p: &str) -> bool {
     let l = p.to_ascii_lowercase().replace('/', "\\");
@@ -215,6 +235,29 @@ pub fn windows_bash(path_var: &str, env: &dyn Fn(&str) -> Option<String>, is_fil
     }
     cands.extend(dirs.iter().map(|d| format!("{d}\\bash.exe")));
     cands.into_iter().find(|c| !is_wsl_launcher(c) && is_file(c))
+}
+
+/// `sh` running `command`, for exec and spawn's background shells. cmd.exe gets /d /v:off /s /c and
+/// the command in one pair of outer quotes that /s strips, so its own quotes reach cmd verbatim.
+fn shell_command(sh: &str, command: &str) -> tokio::process::Command {
+    let mut cmd = tokio::process::Command::new(sh);
+    if is_cmd(sh) {
+        #[cfg(windows)]
+        {
+            cmd.args(["/d", "/v:off", "/s", "/c"]);
+            cmd.raw_arg(format!("\"{command}\""));
+        }
+    } else {
+        cmd.arg("-c").arg(command);
+    }
+    cmd
+}
+
+/// cmd.exe looks in the current folder before PATH, so a repo's git.bat would run under an allow rule for git; bash never does.
+fn no_cwd_lookup(cmd: &mut tokio::process::Command, sh: &str) {
+    if is_cmd(sh) {
+        cmd.env("NoDefaultCurrentDirectoryInExePath", "1");
+    }
 }
 
 fn configure(cmd: &mut tokio::process::Command, own_group: bool) {
@@ -300,17 +343,9 @@ pub async fn exec(command: String, opts: ExecOpts, mut abort: watch::Receiver<bo
     }
 
     let sh = shell();
-    let mut cmd = tokio::process::Command::new(sh);
-    if sh.to_ascii_lowercase().ends_with("cmd.exe") {
-        #[cfg(windows)]
-        {
-            cmd.args(["/d", "/s", "/c"]);
-            cmd.raw_arg(format!("\"{command}\""));
-        }
-    } else {
-        cmd.arg("-c").arg(&command);
-    }
+    let mut cmd = shell_command(sh, &command);
     cmd.current_dir(&cwd).env_clear().envs(crate::env::tool_env(opts.env.as_ref()));
+    no_cwd_lookup(&mut cmd, sh);
     cmd.stdin(if opts.stdin.is_some() { Stdio::piped() } else { Stdio::null() });
     cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
     configure(&mut cmd, true);
@@ -463,7 +498,11 @@ pub fn spawn(command: &str, args: &[String], cwd: &str, env: Option<&Map<String,
     let cwd = crate::paths::resolve_with(if cwd.is_empty() { "." } else { cwd }, &home, &home, cfg!(windows));
     let envs = crate::env::tool_env(env);
     let has_sep = command.contains('/') || (cfg!(windows) && command.contains('\\'));
-    let program = if has_sep {
+    // a background shell asks for bash -c (tools/shells.ts): on Windows that is this daemon's shell, which may be off PATH or cmd.exe
+    let via_shell = cfg!(windows) && (command == "bash" || command == "sh") && args.len() == 2 && args[0] == "-c";
+    let program = if via_shell {
+        std::path::PathBuf::from(shell())
+    } else if has_sep {
         std::path::PathBuf::from(command)
     } else {
         let path_var = envs.iter().find(|(k, _)| if cfg!(windows) { k.to_string_lossy().eq_ignore_ascii_case("PATH") } else { k.as_os_str() == "PATH" }).map(|(_, v)| v.clone());
@@ -472,8 +511,17 @@ pub fn spawn(command: &str, args: &[String], cwd: &str, env: Option<&Map<String,
             None => return Err(WireError::coded(format!("Executable not found in $PATH: \"{command}\""), "ENOENT")),
         }
     };
-    let mut cmd = tokio::process::Command::new(&program);
-    cmd.args(args).current_dir(&cwd).env_clear().envs(envs);
+    let mut cmd = if via_shell {
+        shell_command(shell(), &args[1])
+    } else {
+        let mut c = tokio::process::Command::new(&program);
+        c.args(args);
+        c
+    };
+    cmd.current_dir(&cwd).env_clear().envs(envs);
+    if via_shell {
+        no_cwd_lookup(&mut cmd, shell());
+    }
     cmd.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
     configure(&mut cmd, true);
     let mut child = cmd.spawn().map_err(|e| spawn_error(&e, command))?;
@@ -539,7 +587,14 @@ pub fn spawn(command: &str, args: &[String], cwd: &str, env: Option<&Map<String,
                 _ = &mut pumps, if !pumps_done => { pumps_done = true; }
                 Some(sig) = kill_rx.recv() => {
                     #[cfg(windows)]
-                    { if !exited { let _ = child.start_kill(); } }
+                    {
+                        if !exited {
+                            match pid {
+                                Some(p) => kill_tree(p, sig),
+                                None => { let _ = child.start_kill(); }
+                            }
+                        }
+                    }
                     #[cfg(unix)]
                     { if let Some(p) = pid { kill_tree(p, sig); } }
                     let _ = sig;
@@ -749,6 +804,16 @@ mod tests {
     }
 
     #[test]
+    fn is_cmd_matches_cmd_exe_only() {
+        assert!(is_cmd("cmd.exe"));
+        assert!(is_cmd("C:\\WINDOWS\\system32\\CMD.EXE"));
+        assert!(is_cmd("cmd"));
+        assert!(!is_cmd("C:\\Program Files\\Git\\bin\\bash.exe"));
+        assert!(!is_cmd("/usr/bin/bash"));
+        assert!(!is_cmd("C:\\tools\\notcmd.exe"));
+    }
+
+    #[test]
     fn head_tail_counts_utf16() {
         let mut b = HeadTail::new(4);
         b.push("é😀xyzw");
@@ -770,5 +835,172 @@ mod tests {
             assert!(started.elapsed() < Duration::from_secs(5), "took {:?}", started.elapsed());
             let _ = c;
         });
+    }
+
+    // Real cmd.exe and taskkill on Windows CI: cargo test windows_cmd
+    #[cfg(windows)]
+    mod win {
+        use super::*;
+        use futures_util::future::BoxFuture;
+
+        fn rt() -> tokio::runtime::Runtime {
+            tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap()
+        }
+
+        fn comspec() -> String {
+            let c = std::env::var("ComSpec").unwrap_or_else(|_| "cmd.exe".into());
+            assert!(is_cmd(&c), "ComSpec is not cmd: {c}");
+            c
+        }
+
+        /// shell_command with the real ComSpec: (exit code, stdout with \n line ends, stderr).
+        fn run_cmd(command: &str) -> (Option<i32>, String, String) {
+            rt().block_on(async {
+                let mut cmd = shell_command(&comspec(), command);
+                cmd.env("CV_WIN_CMD_VAR", "hello there").stdin(Stdio::null());
+                let out = cmd.output().await.unwrap();
+                (out.status.code(), String::from_utf8_lossy(&out.stdout).replace("\r\n", "\n"), String::from_utf8_lossy(&out.stderr).into_owned())
+            })
+        }
+
+        fn temp_dir(name: &str) -> std::path::PathBuf {
+            let d = std::env::temp_dir().join(format!("cv win cmd {name} {}", std::process::id()));
+            std::fs::create_dir_all(&d).unwrap();
+            d
+        }
+
+        #[test]
+        fn windows_cmd_runs_a_quoted_program_path_with_spaces_and_quoted_args() {
+            let dir = temp_dir("path");
+            let bat = dir.join("say it.cmd");
+            std::fs::write(&bat, "@echo [%~1] [%2]\r\n").unwrap();
+            // first and last character are both quotes: without /s and the outer pair cmd would strip them
+            let (code, out, err) = run_cmd(&format!("\"{}\" \"x y\" \"z\"", bat.display()));
+            let _ = std::fs::remove_dir_all(&dir);
+            assert_eq!((code, out.trim_end()), (Some(0), "[x y] [\"z\"]"), "stderr: {err}");
+        }
+
+        #[test]
+        fn windows_cmd_keeps_inner_quotes() {
+            let (code, out, err) = run_cmd("echo 'c'& echo \"a b\"");
+            assert_eq!((code, out.as_str()), (Some(0), "'c'\n\"a b\"\n"), "stderr: {err}");
+        }
+
+        #[test]
+        fn windows_cmd_expands_percent_vars_and_not_bang_vars() {
+            // /v:off: !NAME! stays literal
+            let (code, out, err) = run_cmd("echo %CV_WIN_CMD_VAR%^|!CV_WIN_CMD_VAR!");
+            assert_eq!((code, out.trim_end()), (Some(0), "hello there|!CV_WIN_CMD_VAR!"), "stderr: {err}");
+        }
+
+        #[test]
+        fn windows_cmd_returns_the_exit_status() {
+            assert_eq!(run_cmd("exit 5").0, Some(5));
+            assert_eq!(run_cmd("echo x>nul& exit 42").0, Some(42));
+            assert_eq!(run_cmd("ver>nul").0, Some(0));
+        }
+
+        #[test]
+        fn windows_cmd_kill_tree_ends_the_shell_and_its_child() {
+            rt().block_on(async {
+                let mut cmd = shell_command(&comspec(), "ping -n 30 127.0.0.1 && echo after");
+                cmd.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::null());
+                configure(&mut cmd, true);
+                let mut child = cmd.spawn().unwrap();
+                let mut out = child.stdout.take().unwrap();
+                tokio::time::sleep(Duration::from_millis(500)).await;
+                kill_tree(child.id().unwrap(), Sig::Term);
+                let mut buf = Vec::new();
+                // ping holds the pipe too: EOF only comes once the whole tree is gone
+                tokio::time::timeout(Duration::from_secs(10), out.read_to_end(&mut buf)).await.expect("pipe still open, ping outlived kill_tree").unwrap();
+                assert!(!child.wait().await.unwrap().success());
+                assert!(!String::from_utf8_lossy(&buf).contains("after"));
+            });
+        }
+
+        fn cwd() -> String {
+            std::env::temp_dir().to_string_lossy().into_owned()
+        }
+
+        fn exec_opts(timeout_ms: Option<f64>) -> ExecOpts {
+            ExecOpts { cwd: cwd(), env: None, timeout_ms, stdin: None, max_output: None }
+        }
+
+        // exec and spawn run shell(): Git Bash on CI, cmd.exe without it. These commands mean the same in both.
+        #[test]
+        fn windows_cmd_exec_returns_output_and_exit_status() {
+            rt().block_on(async {
+                let (_abort, rx) = watch::channel(false);
+                let r = exec("echo hi&& exit 3".into(), exec_opts(None), rx, None).await;
+                assert_eq!(r["exitCode"].as_i64(), Some(3), "{r}");
+                assert_eq!(r["stdout"].as_str().map(str::trim_end), Some("hi"), "{r}");
+            });
+        }
+
+        #[test]
+        fn windows_cmd_exec_times_out_and_kills_the_tree() {
+            rt().block_on(async {
+                let (_abort, rx) = watch::channel(false);
+                let started = Instant::now();
+                let r = exec("ping -n 30 127.0.0.1 && echo after".into(), exec_opts(Some(500.0)), rx, None).await;
+                assert_eq!(r["timedOut"], json!(true), "{r}");
+                assert!(started.elapsed() < Duration::from_secs(10), "took {:?}", started.elapsed());
+                assert!(!r["stdout"].as_str().unwrap().contains("after"), "{r}");
+            });
+        }
+
+        struct Collect {
+            out: Mutex<Vec<u8>>,
+            exit: Mutex<Option<tokio::sync::oneshot::Sender<Option<i32>>>>,
+        }
+
+        impl ProcSink for Collect {
+            fn output(&self, stream: &'static str, data: String) -> BoxFuture<'static, ()> {
+                if stream == "proc.stdout" {
+                    self.out.lock().unwrap().extend(crate::js::decode_base64_lenient(&data));
+                }
+                Box::pin(async {})
+            }
+            fn exit(&self, code: Option<i32>) -> BoxFuture<'static, ()> {
+                if let Some(tx) = self.exit.lock().unwrap().take() {
+                    let _ = tx.send(code);
+                }
+                Box::pin(async {})
+            }
+        }
+
+        fn collect() -> (Arc<Collect>, tokio::sync::oneshot::Receiver<Option<i32>>) {
+            let (tx, rx) = tokio::sync::oneshot::channel();
+            (Arc::new(Collect { out: Mutex::new(Vec::new()), exit: Mutex::new(Some(tx)) }), rx)
+        }
+
+        fn bash_c(command: &str) -> Vec<String> {
+            vec!["-c".into(), command.into()]
+        }
+
+        #[test]
+        fn windows_cmd_spawn_background_shell_returns_output_and_exit_status() {
+            rt().block_on(async {
+                let (sink, exit) = collect();
+                let _h = spawn("bash", &bash_c("echo hi&& exit 3"), &cwd(), None, sink.clone()).unwrap();
+                let code = tokio::time::timeout(Duration::from_secs(20), exit).await.expect("no proc.exit").unwrap();
+                assert_eq!(code, Some(3));
+                assert_eq!(String::from_utf8_lossy(&sink.out.lock().unwrap()).trim_end(), "hi");
+            });
+        }
+
+        #[test]
+        fn windows_cmd_spawn_kill_ends_the_tree() {
+            rt().block_on(async {
+                let (sink, exit) = collect();
+                let (h, _) = spawn("bash", &bash_c("ping -n 30 127.0.0.1 && echo after"), &cwd(), None, sink.clone()).unwrap();
+                tokio::time::sleep(Duration::from_millis(500)).await;
+                h.kill.send(Sig::Term).unwrap();
+                // proc.exit waits for both pipes, so a surviving ping would hold it back
+                let code = tokio::time::timeout(Duration::from_secs(10), exit).await.expect("no proc.exit, the tree outlived kill").unwrap();
+                assert_ne!(code, Some(0));
+                assert!(!String::from_utf8_lossy(&sink.out.lock().unwrap()).contains("after"));
+            });
+        }
     }
 }
