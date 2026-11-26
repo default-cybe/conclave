@@ -148,6 +148,8 @@ export interface EngineApi {
     accountId: string,
     patch: { usageFallback?: unknown; refusalFallback?: unknown },
   ): { usageFallback?: import('../config/schema').LimitFallbackConfig | null; refusalFallback?: import('../config/schema').RefusalFallbackConfig | null };
+  /** A member's account settings after the defaults in a PATCH /api/me, checked; throws PeopleError 400 (people/member-defaults.ts). */
+  checkMemberDefaults(accountId: string, patch: Record<string, unknown>): import('../people/store').AccountSettings;
   /** The agents an account may pick: a member's are the ones that ship and plugin agents. */
   agentsFor(accountId: string, cwd?: string): import('../extensions/types').AgentDef[];
   /** The skills an account sees: a member's are the shared ones and their own (<home>/accounts/<id>/skills, learned-skills). */

@@ -872,14 +872,15 @@ export class SessionRunner {
       for (const m of hook.systemMessages) engine.notice(this.id, m, 'info');
     }
 
-    const cfg = engine.config.get();
+    // a member's own memory switches over the hub's (engine.memorySettings)
+    const memory = engine.memorySettings(engine.accountOf(session));
     let recalled: string[] = [];
-    if (cfg.memory.enabled && cfg.memory.autoInject && agent.memory !== 'none' && engine.usesMemory(session) && q.input.text.length > 3) {
+    if (memory.enabled && memory.autoInject && agent.memory !== 'none' && engine.usesMemory(session) && q.input.text.length > 3) {
       const started = Date.now();
       try {
         // project notes follow the project across devices (projects/service.ts memoryKeys)
         // the session's account's memory only: recall never crosses accounts
-        const hits = await engine.memoryFor(engine.accountOf(session)).recall(q.input.text, { project: engine.memoryProject(session), agent: agent.name, limit: cfg.memory.injectLimit });
+        const hits = await engine.memoryFor(engine.accountOf(session)).recall(q.input.text, { project: engine.memoryProject(session), agent: agent.name, limit: memory.injectLimit });
         let chars = 0;
         if (hits.length) {
           recalled = hits.map((h) => h.id);

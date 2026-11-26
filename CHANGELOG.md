@@ -7,6 +7,10 @@ from the section of its version (`scripts/releases/notes.ts`); a release
 without one fails. At tag time, rename `[Unreleased]` to the version and date,
 like `## [0.4.16] - 2026-10-24`.
 
+## [Unreleased]
+
+- Members get their own Settings > Defaults (default model, agent and computer, small and second opinion models, hidden models, memory switches) and Settings > Secrets (their own `${secret:name}` values), saved on their account and used for their sessions; the hub's config and secrets stay the owner's.
+
 ## [0.4.105] - 2026-11-26
 
 ### Added

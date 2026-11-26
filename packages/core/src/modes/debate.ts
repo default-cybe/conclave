@@ -12,7 +12,7 @@ import { storeVerdict } from './jury';
  * labeled with the model; the conclusion is a normal message.
  */
 export async function runDebate(engine: Engine, runner: SessionRunner, session: Session, signal: AbortSignal): Promise<void> {
-  const cfg: DebateConfig = { rounds: 2, a: session.model, b: engine.config.get().modes.reviewer, ...session.modeConfig?.debate };
+  const cfg: DebateConfig = { rounds: 2, a: session.model, b: engine.reviewerFor(session.accountId), ...session.modeConfig?.debate };
   if (!engine.isUsableRef(cfg.a) || !engine.isUsableRef(cfg.b) || cfg.a === cfg.b) {
     engine.notice(session.id, 'Debate needs two different usable models. Answering normally instead.', 'warning');
     await runner.agentLoop(session.model, 'chat', signal);

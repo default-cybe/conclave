@@ -168,6 +168,7 @@ import { getUpload, removeUpload } from '../attachments/uploads';
 import { mediaTypeFor } from '../attachments/limits';
 import { isModelImage } from '../attachments/image';
 import { checkMemberRefusalList, checkMemberUsageList, memberCanUse } from '../session/member-fallbacks';
+import { applyMemberDefaults, memberHides, mergedMemory } from '../people/member-defaults';
 import { modelPin } from '../session/model-pin';
 import { quotedOf } from '../session/quoted';
 import { assistantFor } from '../assistant/registry';
@@ -462,6 +463,27 @@ export class Engine implements EngineApi {
     return this.people.get(accountId)?.settings ?? {};
   }
 
+  /** The memory switches an account's sessions follow: the hub's memory.*, with a member's own over them (people/member-defaults.ts). */
+  memorySettings(accountId: string | undefined): ConclaveConfig['memory'] {
+    const hub = this.config.get().memory;
+    return isMember(accountId) ? mergedMemory(hub, this.accountPrefs(accountId!).memory) : hub;
+  }
+
+  /** The second opinion model for an account: a member's own, else the hub's modes.reviewer. */
+  reviewerFor(accountId: string | undefined): string {
+    return (isMember(accountId) ? this.accountPrefs(accountId!).reviewer : undefined) ?? this.config.get().modes.reviewer;
+  }
+
+  /** A model hidden for this account: the owner's models.hidden for everyone, and a member's own list for them. */
+  hiddenFor(ref: string, accountId?: string): boolean {
+    return isHiddenModel(this.config.get(), ref) || (isMember(accountId) && memberHides(this.accountPrefs(accountId!), ref));
+  }
+
+  /** A member's own defaults from PATCH /api/me, checked (people/member-defaults.ts); throws PeopleError 400. */
+  checkMemberDefaults(accountId: string, patch: Record<string, unknown>): HubAccount['settings'] {
+    return applyMemberDefaults(this, accountId, this.accountPrefs(accountId), patch);
+  }
+
   /** Why `more` bytes would not fit under a member's disk cap (people/disk.ts), or undefined. The owner has none. */
   diskRefusal(accountId: string | undefined, more = 0): string | undefined {
     return isMember(accountId) ? diskRefusal(this.diskInputs(accountId!), more) : undefined;
@@ -508,7 +530,7 @@ export class Engine implements EngineApi {
   private memberMemory(accountId: string): { memory: SqliteMemory; admin: MemoryConnectionService; connections: MemoryConnections } {
     const hit = this.memories.get(accountId);
     if (hit) return hit;
-    const view = accountConfigView(this.config, { accountId, kv: this.repos.kv, secrets: this.accountSecrets });
+    const view = accountConfigView(this.config, { accountId, kv: this.repos.kv, secrets: this.accountSecrets, memory: () => this.accountPrefs(accountId).memory });
     const dir = join(this.accountSecrets.dir, accountId);
     const connections = new MemoryConnections({
       config: view,
@@ -621,11 +643,13 @@ export class Engine implements EngineApi {
     const defaultModel = prefs.defaultModel ?? cfg.defaultModel;
     const model = input.model ?? (def?.model ? agentModelRef(this, def.model, defaultModel).model : defaultModel);
     // the hub's default device applies only while it is connected; otherwise the session runs on the hub (a member's never uses the owner's)
-    const fallback = !isMember(acct) && cfg.defaultDevice && this.devices.get(cfg.defaultDevice) ? cfg.defaultDevice : 'local';
+    // a member's own default device is one of theirs (people/member-defaults.ts), checked again here in case it was unpaired
+    const dflt = isMember(acct) ? prefs.defaultDevice : cfg.defaultDevice;
+    const fallback = dflt && this.devices.get(dflt) && (!isMember(acct) || this.repos.devices.accountOf(dflt) === acct) ? dflt : 'local';
     const device = input.device || (isChat ? 'local' : def?.device || fallback);
     if (opts.byPerson && isMember(acct) && device === 'local' && !isChat && this.needsMachine(agent, model)) throw new EngineError(400, CODE_NEEDS_DEVICE);
     // a harness that is off (the default since v0.4.2) starts nothing: say where to turn it on
-    const off = this.harnessOff(model);
+    const off = this.harnessOff(model, acct);
     if (off) throw new EngineError(400, off);
     const machine = this.devices.get(device) ?? this.deps.localMachine;
     // a member's session on the hub has no folder there: a placeholder, never the hub's home
@@ -708,8 +732,8 @@ export class Engine implements EngineApi {
   }
 
   /** Words for a model on a harness that is off (acp/harness-off.ts), or one the owner hid (models.hidden), else undefined. */
-  harnessOff(model: string): string | undefined {
-    if (isHiddenModel(this.config.get(), model)) return hiddenWords(model);
+  harnessOff(model: string, accountId?: string): string | undefined {
+    if (this.hiddenFor(model, accountId)) return hiddenWords(model);
     const i = model.indexOf('/');
     if (i < 0) return undefined;
     const provider = model.slice(0, i);
@@ -1602,8 +1626,7 @@ export class Engine implements EngineApi {
    * list has their own providers and the routes they may use.
    */
   async listModels(accountId?: string): Promise<ModelGroup[]> {
-    const cfg = this.config.get();
-    const groups = (await this.providersFor(accountId).groups()).map((g) => ({ ...g, models: g.models.filter((m) => !isHiddenModel(cfg, m.ref)) }));
+    const groups = (await this.providersFor(accountId).groups()).map((g) => ({ ...g, models: g.models.filter((m) => !this.hiddenFor(m.ref, accountId)) }));
     const accounts = accountsOf(this);
     // a model a member's own plan lists goes to that plan: the owner's order does not speak for it
     const routeOf = (m: string) => (accountId && this.access.ownPlan(accountId, PLAN_PROVIDER, m) ? undefined : accounts?.routeOf(m));
@@ -2431,10 +2454,10 @@ export class Engine implements EngineApi {
   }
 
   afterTurn(id: string, _durationMs: number): void {
-    const cfg = this.config.get();
     const s = this.repos.sessions.get(id);
     if (!s) return;
-    if (cfg.memory.enabled && cfg.memory.autoExtract && this.agentFor(s).memory !== 'none' && s.mode !== 'jury' && this.savesMemory(s)) {
+    const memory = this.memorySettings(this.accountOf(s));
+    if (memory.enabled && memory.autoExtract && this.agentFor(s).memory !== 'none' && s.mode !== 'jury' && this.savesMemory(s)) {
       // a seat turn's transcript holds other people's words as quoted data: extraction learns only from the starter's own words and replies
       const transcript = this.turnMessages(id).filter((m) => !quotedOf(m));
       void this.memoryFor(this.accountOf(s))
@@ -2454,8 +2477,7 @@ export class Engine implements EngineApi {
    * only the account's own words (typedBy skips another account's messages).
    */
   private captureLearnings(s: Session): void {
-    const cfg = this.config.get();
-    if (!cfg.memory.enabled || s.incognito || s.parentId || s.routineId || s.meta?.subagent || s.meta?.seat) return;
+    if (!this.memorySettings(this.accountOf(s)).enabled || s.incognito || s.parentId || s.routineId || s.meta?.subagent || s.meta?.seat) return;
     // "Use only" (chat.memorySave false) reads memory and saves nothing, so it queues nothing to save either
     if (s.kind === 'meeting' || s.mode === 'jury' || !this.savesMemory(s) || this.agentFor(s).memory === 'none') return;
     const svc = assistantFor(this, this.accountOf(s));
@@ -2680,7 +2702,7 @@ export class Engine implements EngineApi {
 
   /** The memory profile a session's system prompt shows. */
   profileFor(session: Session, agent: AgentDef): MemoryEntry[] {
-    return this.config.get().memory.enabled && chatUsesMemory(session) && !isUntrusted(session, agent.untrusted)
+    return this.memorySettings(this.accountOf(session)).enabled && chatUsesMemory(session) && !isUntrusted(session, agent.untrusted)
       ? this.memoryFor(this.accountOf(session)).profile({ project: this.memoryProject(session), agent: agent.name })
       : [];
   }
@@ -2938,7 +2960,7 @@ export class Engine implements EngineApi {
   // providers helpers ------------------------------------------------------
   /** A model the account can call now (the owner's when left out). */
   isUsable(ref: string, accountId?: string): boolean {
-    if (isHiddenModel(this.config.get(), ref)) return false;
+    if (this.hiddenFor(ref, accountId)) return false;
     try {
       const reg = this.providersFor(accountId);
       const r = reg.resolve(ref);

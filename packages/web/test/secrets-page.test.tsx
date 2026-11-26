@@ -37,11 +37,20 @@ describe('MCP form missing secrets', () => {
 });
 
 describe('the section', () => {
-  test('is the owner only', () => {
+  test("a member gets it too, on their own secrets (/api/me/secrets), never the hub's", () => {
     const src = readFileSync(join(import.meta.dir, '../src/features/settings/SettingsPage.tsx'), 'utf8');
-    const def = src.slice(src.indexOf("id: 'secrets'"), src.indexOf("id: 'secrets'") + 400);
+    const def = src.slice(src.indexOf("id: 'secrets'"), src.indexOf("id: 'secrets'") + 500);
     expect(def).toContain('C: SecretsSection');
-    expect(def).toContain('owner: true');
-    expect(def).not.toContain('member:');
+    expect(def).toContain('member: { C: SecretsSection');
+    const page = readFileSync(join(import.meta.dir, '../src/features/settings/secrets.tsx'), 'utf8');
+    expect(page).toContain("isOwnerNow() ? api().secrets() : api().mySecrets()");
+    expect(page).toContain("isOwnerNow() ? api().setSecret('values', name, value) : api().setMySecret(name, value)");
+  });
+
+  test('Defaults has a member page of its own', () => {
+    const src = readFileSync(join(import.meta.dir, '../src/features/settings/SettingsPage.tsx'), 'utf8');
+    const def = src.slice(src.indexOf("id: 'defaults'"), src.indexOf("id: 'defaults'") + 500);
+    expect(def).toContain('member: { C: MemberDefaultsSection');
+    expect(def).not.toContain('owner: true');
   });
 });

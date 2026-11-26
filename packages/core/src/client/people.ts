@@ -125,6 +125,11 @@ export interface MePreferences {
   defaultModel?: string;
   smallModel?: string;
   defaultAgent?: string;
+  /** A member's own (Settings > Defaults); the owner's are the hub's config. */
+  defaultDevice?: string;
+  reviewer?: string;
+  hiddenModels?: string[];
+  memory?: MemberMemory;
   /** Watch this person's devices for new chats to import. */
   importWatch?: boolean;
   /** Sessions side by side (/sessions/split): up to SPLIT_MAX session ids, left to right. */
@@ -161,6 +166,15 @@ export interface MeDto extends AccountRef {
   disk?: { usedBytes: number; limitBytes: number };
 }
 
+/** A member's own memory switches (Settings > Defaults, Memory); a key left out follows the hub's memory.*. */
+export interface MemberMemory {
+  enabled?: boolean;
+  autoInject?: boolean;
+  injectLimit?: number;
+  recallEpisodes?: boolean;
+  autoExtract?: boolean;
+}
+
 /** PATCH /api/me. null clears a default or the display name. */
 export interface MePatch {
   /** The sign-in name. */
@@ -171,6 +185,14 @@ export interface MePatch {
   defaultModel?: string | null;
   smallModel?: string | null;
   defaultAgent?: string | null;
+  /** A member's own: one of their paired devices; null is the hub. */
+  defaultDevice?: string | null;
+  /** A member's own second opinion model; null clears it. The owner's is modes.reviewer. */
+  reviewer?: string | null;
+  /** A member's own hidden models, the whole list; null or [] clears it. The owner's is models.hidden. */
+  hiddenModels?: string[] | null;
+  /** A member's own memory switches, merged into the saved ones; null clears them all. The owner's are memory.*. */
+  memory?: MemberMemory | null;
   importWatch?: boolean;
   /** Up to SPLIT_MAX session ids; null or [] clears the view. */
   splitView?: string[] | null;

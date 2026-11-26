@@ -24,7 +24,7 @@ import { compact, relTime, shortDate, usd } from '@/lib/format';
 import { hubKeyProviders, providerInfo } from '@/lib/providers';
 import { toast, useHub } from '@/store/store';
 import { Button } from '@/components/ui/Button';
-import { Checkbox, Field, Input, SECRET_FIELD, Segmented, Select } from '@/components/ui/Field';
+import { Checkbox, Field, Input, SECRET_FIELD, Segmented } from '@/components/ui/Field';
 import { ConfirmDialog, Dialog } from '@/components/ui/Overlay';
 import { Command } from '@/components/ui/Code';
 import { LoadingRows } from '@/components/ui/EmptyState';
@@ -34,7 +34,7 @@ import { PersonApps, SignedInGroup } from './signedin';
 const MIN_PASSWORD = 12;
 
 /** Refresh who is signed in after a change to it. */
-async function reloadMe(): Promise<void> {
+export async function reloadMe(): Promise<void> {
   try {
     const me = await api().me();
     useHub.setState({ me });
@@ -685,7 +685,6 @@ export function YourAccountSection() {
       .then(setUsage)
       .catch(() => {});
   }, []);
-  const models = useHub((s) => s.models);
   const saved = savedAccounts();
   useEffect(() => {
     setShown(me?.displayName ?? '');
@@ -721,14 +720,6 @@ export function YourAccountSection() {
       toast({ title: `Could not change it. ${errText(e)}`, level: 'error' });
     }
     setBusy(undefined);
-  };
-  const setDefault = async (ref: string) => {
-    try {
-      await api().updateMe({ defaultModel: ref || null });
-      await reloadMe();
-    } catch (e) {
-      toast({ title: `Could not save. ${errText(e)}`, level: 'error' });
-    }
   };
 
   return (
@@ -781,15 +772,11 @@ export function YourAccountSection() {
 
       {member && (
         <Group title="Defaults">
-          <SettingRow label="Model for new chats" htmlFor="me-model" help="Yours only. Left empty, the hub's default.">
-            <Select id="me-model" value={me.preferences.defaultModel ?? ''} onChange={(e) => void setDefault(e.target.value)} className="w-full md:w-[260px]">
-              <option value="">The hub's default</option>
-              {models.flatMap((g) => g.models.map((m) => (
-                <option key={m.ref} value={m.ref}>
-                  {m.name}
-                </option>
-              )))}
-            </Select>
+          {/* the model for new chats and the rest are on their own page now (member-defaults.tsx) */}
+          <SettingRow label="Models, computer and memory" help="Yours only.">
+            <Link href="/settings/defaults" className="link text-[13px]">
+              Defaults
+            </Link>
           </SettingRow>
           {me.disk && <SettingRow label="Disk on the hub" help="Your browser, downloads and files on the hub. The owner sets the cap.">{`${gbWords(me.disk.usedBytes)} of ${gbWords(me.disk.limitBytes)} GB`}</SettingRow>}
         </Group>

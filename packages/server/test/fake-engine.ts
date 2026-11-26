@@ -284,6 +284,14 @@ export function createFakeEngine(overrides: Partial<ConclaveConfig> = {}): FakeE
       if (bad) throw new PeopleError(400, `You can't use ${bad} on this hub.`);
       return patch as never;
     },
+    // the real check is core people/member-defaults.ts (tested there); here owner-only/ models are refused as above
+    checkMemberDefaults: (acct, patch) => {
+      const bad = ['defaultModel', 'smallModel', 'reviewer'].map((k) => patch[k]).find((r) => typeof r === 'string' && r.startsWith('owner-only/'));
+      if (bad) throw new PeopleError(400, `You can't use ${bad} on this hub.`);
+      const out: Record<string, unknown> = { ...people.get(acct)?.settings };
+      for (const [k, v] of Object.entries(patch)) if (v === null || v === '') delete out[k]; else out[k] = v;
+      return out as never;
+    },
     agentsFor: (acct) => (isMember(acct) ? extensions.agents().filter((a) => a.source === 'builtin' || a.source === 'plugin') : extensions.agents()),
     skillsFor: (acct) => (isMember(acct) ? extensions.skills().filter((a) => a.source === 'builtin' || a.source === 'plugin') : extensions.skills()),
     commandsFor: (acct) => (isMember(acct) ? extensions.commands().filter((a) => a.source === 'builtin' || a.source === 'plugin') : extensions.commands()),

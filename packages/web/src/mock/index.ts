@@ -594,7 +594,26 @@ mePrefs.modes = { ...mePrefs.modes, meetings: MEETINGS_Q === 'off' ? false : MEE
 // ?member=1 signs in as a member (nihir), with their own fallback lists in Settings > Models
 const MEMBER = new URLSearchParams(location.search).get('member') === '1';
 const memberLists: Record<string, unknown> = { limitFallback: { enabled: true, models: ['anthropic/claude-sonnet-5-5', 'openai/gpt-6-mini'] }, refusalFallback: { enabled: true, entries: [{ model: 'anthropic/claude-sonnet-5-5' }, { model: 'openai/gpt-6-mini' }] } };
-on('GET', '/api/me', () => (MEMBER ? { id: 'acc_nihir', name: 'nihir', displayName: 'Nihir', role: 'member', avatarVersion: 1, people: true, hubMachine: false, passwordSet: true, providers: [], preferences: {} } : { id: 'owner', name: 'owner', role: 'owner', people: false, hubMachine: true, passwordSet: false, providers: [], preferences: { ...mePrefs } }));
+// a member's own Settings > Defaults (PATCH /api/me) and Settings > Secrets (/api/me/secrets)
+const memberPrefs: Record<string, unknown> = { defaultModel: 'anthropic/claude-sonnet-5-5', reviewer: 'openai/gpt-6-mini', hiddenModels: ['openrouter/*'], memory: { autoExtract: false, injectLimit: 10 } };
+const MEMBER_PREF_KEYS = ['defaultModel', 'smallModel', 'defaultAgent', 'defaultDevice', 'reviewer', 'hiddenModels', 'memory'];
+const memberSecrets: Array<{ name: string; prefix?: string; setAt: number; managedBy?: string }> = [
+  { name: 'homelab-token', prefix: 'hlt_', setAt: D.NOW - 2 * 86_400_000 },
+  { name: 'github-pat', prefix: 'ghp_', setAt: D.NOW - 9 * 86_400_000 },
+  { name: 'stt.deepgram', setAt: D.NOW - 20 * 86_400_000, managedBy: 'Settings > Meetings' },
+];
+on('GET', '/api/me/secrets', () => {
+  if (!MEMBER) throw new HttpError(400, "Your secrets are the hub's, in Settings > Secrets.");
+  return { values: memberSecrets };
+});
+on('PUT', '/api/me/secrets', ({ body }) => {
+  const key = String(body?.key);
+  const i = memberSecrets.findIndex((s) => s.name === key);
+  if (i >= 0) memberSecrets.splice(i, 1);
+  if (body?.value) memberSecrets.unshift({ name: key, prefix: String(body.value).length > 8 ? String(body.value).slice(0, 4) : undefined, setAt: Date.now() });
+  return { ok: true };
+});
+on('GET', '/api/me', () => (MEMBER ? { id: 'acc_nihir', name: 'nihir', displayName: 'Nihir', role: 'member', avatarVersion: 1, people: true, hubMachine: false, passwordSet: true, providers: [], preferences: { ...memberPrefs } } : { id: 'owner', name: 'owner', role: 'owner', people: false, hubMachine: true, passwordSet: false, providers: [], preferences: { ...mePrefs } }));
 // account management: People with pictures, usage, devices and a disabled member
 const mockUsage = (w: number, m: number) => ({ week: { from: Date.now() - 3 * 86_400_000, tokens: w * 1000, costUsd: w / 40 }, month: { from: Date.now() - 20 * 86_400_000, tokens: m * 1000, costUsd: m / 40 } });
 const mockPeople = [
@@ -614,6 +633,12 @@ on('GET', '/api/avatars/:id', () => new Response('<svg xmlns="http://www.w3.org/
 on('PATCH', '/api/me', ({ body }) => {
   if (MEMBER && body?.usageFallback !== undefined) memberLists.limitFallback = body.usageFallback;
   if (MEMBER && body?.refusalFallback !== undefined) memberLists.refusalFallback = body.refusalFallback;
+  if (MEMBER)
+    for (const k of MEMBER_PREF_KEYS) {
+      if (body?.[k] === undefined) continue;
+      if (body[k] === null || body[k] === '' || (Array.isArray(body[k]) && !body[k].length)) delete memberPrefs[k];
+      else memberPrefs[k] = k === 'memory' ? { ...(memberPrefs.memory as object), ...body.memory } : body[k];
+    }
   if (body && 'splitView' in body) {
     if (body.splitView?.length) mePrefs.splitView = [...new Set(body.splitView as string[])];
     else delete mePrefs.splitView;

@@ -449,6 +449,9 @@ export const ROUTE_POLICY: Record<string, Rule> = {
   'PATCH /api/config': 'admin',
   'GET /api/secrets': 'admin',
   'PUT /api/secrets': 'self',
+  // a member's own named secrets (Settings > Secrets for a member): their secrets.json values, never the hub's or the hub part
+  'GET /api/me/secrets': 'self',
+  'PUT /api/me/secrets': 'self',
   'GET /api/notify/channels': 'hub',
   'POST /api/notify/test': 'self',
   'GET /api/notify/vapid': 'hub',

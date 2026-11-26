@@ -2652,6 +2652,9 @@ export class ConclaveClient {
   setSecret = (kind: 'providers' | 'values', key: string, value: string | null) => this.request<{ ok: true }>('PUT', '/api/secrets', { kind, key, value });
   /** The hub's named secrets, names and metadata only. Owner only. */
   secrets = () => this.request<{ values: SecretInfo[] }>('GET', '/api/secrets');
+  /** A member's own named secrets, names and metadata only. Members only. */
+  mySecrets = () => this.request<{ values: SecretInfo[] }>('GET', '/api/me/secrets');
+  setMySecret = (key: string, value: string | null) => this.request<{ ok: true }>('PUT', '/api/me/secrets', { key, value });
   notifyChannels = () => this.request<Array<{ id: string; enabled: boolean }>>('GET', '/api/notify/channels');
   /** Send a test notification. With an endpoint, only that browser gets it. */
   testNotify = (channel = 'webpush', opts: { endpoint?: string } = {}) => this.request<{ ok: true }>('POST', '/api/notify/test', { channel, ...opts });

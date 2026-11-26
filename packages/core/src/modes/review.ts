@@ -173,7 +173,7 @@ export function renderPacket(p: ReviewPacket, opts: { inlineRules: boolean; inst
 }
 
 export async function runSecondOpinion(engine: Engine, session: Session, input: SecondOpinionInput, signal: AbortSignal): Promise<void> {
-  const reviewerRef = input.reviewer ?? engine.config.get().modes.reviewer;
+  const reviewerRef = input.reviewer ?? engine.reviewerFor(session.accountId);
   const msgs = engine.repos.messages.list(session.id);
   const target = input.messageId ? msgs.find((m) => m.id === input.messageId) : lastAssistant(msgs);
   if (!target) {

@@ -10,7 +10,7 @@ import { newId } from '../util/ids';
 import { OWNER_ID } from './context';
 import { ACCOUNT_TABLES, CHILD_TABLES } from './tables';
 import { emailKey, migratePeople } from './migrate';
-import { DISPLAY_NAME_MAX, NEW_ACCOUNT_MODES, contactName, displayNameProblem, tidyDisplayName, type ModesPreference } from '../client/people';
+import { DISPLAY_NAME_MAX, NEW_ACCOUNT_MODES, contactName, displayNameProblem, tidyDisplayName, type MemberMemory, type ModesPreference } from '../client/people';
 
 export { migratePeople };
 
@@ -28,6 +28,14 @@ export interface AccountSettings {
   defaultModel?: string;
   smallModel?: string;
   defaultAgent?: string;
+  /** A member's own default device: one of their paired devices; missing is the hub (people/member-defaults.ts). */
+  defaultDevice?: string;
+  /** A member's own second opinion model (the owner's is modes.reviewer). */
+  reviewer?: string;
+  /** A member's own hidden models, refs or * globs (the owner's is models.hidden, which applies to everyone). */
+  hiddenModels?: string[];
+  /** A member's own memory switches over the hub's memory.* (the owner's are the hub's). */
+  memory?: MemberMemory;
   /** Watch this person's devices for new chats to import (when the hub's import watch is on). */
   importWatch?: boolean;
   /** Sessions side by side in the web app, left to right (at most SPLIT_MAX, core client/people.ts). */
