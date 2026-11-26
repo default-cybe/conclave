@@ -248,7 +248,41 @@ export function capImageSizes(contents: ContentBlock[][], many = true): ContentB
     if (crowded && side > MANY_IMAGE_MAX_PX) return { type: 'text', text: imageLeftOutNote(`(${b.mediaType})`, `too large (${s!.width}x${s!.height}) for a request with more than ${MANY_IMAGES} images; ask for a smaller copy`) };
     return b;
   };
-  return contents.map((c) => c.map(one));
+  return capImageBytes(contents.map((c) => c.map(one)));
+}
+
+// Anthropic vision docs: 5 MB (base64) per image on Bedrock and Google Cloud, 10 MB on the Claude API; the strictest route wins
+export const IMAGE_MAX_BYTES = 5 * 1024 * 1024;
+// Anthropic API overview: Bedrock takes 20 MB a request, Google Cloud 30 MB, the 32 MB tier and Gemini's inline 20 MB; room is left for the text
+export const REQUEST_MEDIA_MAX_BYTES = 16 * 1024 * 1024;
+
+/**
+ * The request's messages with each image whose base64 passes IMAGE_MAX_BYTES
+ * replaced by a note, then the oldest images replaced by notes until the
+ * base64 of all image and document blocks fits REQUEST_MEDIA_MAX_BYTES.
+ * Documents are never cut, nor the last message's images (what the owner
+ * just sent). On the wire only, like capImageSizes.
+ */
+export function capImageBytes(contents: ContentBlock[][]): ContentBlock[][] {
+  const mb = (n: number) => `${(n / 1024 / 1024).toFixed(1)} MB`;
+  const big = (b: ContentBlock): ContentBlock => {
+    if (b.type === 'tool_result') return typeof b.content === 'string' ? b : { ...b, content: b.content.map(big) as ToolResultBlock['content'] };
+    if (b.type !== 'image' || !b.data || b.data.length <= IMAGE_MAX_BYTES) return b;
+    return { type: 'text', text: imageLeftOutNote(`(${b.mediaType})`, `too large (${mb(b.data.length)}), over ${mb(IMAGE_MAX_BYTES)} an image; ask for a smaller copy`) };
+  };
+  const capped = contents.map((c) => c.map(big));
+  const size = (bs: ContentBlock[]): number =>
+    bs.reduce((n, b) => n + (b.type === 'tool_result' ? (typeof b.content === 'string' ? 0 : size(b.content)) : (b.type === 'image' || b.type === 'document') && b.data ? b.data.length : 0), 0);
+  let over = capped.reduce((n, c) => n + size(c), 0) - REQUEST_MEDIA_MAX_BYTES;
+  if (over <= 0) return capped;
+  const trim = (b: ContentBlock): ContentBlock => {
+    if (over <= 0) return b;
+    if (b.type === 'tool_result') return typeof b.content === 'string' ? b : { ...b, content: b.content.map(trim) as ToolResultBlock['content'] };
+    if (b.type !== 'image' || !b.data) return b;
+    over -= b.data.length;
+    return { type: 'text', text: imageLeftOutNote(`(${b.mediaType})`, `an older image left out to keep this request's images under ${mb(REQUEST_MEDIA_MAX_BYTES)}`) };
+  };
+  return capped.map((c, i) => (i === capped.length - 1 ? c : c.map(trim)));
 }
 
 /** True when the request asks for thinking: a level or a budget, not Off. */

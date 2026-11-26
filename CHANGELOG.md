@@ -7,6 +7,12 @@ from the section of its version (`scripts/releases/notes.ts`); a release
 without one fails. At tag time, rename `[Unreleased]` to the version and date,
 like `## [0.4.16] - 2026-10-24`.
 
+## [Unreleased]
+
+### Fixed
+
+- A long chat with many pictures no longer fails on every model: on every wire, an image over 5 MB of base64 goes as a note, and once a request's images and PDFs pass 16 MB the oldest images go as notes until it fits. PDFs and the pictures in the newest message stay; the stored history keeps everything. A remaining "image exceeds ... maximum" 400 drops the picture and retries, and a request too large ("message size ... exceeds", 413) compacts the chat instead of failing over to every other model.
+
 ## [0.4.106] - 2026-11-26
 
 ### Added

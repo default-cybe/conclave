@@ -394,7 +394,7 @@ function exhaustedReset(headers: HeaderSource, now: number): number | undefined 
 // ---------------------------------------------------------------------------
 
 const CONTEXT_RE =
-  /prompt is too long|context[ _-]?(length|window)|maximum context|context_length_exceeded|too many (input )?tokens|input is too long|input token count.*exceeds|exceeds the maximum (number of )?tokens|reduce the length|token limit|maximum allowed (input )?tokens|model_context_window_exceeded|request too large for model/i;
+  /prompt is too long|context[ _-]?(length|window)|maximum context|context_length_exceeded|too many (input )?tokens|input is too long|input token count.*exceeds|exceeds the maximum (number of )?tokens|reduce the length|token limit|maximum allowed (input )?tokens|model_context_window_exceeded|request too large for model|message size .* exceeds|request_too_large|request exceeds the maximum size/i;
 
 const QUOTA_RE =
   /insufficient[_ ]quota|exceeded your current quota|credit balance is too low|billing|out of credits|insufficient (balance|credits|funds)|account (is )?in arrears|quota (has been )?exhausted|usage limit (reached|exceeded)|weekly limit|monthly limit|daily limit|plan (has )?expired|subscription (has )?expired|spend limit/i;
@@ -428,6 +428,8 @@ function kindFromType(type: string | undefined): ProviderErrorKind | undefined {
     case 'UNAVAILABLE':
       return 'overloaded';
     case 'context_length_exceeded':
+    // 413: the whole request is over the byte limit; the runner's compaction shrinks it like a long context
+    case 'request_too_large':
       return 'context_length';
     default:
       return undefined;
@@ -491,7 +493,7 @@ export function classifyHttpError(
     if (typeKind === 'rate_limit' || typeKind === 'overloaded') kind = typeKind;
     else kind = typeKind === 'quota' || QUOTA_RE.test(message) ? 'quota' : 'rate_limit';
   }
-  else if (typeKind === 'context_length' || CONTEXT_RE.test(message)) kind = 'context_length';
+  else if (status === 413 || typeKind === 'context_length' || CONTEXT_RE.test(message)) kind = 'context_length';
   else if (typeKind === 'quota' || (status === 400 && /credit balance is too low/i.test(message))) kind = 'quota';
   else if (typeKind) kind = typeKind;
   else if (status === 408) kind = 'network';
@@ -589,8 +591,9 @@ export function classifyHttpError(
  * Anthropic's "Could not process image" (and "Image does not match the provided media type"), OpenAI's "Invalid image" and image_parse_error.
  * Also Anthropic's "image dimensions exceed max allowed size: 8000 pixels" and "... for many-image requests: 3000 pixels" (direct or through
  * CLIProxyAPI) for a picture whose size the wire cap could not read (common.ts capImageSizes): each drop takes one image out of the history.
+ * And "image exceeds 10 MB maximum" for one over a route's byte limit (common.ts capImageBytes).
  */
-const UNREADABLE_IMAGE_RE = /could not process image|image does not match the provided media type|invalid[ _]image|image_parse_error|image dimensions exceed max allowed size/i;
+const UNREADABLE_IMAGE_RE = /could not process image|image does not match the provided media type|invalid[ _]image|image_parse_error|image dimensions exceed max allowed size|image exceeds .*maximum/i;
 
 export function isUnreadableImageText(text: string): boolean {
   return UNREADABLE_IMAGE_RE.test(text);

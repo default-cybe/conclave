@@ -1,6 +1,6 @@
 import type { ContentBlock, JsonSchema, StopReason, Usage } from '../types';
 import { normalizeModelId } from './catalog';
-import { BaseProvider, budgetOf, documentsForWire, effortOf, toolResultMedia, toolResultText, toolTurnLabel, wantsThinking } from './common';
+import { BaseProvider, budgetOf, capImageBytes, documentsForWire, effortOf, toolResultMedia, toolResultText, toolTurnLabel, wantsThinking } from './common';
 import { classifyStreamError } from './errors';
 import { getJson, openStream, postJson, trimSlash } from './http';
 import { ownSignature, tagSignature } from './signatures';
@@ -217,10 +217,10 @@ function modelParts(m: ProviderMessage, names: ToolNameMap, model: string, gemin
   return parts;
 }
 
-function userParts(m: ProviderMessage, toolNames: Map<string, string>, vision: boolean, model: string): Part[] {
+function userParts(m: ProviderMessage, content: ContentBlock[], toolNames: Map<string, string>, model: string): Part[] {
   const responses: Part[] = [];
   const parts: Part[] = [];
-  for (const b of documentsForWire(m.content, true, vision)) {
+  for (const b of content) {
     switch (b.type) {
       case 'text':
         if (b.text) parts.push({ text: b.text });
@@ -259,9 +259,11 @@ export function geminiContents(req: ChatRequest, names: ToolNameMap, vision = tr
   for (const m of req.messages) for (const b of m.content) if (b.type === 'tool_use') toolNames.set(b.id, names.wire(b.name));
   const gemini3 = /^gemini-([3-9]|\d{2})/.test(normalizeModelId(req.model));
   const contents: Array<{ role: 'user' | 'model'; parts: Part[] }> = [];
-  for (const m of req.messages) {
+  // inline data counts toward Gemini's request size: the byte caps hold here too
+  const wire = capImageBytes(req.messages.map((m) => (m.role === 'user' ? documentsForWire(m.content, true, vision) : m.content)));
+  for (const [i, m] of req.messages.entries()) {
     const role = m.role === 'assistant' ? 'model' : 'user';
-    const parts = m.role === 'assistant' ? modelParts(m, names, req.model, gemini3) : userParts(m, toolNames, vision, req.model);
+    const parts = m.role === 'assistant' ? modelParts(m, names, req.model, gemini3) : userParts(m, wire[i], toolNames, req.model);
     if (!parts.length) continue;
     const last = contents[contents.length - 1];
     if (last?.role === role) last.parts.push(...parts);

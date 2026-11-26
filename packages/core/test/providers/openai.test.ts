@@ -284,6 +284,13 @@ describe('OpenAIProvider request mapping', () => {
     expect(tool('claude-opus-5-5', 3100, 100, 20)).toEqual(note('too large (3100x100) for a request with more than 20 images'));
     expect(tool('claude-opus-5-5', 3100, 100, 19)).toEqual(kept(3100, 100));
     expect(tool('gpt-6.1-sol', 3100, 100, 20)).toEqual(kept(3100, 100));
+    // a 13 MB screenshot (3840x2160, under 8000 px) is a note for any model: cliproxy's "image exceeds 10 MB maximum"
+    const huge = png(3840, 2160) + 'A'.repeat(13_048_560);
+    for (const model of ['claude-opus-5-5', 'gpt-6.1-sol']) {
+      const { messages } = cliproxy.buildBody({ model, system: [], messages: [{ role: 'user', content: [{ type: 'text', text: 'see' }, { type: 'image', mediaType: 'image/png', data: huge }] }] }) as any;
+      expect(JSON.stringify(messages)).toContain('left out: too large (12.4 MB), over 5.0 MB an image');
+      expect(JSON.stringify(messages)).not.toContain('AAAA');
+    }
   });
 
   test('official OpenAI: max_completion_tokens, prompt_cache_key, reasoning_effort, no temperature for reasoning models', () => {
