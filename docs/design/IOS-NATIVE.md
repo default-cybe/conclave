@@ -17,6 +17,12 @@ the same views.
   - inspector (`.inspector`, hidden by default): todos, files, the session's
     details.
   On iPhone and in a narrow Split View the same views collapse to a stack.
+- **iPhone (compact width).** The split view collapses to a
+  `NavigationStack`: the list, then the chat pushed on top. The inspector
+  becomes a sheet, the composer sits on the keyboard, and the Android phone
+  layout (`ChatScreen`, `SidePanel`) is the reference for spacing and order.
+  Code checks `horizontalSizeClass`, never the device model, so an iPad in
+  a narrow Stage Manager window gets the same layout.
 - **Windows.** Stage Manager, Split View and Slide Over. Multiple windows
   through scenes (`UIApplicationSupportsMultipleScenes`): one chat per window,
   opened with `openWindow(value:)` or by dragging a chat out of the sidebar.
@@ -63,12 +69,29 @@ not a new package.
   with no UIKit and no SwiftUI. It ports the Android `client` library: wire
   models, REST client, live socket, pairing and identity, transcript logic,
   model picks. Its tests port the Kotlin JVM tests and run with `swift test`.
-- `Conclave.xcodeproj`: committed and written by hand. It uses Xcode 16
-  synchronized folders (`PBXFileSystemSynchronizedRootGroup`), so adding a
-  Swift file needs no project edit. Nothing generates the project, so no tool
-  has to be pinned, and the diffs stay small.
-- `App/`: the SwiftUI app (`App/Sources`, `App/Assets.xcassets`,
-  `App/Info.plist`). `AppTests/`: its unit tests, run on an iPad simulator.
+- `project.yml`: the Xcode project, generated with
+  [XcodeGen](https://github.com/yonaskolb/XcodeGen). CI downloads a pinned
+  version and checks its SHA-256 before running it (`.github/workflows/ios.yml`).
+  `Conclave.xcodeproj` and the generated `App/Info.plist` are not committed.
+  Why not a committed `.xcodeproj`: a pbxproj is a long machine format with
+  object ids; nobody can review it in a diff, and the hub (Linux, no Xcode)
+  could not write or check one. A 60-line YAML file reviews like the Gradle
+  files. On a Mac: `brew install xcodegen` (or the pinned zip), then
+  `cd packages/ios && xcodegen && open Conclave.xcodeproj`.
+- `App/Sources`: the SwiftUI app, a folder per area (`Pairing/`, `Main/`, then
+  `Chat/`, `Sessions/` ...). `AppTests/`: its unit tests, run on an iPad
+  simulator.
+
+### CI
+
+`.github/workflows/ios.yml`, on changes under `packages/ios/**` and the
+workflow itself, on `macos-15`, actions pinned by SHA like the other
+workflows:
+
+- `kit`: `swift test` in `ConclaveKit` (Swift Testing).
+- `app`: XcodeGen, then `xcodebuild test` for an iPad simulator with
+  `CODE_SIGNING_ALLOWED=NO`, then a light and a dark screenshot of the app
+  uploaded as the `ios-screenshots` artifact.
 
 ## 4. Signing and distribution
 
