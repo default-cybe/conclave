@@ -7,6 +7,12 @@ from the section of its version (`scripts/releases/notes.ts`); a release
 without one fails. At tag time, rename `[Unreleased]` to the version and date,
 like `## [0.4.16] - 2026-10-24`.
 
+## [Unreleased]
+
+### Added
+
+- Native iPad and iPhone app, phase 1 (`packages/ios`): ConclaveKit, a Swift port of the Android client (REST, hub identity check, pairing, password login, live socket with replay, paged transcript with `trim=1` and block reads), with its tests; a SwiftUI app with a connect screen and an empty split view; CI on an iPad simulator (`.github/workflows/ios.yml`). Design in `docs/design/IOS-NATIVE.md`.
+
 ## [0.4.106] - 2026-11-26
 
 ### Added
