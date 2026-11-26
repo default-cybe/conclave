@@ -9,6 +9,10 @@ like `## [0.4.16] - 2026-10-24`.
 
 ## [Unreleased]
 
+### Added
+
+- Z.ai: GLM-5.4 (1M context, image and video input) is in the Coding Plan models, first in the default list and the deep GLM; GLM-5.3 moves to smart.
+
 ### Changed
 
 - Desktop: Open folder… uses the native OS folder picker for this app's paired computer, then confirms the folder with the existing checks and Add as project. Other devices keep the in-app browser; cancelling keeps the current folder, and a native dialog failure opens the in-app browser with an explanation.
