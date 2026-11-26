@@ -395,6 +395,14 @@ function DeviceDetail({ d, running }: { d: Device; running: Session[] }) {
                 <KV k="Shell" mono>
                   {d.info.shell}
                 </KV>
+                {d.info.platform === 'win32' && /(^|[\\/])cmd(\.exe)?$/i.test(d.info.shell) && (
+                  <p className="py-1.5 text-[13px] text-fg-3">
+                    <a className="link" href="https://git-scm.com/downloads/win" target="_blank" rel="noreferrer">
+                      Install Git for Windows
+                    </a>{' '}
+                    for full shell support
+                  </p>
+                )}
                 {d.info.capabilities.length > 0 && <KV k="Can use">{capabilityWords(d.info.capabilities)}</KV>}
                 {d.info.daemon && (
                   <KV k="Device agent">

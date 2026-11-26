@@ -128,7 +128,8 @@ describe('the platform card in requests', () => {
     expect(sys).not.toContain('Settings > AI connections');
     // 14,476 chars before the cut (v0.4.41), about 13.5k after
     // +350 for the identity lines at the top of BASE.md (who Conclave is and who made it)
-    expect(sys.length).toBeLessThan(14_250);
+    // +50 for the Environment's Shell line (the device's OS and shell, so Windows gets Windows commands)
+    expect(sys.length).toBeLessThan(14_300);
 
     const assistant = await t.engine.createSession({ title: 't', cwd: t.cwd, agent: 'assistant' });
     await t.run(assistant.id, 'my day');

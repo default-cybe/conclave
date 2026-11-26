@@ -1977,9 +1977,10 @@ export class BrowserManager implements BrowserTakeover {
         CDP_MS,
         page.evaluate(() => ({ w: document.documentElement.scrollWidth, h: document.documentElement.scrollHeight })),
       ).catch(() => undefined);
-      if (dims && dims.h > MAX_SHOT_HEIGHT) {
-        clip = { x: 0, y: 0, width: dims.w, height: MAX_SHOT_HEIGHT };
-        notes.push(`Page is ${dims.h}px tall; the image stops at ${MAX_SHOT_HEIGHT}px.`);
+      if (dims && (dims.h > MAX_SHOT_HEIGHT || dims.w > MAX_SHOT_HEIGHT)) {
+        clip = { x: 0, y: 0, width: Math.min(dims.w, MAX_SHOT_HEIGHT), height: Math.min(dims.h, MAX_SHOT_HEIGHT) };
+        if (dims.h > MAX_SHOT_HEIGHT) notes.push(`Page is ${dims.h}px tall; the image stops at ${MAX_SHOT_HEIGHT}px.`);
+        if (dims.w > MAX_SHOT_HEIGHT) notes.push(`Page is ${dims.w}px wide; the image stops at ${MAX_SHOT_HEIGHT}px.`);
       }
     }
     for (let attempt = 0; attempt < 2; attempt++) {

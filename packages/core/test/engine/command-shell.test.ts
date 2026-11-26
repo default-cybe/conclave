@@ -2,6 +2,10 @@ import { describe, test, expect } from 'bun:test';
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { startTestEngine } from './harness';
+import { bashRefusal } from '../../src/engine/commands';
+import { mayRunProjectCommand } from '../../src/session/verify-gate';
+import type { Engine } from '../../src/engine/engine';
+import type { Session } from '../../src/types';
 
 /** A project command whose !`cmd` line leaves a marker file when it runs. */
 function addCommand(cwd: string): string {
@@ -11,6 +15,25 @@ function addCommand(cwd: string): string {
 }
 
 describe('!`cmd` lines in a typed command', () => {
+  test('command and verify checks use the executing Windows shell', async () => {
+    const machine = { lastInfo: { shell: 'C:\\Windows\\System32\\cmd.exe' } };
+    const engine = {
+      machineFor: () => machine,
+      machineHome: async () => 'C:\\Users\\owner',
+      permissionRulesFor: () => ({ allow: ['Bash'], ask: [], deny: ['Bash(mkdir:*)'] }),
+      runnerFor: () => ({ sessionAllow: [] }),
+      config: { get: () => ({ permissions: { additionalDirectories: [] } }) },
+      trust: { isTrusted: () => false },
+      requestApproval: () => { throw new Error('denied commands must not ask'); },
+    } as unknown as Engine;
+    const command = "echo 'safe & mkdir cc-review-owned & echo '";
+    for (const permissionMode of ['default', 'plan', 'bypass'] as const) {
+      const session = { id: 'windows-test', cwd: 'C:\\work', permissionMode } as Session;
+      expect(await bashRefusal(engine, session, command, 'test', new AbortController().signal)).toContain('Denied');
+      expect(await mayRunProjectCommand(engine, session, command)).toBe(false);
+    }
+  });
+
   test('get the permission check a Bash call gets', async () => {
     const t = await startTestEngine({ script: [[{ text: 'ok' }]], approve: 'deny' });
     try {

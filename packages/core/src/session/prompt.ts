@@ -16,6 +16,8 @@ export interface PromptParts {
   toolNames: string[];
   platform: string;
   hostname?: string;
+  /** The device's shell (MachineInfo.shell): on Windows cmd.exe means no Git Bash. */
+  shell?: string;
   isGitRepo: boolean;
   deviceName: string;
   projectInstructions: Array<{ path: string; content: string }>;
@@ -183,6 +185,17 @@ export function workflowStepNote(session: Session): string | undefined {
   return MODE_NOTES.workflow ?? WORKFLOW_STEP_FALLBACK;
 }
 
+/** The Environment line on the device's OS and the shell the Bash tool runs in. */
+export function shellLine(platform: string, shell?: string): string {
+  if (platform === 'win32') {
+    if (shell && /(^|[\\/])cmd(\.exe)?$/i.test(shell)) return '- Shell: Windows cmd.exe (no bash). Foreground commands run as a batch script: use %%i in FOR loops, %% for a literal %, CALL for .cmd/.bat tools before more commands, and exit /b. Use dir, type, findstr, where or powershell -NoProfile -Command.';
+    if (shell && /(^|[\\/])bash(\.exe)?$/i.test(shell)) return '- Shell: Windows with Git Bash: POSIX commands work; paths like D:\\x work as /d/x or D:/x';
+    return `- Shell: Windows, ${shell ?? 'unknown (check before choosing shell syntax)'}`;
+  }
+  const os = platform === 'darwin' ? 'macOS' : platform === 'linux' ? 'Linux' : platform;
+  return `- Shell: ${os}, commands run in ${shell ?? 'the device shell (not reported)'}`;
+}
+
 /**
  * The system prompt is assembled from stable parts only (no clock times, no
  * per-turn data) so provider prompt caches keep hitting across turns. Dynamic
@@ -196,6 +209,7 @@ export function buildSystemPrompt(p: PromptParts): SystemBlock[] {
     '# Environment',
     `- Working directory: ${p.session.cwd}`,
     `- Device: ${p.deviceName}${p.hostname ? ` (${p.hostname})` : ''}, platform ${p.platform}`,
+    shellLine(p.platform, p.shell),
     `- Git repository: ${p.isGitRepo ? 'yes' : 'no'}`,
     ...(p.testCommand ? [`- Test command: ${p.testCommand}`] : []),
     ...(p.workspace?.python3Only ? ['- Python: use python3; this device has no python command'] : []),

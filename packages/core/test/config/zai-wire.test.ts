@@ -48,7 +48,7 @@ describe('providers.zai moves to Chat Completions at /api/coding/paas/v4', () =>
   test('an empty file loads the new default', () => {
     const { config } = store(undefined);
     expect(config.get().providers.zai).toMatchObject({ type: 'openai', baseUrl: 'https://api.z.ai/api/coding/paas/v4', apiKeyEnv: 'ZAI_API_KEY' });
-    expect(config.get().providers.zai.models?.[0]).toBe('glm-5.3');
+    expect(config.get().providers.zai.models?.[0]).toBe('glm-5.4');
   });
 
   test('the move runs on load only: a later update or replace back to the shim stays', () => {
