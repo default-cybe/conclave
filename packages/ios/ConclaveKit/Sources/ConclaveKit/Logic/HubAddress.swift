@@ -99,6 +99,23 @@ public enum HubAddresses {
         let fromHub = dedupe(reply)
         return fromHub.isEmpty ? dedupe([used]) : fromHub
     }
+
+    /// Pairing: `attempt` at each of `urls` in order (the code's best address, then its alts),
+    /// moving on only when an address does not answer. The hub's own answer (a wrong or used code)
+    /// and another machine at the address stop at once. Throws the last failure.
+    public static func firstAnswer<T>(_ urls: [String], _ attempt: (String) async throws -> T) async throws -> (url: String, result: T) {
+        var failure: Error?
+        for url in urls {
+            do {
+                return (url, try await attempt(url))
+            } catch let e where e is ConclaveAPIError || e is HubIdentityError || e is PasswordOverHTTPError {
+                throw e
+            } catch {
+                failure = error
+            }
+        }
+        throw failure ?? URLError(.cannotConnectToHost)
+    }
 }
 
 /// Where a password may go: https, or plain http to this device or a private address
