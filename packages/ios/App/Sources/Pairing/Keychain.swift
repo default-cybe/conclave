@@ -16,11 +16,11 @@ protocol PairingStore: Sendable {
 
 /// One generic password item, readable only while the device is unlocked and never synced.
 struct KeychainStore: PairingStore {
-    private let query: [String: Any] = [
+    private var query: [String: Any] { [
         kSecClass as String: kSecClassGenericPassword,
         kSecAttrService as String: "dev.conclave.app",
         kSecAttrAccount as String: "pairing",
-    ]
+    ] }
 
     func load() -> SavedPairing? {
         var q = query
