@@ -1,6 +1,6 @@
 import type { ContentBlock, ImageBlock, StopReason, Usage } from '../types';
 import { findCatalogEntry, normalizeModelId } from './catalog';
-import { BaseProvider, budgetOf, dataUrl, documentsForWire, effortOf, parseToolInput, toolResultMedia, toolResultString, toolTurnLabel, wantsThinking } from './common';
+import { BaseProvider, budgetOf, capImageSizes, dataUrl, documentsForWire, effortOf, parseToolInput, toolResultMedia, toolResultString, toolTurnLabel, wantsThinking } from './common';
 import { classifyStreamError, parseRateLimitHeaders } from './errors';
 import { SKIP_SIGNATURE as GEMINI_SKIP_SIGNATURE } from './gemini';
 import { hostOf, openStream, trimSlash } from './http';
@@ -80,7 +80,9 @@ export function chatMessages(req: ChatRequest, names: ToolNameMap, pdf = true, v
   if (system) out.push({ role: 'system', content: system });
   const toolNames = new Map<string, string>();
   for (const m of req.messages) for (const b of m.content) if (b.type === 'tool_use') toolNames.set(b.id, names.wire(b.name));
-  for (const m of req.messages) {
+  // Claude behind an OpenAI-compatible endpoint (CLIProxyAPI) keeps Anthropic's many-image limit; 8000 px a side goes for every model
+  const contents = capImageSizes(req.messages.map((m) => (m.role === 'user' ? documentsForWire(m.content, pdf, vision) : m.content)), /claude/i.test(req.model));
+  for (const [i, m] of req.messages.entries()) {
     if (m.role === 'assistant') {
       const a = assistantMessage(m, names, req.model);
       if (a) out.push(a);
@@ -88,7 +90,7 @@ export function chatMessages(req: ChatRequest, names: ToolNameMap, pdf = true, v
     }
     const tools: Wire[] = [];
     const parts: Wire[] = [];
-    for (const b of documentsForWire(m.content, pdf, vision)) {
+    for (const b of contents[i]) {
       if (b.type === 'tool_result') {
         tools.push({ role: 'tool', tool_call_id: b.toolUseId, content: toolResultString(b) });
         const imgs = toolResultMedia(b)

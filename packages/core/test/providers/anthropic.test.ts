@@ -454,6 +454,14 @@ describe('AnthropicProvider request mapping', () => {
     const body = provider().buildBody(base({ messages: req(20) })) as any;
     expect(body.messages[0].content.every((b: any) => b.type === 'image')).toBe(true);
     expect(body.messages[2].content.filter((b: any) => b.type === 'image')).toHaveLength(10);
+    // a PDF counts toward the 20 (vision docs: "20 or fewer image and document blocks")
+    const pdf = { type: 'document' as const, mediaType: 'application/pdf', data: Buffer.from('%PDF-1.4 fake').toString('base64'), title: 'a.pdf' };
+    const withPdf = req(19);
+    withPdf[0].content.push(pdf);
+    expect((provider().buildBody(base({ messages: withPdf })) as any).messages[2].content[0].content[0].type).toBe('text');
+    // over 8000 px a side is a note even alone
+    const tall = (provider().buildBody(base({ messages: [{ role: 'user', content: [{ type: 'image', mediaType: 'image/png', data: png(1280, 13000) }] }] })) as any).messages[0].content[0];
+    expect(tall).toEqual({ type: 'text', text: '[image (image/png) left out: too large (1280x13000), over 8000 px a side; ask for a smaller copy]' });
   });
 
   test('responseSchema uses output_config on the first-party API only', () => {

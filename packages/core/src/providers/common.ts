@@ -1,6 +1,6 @@
 import type { ContentBlock, DocumentBlock, ImageBlock, TextBlock, ToolResultBlock } from '../types';
 import { isZip, mediaTypeFor } from '../attachments/limits';
-import { imageLeftOutNote, isModelImage, SNIFF_BYTES, sniffImageType } from '../attachments/image';
+import { imageLeftOutNote, imageSize, isModelImage, SNIFF_BYTES, sniffImageType } from '../attachments/image';
 import { pdfLeftOutNote, pdfProblem } from '../attachments/pdf';
 import type { ProviderConfig } from '../config/schema';
 import { catalogEntries, familyForProvider, findCatalogEntry, lookupModel, normalizeModelId, type CatalogEntry } from './catalog';
@@ -210,6 +210,45 @@ export function documentsForWire(content: ContentBlock[], pdf: boolean, vision =
     return note(`<document name="${name}" type="${type}">\n${body}\n</document>`);
   };
   return content.map(one);
+}
+
+/** Anthropic vision docs: "The maximum dimensions for each image are 8000x8000 px." */
+export const IMAGE_MAX_PX = 8000;
+/** Over this many image and document blocks in one request, each image's longer side must stay within MANY_IMAGE_MAX_PX. */
+export const MANY_IMAGES = 20;
+// Anthropic 400: "At least one of the image dimensions exceed max allowed size for many-image requests: 3000 pixels"; vision docs: "neither dimension exceeds 3,000 px" is safe on all platforms
+export const MANY_IMAGE_MAX_PX = 3000;
+
+/** An image's pixel size from the start of its base64; a JPEG whose frame header sits past a large EXIF or ICC segment needs more. */
+function base64ImageSize(data: string): { width: number; height: number } | undefined {
+  const b64 = data.replace(/^data:[^,]*,/, '');
+  const at = (n: number) => imageSize(Buffer.from(b64.slice(0, n), 'base64'));
+  return at(4096) ?? at(256 * 1024);
+}
+
+/**
+ * The request's messages (each message's content, after documentsForWire)
+ * with each image too large for the API replaced by a note: a side over
+ * IMAGE_MAX_PX always, and when `many` and the request holds more than
+ * MANY_IMAGES image and document blocks (attachments and tool results'),
+ * a side over MANY_IMAGE_MAX_PX. On the wire only: the stored history keeps
+ * the image, so it comes back when the count drops. An image whose size
+ * cannot be read is kept (the runner's bad-image retry covers it).
+ */
+export function capImageSizes(contents: ContentBlock[][], many = true): ContentBlock[][] {
+  const count = (bs: ContentBlock[]): number =>
+    bs.reduce((n, b) => n + (b.type === 'image' || b.type === 'document' ? 1 : b.type === 'tool_result' && typeof b.content !== 'string' ? count(b.content) : 0), 0);
+  const crowded = many && contents.reduce((n, c) => n + count(c), 0) > MANY_IMAGES;
+  const one = (b: ContentBlock): ContentBlock => {
+    if (b.type === 'tool_result') return typeof b.content === 'string' ? b : { ...b, content: b.content.map(one) as ToolResultBlock['content'] };
+    if (b.type !== 'image' || !b.data) return b;
+    const s = base64ImageSize(b.data);
+    const side = s ? Math.max(s.width, s.height) : 0;
+    if (side > IMAGE_MAX_PX) return { type: 'text', text: imageLeftOutNote(`(${b.mediaType})`, `too large (${s!.width}x${s!.height}), over ${IMAGE_MAX_PX} px a side; ask for a smaller copy`) };
+    if (crowded && side > MANY_IMAGE_MAX_PX) return { type: 'text', text: imageLeftOutNote(`(${b.mediaType})`, `too large (${s!.width}x${s!.height}) for a request with more than ${MANY_IMAGES} images; ask for a smaller copy`) };
+    return b;
+  };
+  return contents.map((c) => c.map(one));
 }
 
 /** True when the request asks for thinking: a level or a budget, not Off. */
