@@ -22,8 +22,9 @@ struct ChatView: View {
                 }
             }
             .scrollTargetLayout()
-            .padding()
-            .frame(maxWidth: 820)
+            .padding(.vertical)
+            // a fixed width: a wide code line or table must not widen the column past the margins
+            .containerRelativeFrame(.horizontal) { w, _ in min(w - 32, 820) }
             .frame(maxWidth: .infinity)
         }
         .scrollPosition($position)

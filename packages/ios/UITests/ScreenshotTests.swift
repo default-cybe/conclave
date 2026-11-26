@@ -1,3 +1,4 @@
+import UIKit
 import XCTest
 
 /// CI screenshots of the mock hub (`-mockHub`), run by the Screenshots scheme. simctl cannot turn
@@ -23,10 +24,17 @@ final class ScreenshotTests: XCTestCase {
                 XCTAssert(app.staticTexts["Here is the icon colour."].waitForExistence(timeout: 30))
                 sleep(2)
                 let url = URL(fileURLWithPath: dir).appendingPathComponent("\(prefix)-\(o)-\(a).png")
-                try XCUIScreen.main.screenshot().pngRepresentation.write(to: url)
+                try Self.upright(XCUIScreen.main.screenshot().image).write(to: url)
                 // element frames, to check layout in CI without a Mac
                 try app.debugDescription.write(to: url.deletingPathExtension().appendingPathExtension("txt"), atomically: true, encoding: .utf8)
             }
         }
+    }
+
+    /// The screen's pixels stay portrait with an EXIF turn; drawing applies it, so a landscape shot is landscape.
+    private static func upright(_ image: UIImage) -> Data {
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = image.scale
+        return UIGraphicsImageRenderer(size: image.size, format: format).pngData { _ in image.draw(at: .zero) }
     }
 }
