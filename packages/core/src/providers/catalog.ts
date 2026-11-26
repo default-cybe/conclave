@@ -125,7 +125,9 @@ export const CATALOG: CatalogEntry[] = [
   e('gemini', 'gemini-2.5-flash', 'Gemini 2.5 Flash', 1_048_576, 65_536, 'vtr', [0.3, 2.5, 0.03, 0], 'fast'),
 
   // Z.ai GLM (API list prices; the coding plan is a flat subscription).
-  e('zai', 'glm-5.3', 'GLM-5.3', M, 128 * K, 'tr', [1.4, 4.4, 0.26, 0], 'deep'),
+  // docs.z.ai/guides/llm/glm-5.4 (2026-11-24): 1M context, 128K output, image and video input; Coding Plan only, no API price yet, so GLM-5.3's.
+  e('zai', 'glm-5.4', 'GLM-5.4', M, 128 * K, 'vtr', [1.4, 4.4, 0.26, 0], 'deep'),
+  e('zai', 'glm-5.3', 'GLM-5.3', M, 128 * K, 'tr', [1.4, 4.4, 0.26, 0], 'smart'),
   e('zai', 'glm-5.2', 'GLM-5.2', M, 128 * K, 'tr', [1.4, 4.4, 0.26, 0], 'smart'),
   e('zai', 'glm-5.1', 'GLM-5.1', 200 * K, 128 * K, 'tr', [1.4, 4.4, 0.26, 0], 'smart'),
   e('zai', 'glm-5', 'GLM-5', 200 * K, 128 * K, 'tr', [1, 3.2, 0.2, 0], 'smart'),
