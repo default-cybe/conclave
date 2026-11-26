@@ -1,6 +1,7 @@
 #if DEBUG
 import ConclaveKit
 import Foundation
+import os
 
 /// `-mockHub`: a paired hub with fixed sessions and one transcript, served by URLProtocol, and a
 /// socket that says hello and stays open. For CI screenshots only; never in a release build.
@@ -34,13 +35,53 @@ enum MockHub {
         func first() -> Bool { defer { said = true }; return !said }
     }
 
-    static func reply(_ path: String) -> String {
-        if path.hasSuffix("/messages") { return messages }
-        if path == "/api/sessions" { return sessions }
-        if path == "/api/approvals" { return approvals }
-        if path == "/api/questions" { return questions }
-        if path == "/api/models" { return models }
-        return "[]"
+    /// Status and JSON body for a request, shaped as the hub answers it.
+    static func reply(_ method: String, _ path: String, _ body: Data?) -> (Int, String) {
+        let p = path.split(separator: "/").map(String.init) // ["api", "sessions", id, ...]
+        if p.count >= 3, p[0] == "api", p[1] == "sessions" {
+            let id = p[2]
+            // PATCH and seen answer with the session, as GET does
+            if p.count == 3 || (p.count == 4 && p[3] == "seen") { return session(id, patch: method == "PATCH" ? body : nil) }
+            if p.count == 4, p[3] == "messages" { return (200, method == "POST" ? #"{"messageId":"m-sent"}"# : messages) }
+        }
+        if path == "/api/sessions" { return (200, json(sessionList())) }
+        if path == "/api/approvals" { return (200, approvals) }
+        if path == "/api/questions" { return (200, questions) }
+        if path == "/api/models" { return (200, models) }
+        return (200, "[]")
+    }
+
+    /// PATCHed sessions as JSON, so a model pick outlives the next list load. JSON Data keeps the lock state Sendable.
+    private static let edited = OSAllocatedUnfairLock(initialState: [String: Data]())
+
+    private static func sessionList() -> [[String: Any]] {
+        let base = (try? JSONSerialization.jsonObject(with: Data(sessions.utf8))) as? [[String: Any]] ?? []
+        let edits = edited.withLock { $0 }
+        return base.map { s in
+            (s["id"] as? String).flatMap { edits[$0] }.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] } ?? s
+        }
+    }
+
+    /// One session; a patch merges in (chat settings key by key) and is kept, as the hub does.
+    private static func session(_ id: String, patch: Data?) -> (Int, String) {
+        guard var s = sessionList().first(where: { $0["id"] as? String == id }) else { return (404, #"{"error":"Session not found"}"#) }
+        if let patch, let changes = (try? JSONSerialization.jsonObject(with: patch)) as? [String: Any] {
+            for (k, v) in changes {
+                if k == "chat", let c = v as? [String: Any] {
+                    s[k] = ((s[k] as? [String: Any]) ?? [:]).merging(c) { $1 }
+                } else {
+                    s[k] = v
+                }
+            }
+            s["updatedAt"] = Int64(Date().timeIntervalSince1970 * 1000)
+            let saved = Data(json(s).utf8)
+            edited.withLock { $0[id] = saved }
+        }
+        return (200, json(s))
+    }
+
+    private static func json(_ v: Any) -> String {
+        String(decoding: (try? JSONSerialization.data(withJSONObject: v)) ?? Data("null".utf8), as: UTF8.self)
     }
 
     private static let now = Int64(Date().timeIntervalSince1970 * 1000)
@@ -112,11 +153,27 @@ final class MockProtocol: URLProtocol, @unchecked Sendable {
 
     override func startLoading() {
         let url = request.url!
-        let body = Data(MockHub.reply(url.path).utf8)
-        let res = HTTPURLResponse(url: url, statusCode: 200, httpVersion: "HTTP/1.1", headerFields: ["Content-Type": "application/json"])!
+        let (status, text) = MockHub.reply(request.httpMethod ?? "GET", url.path, Self.body(request))
+        let res = HTTPURLResponse(url: url, statusCode: status, httpVersion: "HTTP/1.1", headerFields: ["Content-Type": "application/json"])!
         client?.urlProtocol(self, didReceive: res, cacheStoragePolicy: .notAllowed)
-        client?.urlProtocol(self, didLoad: body)
+        client?.urlProtocol(self, didLoad: Data(text.utf8))
         client?.urlProtocolDidFinishLoading(self)
+    }
+
+    /// URLSession hands a protocol the body as a stream, not httpBody.
+    private static func body(_ r: URLRequest) -> Data? {
+        if let b = r.httpBody { return b }
+        guard let s = r.httpBodyStream else { return nil }
+        s.open()
+        defer { s.close() }
+        var out = Data()
+        var buf = [UInt8](repeating: 0, count: 4096)
+        while true {
+            let n = s.read(&buf, maxLength: buf.count)
+            if n <= 0 { break }
+            out.append(buf, count: n)
+        }
+        return out
     }
 }
 #endif

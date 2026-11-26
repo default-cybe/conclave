@@ -22,7 +22,18 @@ final class ScreenshotTests: XCTestCase {
                 XCUIDevice.shared.orientation = o == "landscape" ? .landscapeLeft : .portrait
                 app.launch()
                 // the last things the transcript draws: the approval and question cards from the mock hub
-                XCTAssert(app.buttons["Allow once"].waitForExistence(timeout: 30))
+                guard app.buttons["Allow once"].waitForExistence(timeout: 15) else {
+                    let screen = XCUIScreen.main.screenshot()
+                    let shot = XCTAttachment(screenshot: screen)
+                    shot.name = "no-allow-once-\(prefix)-\(o)-\(a)"
+                    shot.lifetime = .keepAlways
+                    add(shot)
+                    add(XCTAttachment(string: app.debugDescription))
+                    // also in the shots artifact, which is easier to open than the xcresult
+                    try? Self.upright(screen.image).write(to: URL(fileURLWithPath: dir).appendingPathComponent("fail-\(prefix)-\(o)-\(a).png"))
+                    XCTFail("\"Allow once\" did not show in 15 s (\(prefix) \(o) \(a))")
+                    return
+                }
                 sleep(2)
                 let url = URL(fileURLWithPath: dir).appendingPathComponent("\(prefix)-\(o)-\(a).png")
                 try Self.upright(XCUIScreen.main.screenshot().image).write(to: url)

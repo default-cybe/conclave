@@ -34,6 +34,7 @@ jobs:
         run: xcodebuild -version && swift --version
 
       - name: swift test
+        timeout-minutes: 15
         run: swift test
 
   app:
@@ -46,6 +47,8 @@ jobs:
     env:
       XCODEGEN_VERSION: "2.48.0"
       XCODEGEN_SHA256: 620c9f0dc10849f94728ab5df52d225ebab8187439dd6fee1925e59e80dff892
+      # a test that hangs fails in minutes instead of eating the job's timeout
+      TEST_TIMEOUTS: -test-timeouts-enabled YES -maximum-test-execution-time-allowance 120 -default-test-execution-time-allowance 60
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
@@ -55,57 +58,84 @@ jobs:
           echo "${XCODEGEN_SHA256}  /tmp/xcodegen.zip" | shasum -a 256 -c -
           unzip -q /tmp/xcodegen.zip -d /tmp
           /tmp/xcodegen/bin/xcodegen generate
+          mkdir -p logs shots
 
-      - name: Pick an iPad simulator
+      - name: Pick an iPad and an iPhone simulator
+        # run 45836324648 hung here for 55 minutes: simctl list never answered. Each try gets 90 s,
+        # then CoreSimulatorService is restarted and asked again.
+        timeout-minutes: 5
         run: |
-          id=$(xcrun simctl list devices available -j | python3 -c '
+          set -o pipefail
+          for try in 1 2 3; do
+            perl -e 'alarm shift; exec @ARGV' 90 xcrun simctl list devices available -j > /tmp/devices.json && break
+            echo "simctl list did not answer (try $try), restarting CoreSimulatorService"
+            killall -9 com.apple.CoreSimulator.CoreSimulatorService || true
+            sleep 5
+          done
+          pick() { python3 -c '
           import json, sys
-          d = json.load(sys.stdin)["devices"]
-          ipads = [x for rt, xs in d.items() if "iOS" in rt for x in xs if x["name"].startswith("iPad")]
-          print(ipads[-1]["udid"])')
-          echo "SIM=$id" >> "$GITHUB_ENV"
-          xcrun simctl list devices available | grep "$id"
+          d = json.load(open("/tmp/devices.json"))["devices"]
+          print([x for rt, xs in d.items() if "iOS" in rt for x in xs if x["name"].startswith(sys.argv[1])][-1]["udid"])' "$1"; }
+          ipad=$(pick iPad)
+          phone=$(pick iPhone)
+          echo "SIM=$ipad" >> "$GITHUB_ENV"
+          echo "PHONE=$phone" >> "$GITHUB_ENV"
+          python3 -c '
+          import json, sys
+          for rt, xs in json.load(open("/tmp/devices.json"))["devices"].items():
+              for x in xs:
+                  if x["udid"] in sys.argv[1:]: print(rt, x["name"], x["udid"])' "$ipad" "$phone"
 
       - name: Build and test
+        timeout-minutes: 20
         run: |
+          set -o pipefail
           xcodebuild test -project Conclave.xcodeproj -scheme Conclave \
-            -destination "id=$SIM" -derivedDataPath build \
-            CODE_SIGNING_ALLOWED=NO > /tmp/xcodebuild.log 2>&1 \
-            || { grep -E "error:|failed" /tmp/xcodebuild.log | head -80; tail -40 /tmp/xcodebuild.log; exit 1; }
-          grep -E "Test run|Executed|TEST SUCCEEDED" /tmp/xcodebuild.log
+            -destination "id=$SIM" -derivedDataPath build -resultBundlePath logs/unit.xcresult $TEST_TIMEOUTS \
+            CODE_SIGNING_ALLOWED=NO 2>&1 | tee logs/unit.log \
+            | grep -E --line-buffered "error:|Test Case .*(passed|failed)|Executed|TEST (SUCCEEDED|FAILED)" \
+            || { tail -60 logs/unit.log; exit 1; }
 
       - name: Screenshot the connect screen
+        timeout-minutes: 10
         run: |
+          set -o pipefail
           xcrun simctl boot "$SIM" || true
           xcrun simctl bootstatus "$SIM" -b
           xcrun simctl install "$SIM" build/Build/Products/Debug-iphonesimulator/Conclave.app
           xcrun simctl launch "$SIM" dev.conclave.app
           sleep 8
-          mkdir -p shots
           xcrun simctl io "$SIM" screenshot shots/ipad-connect-light.png
           xcrun simctl ui "$SIM" appearance dark
           sleep 3
           xcrun simctl io "$SIM" screenshot shots/ipad-connect-dark.png
 
-      - name: Screenshot sidebar and transcript (mock hub)
-        # UITests/ScreenshotTests.swift turns the device and writes the PNGs; TEST_RUNNER_ vars reach it
+      # UITests/ScreenshotTests.swift turns the device and writes the PNGs; TEST_RUNNER_ vars reach it
+      - name: Screenshot sidebar and transcript on iPad (mock hub)
+        timeout-minutes: 10
         run: |
-          shots() { # device id, prefix, orientations, appearances
-            TEST_RUNNER_SHOTS="$PWD/shots" TEST_RUNNER_SHOT_PREFIX="$2" \
-            TEST_RUNNER_SHOT_ORIENTATIONS="$3" TEST_RUNNER_SHOT_APPEARANCES="$4" \
-            xcodebuild test -project Conclave.xcodeproj -scheme Screenshots \
-              -destination "id=$1" -derivedDataPath build \
-              CODE_SIGNING_ALLOWED=NO > "/tmp/shots-$2.log" 2>&1 \
-              || { grep -E "error:|failed|Skipped" "/tmp/shots-$2.log" | head -60; tail -40 "/tmp/shots-$2.log"; exit 1; }
-          }
-          shots "$SIM" ipad landscape,portrait light,dark
+          set -o pipefail
+          TEST_RUNNER_SHOTS="$PWD/shots" TEST_RUNNER_SHOT_PREFIX=ipad \
+          TEST_RUNNER_SHOT_ORIENTATIONS=landscape,portrait TEST_RUNNER_SHOT_APPEARANCES=light,dark \
+          xcodebuild test -project Conclave.xcodeproj -scheme Screenshots \
+            -destination "id=$SIM" -derivedDataPath build -resultBundlePath logs/shots-ipad.xcresult $TEST_TIMEOUTS \
+            CODE_SIGNING_ALLOWED=NO 2>&1 | tee logs/shots-ipad.log \
+            | grep -E --line-buffered "error:|Test Case .*(passed|failed)|Executed|TEST (SUCCEEDED|FAILED)" \
+            || { tail -60 logs/shots-ipad.log; exit 1; }
+
+      - name: Screenshot the transcript on iPhone (mock hub)
+        timeout-minutes: 10
+        run: |
+          set -o pipefail
           # one simulator at a time: booting a second next to the iPad took 15 minutes
-          xcrun simctl shutdown "$SIM"
-          phone=$(xcrun simctl list devices available -j | python3 -c '
-          import json, sys
-          d = json.load(sys.stdin)["devices"]
-          print([x for rt, xs in d.items() if "iOS" in rt for x in xs if x["name"].startswith("iPhone")][-1]["udid"])')
-          shots "$phone" iphone portrait light
+          xcrun simctl shutdown "$SIM" || true
+          TEST_RUNNER_SHOTS="$PWD/shots" TEST_RUNNER_SHOT_PREFIX=iphone \
+          TEST_RUNNER_SHOT_ORIENTATIONS=portrait TEST_RUNNER_SHOT_APPEARANCES=light \
+          xcodebuild test -project Conclave.xcodeproj -scheme Screenshots \
+            -destination "id=$PHONE" -derivedDataPath build -resultBundlePath logs/shots-iphone.xcresult $TEST_TIMEOUTS \
+            CODE_SIGNING_ALLOWED=NO 2>&1 | tee logs/shots-iphone.log \
+            | grep -E --line-buffered "error:|Test Case .*(passed|failed)|Executed|TEST (SUCCEEDED|FAILED)" \
+            || { tail -60 logs/shots-iphone.log; exit 1; }
           ls -la shots
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
@@ -113,4 +143,11 @@ jobs:
         with:
           name: ios-screenshots
           path: packages/ios/shots
+          if-no-files-found: ignore
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: always()
+        with:
+          name: ios-logs
+          path: packages/ios/logs
           if-no-files-found: ignore
