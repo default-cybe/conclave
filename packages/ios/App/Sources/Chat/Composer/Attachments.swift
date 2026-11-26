@@ -51,11 +51,13 @@ enum Attachments {
     /// A dropped item: a picture by its data, anything else as the file it carries.
     static func load(_ p: NSItemProvider) async -> Attachment? {
         let name = p.suggestedName
-        if p.hasItemConformingToTypeIdentifier(UTType.image.identifier),
-           let data = try? await p.loadData(UTType.image) {
-            return image(data, name: name)
+        let type = p.hasItemConformingToTypeIdentifier(UTType.image.identifier) ? UTType.image : p.registeredContentTypes.first
+        guard let type else { return nil }
+        let data: Data? = await withCheckedContinuation { c in
+            _ = p.loadDataRepresentation(for: type) { d, _ in c.resume(returning: d) }
         }
-        guard let type = p.registeredContentTypes.first, let data = try? await p.loadData(type) else { return nil }
+        guard let data else { return nil }
+        if type == .image { return image(data, name: name) }
         return file(data, name: name.map { $0 + (type.preferredFilenameExtension.map { ".\($0)" } ?? "") } ?? "file", type: type)
     }
 
@@ -63,15 +65,5 @@ enum Attachments {
     static func thumbnail(_ a: Attachment, side: CGFloat) -> UIImage? {
         guard a.mediaType.hasPrefix("image/"), let b64 = a.data, let data = Data(base64Encoded: b64) else { return nil }
         return PictureView.thumbnail(data, maxPixels: side).map { UIImage(cgImage: $0) }
-    }
-}
-
-extension NSItemProvider {
-    func loadData(_ type: UTType) async throws -> Data {
-        try await withCheckedThrowingContinuation { c in
-            _ = loadDataRepresentation(for: type) { data, error in
-                if let data { c.resume(returning: data) } else { c.resume(throwing: error ?? CocoaError(.fileReadUnknown)) }
-            }
-        }
     }
 }
