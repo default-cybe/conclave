@@ -11,6 +11,6 @@ let package = Package(
     ],
     targets: [
         .target(name: "ConclaveKit"),
-        .testTarget(name: "ConclaveKitTests", dependencies: ["ConclaveKit"]),
+        .testTarget(name: "ConclaveKitTests", dependencies: ["ConclaveKit"], resources: [.copy("Fixtures")]),
     ]
 )

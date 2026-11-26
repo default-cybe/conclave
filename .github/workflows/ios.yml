@@ -1,0 +1,37 @@
+name: iOS
+
+on:
+  push:
+    branches: ["**"]
+    paths:
+      - "packages/ios/**"
+      - ".github/workflows/ios.yml"
+  pull_request:
+    paths:
+      - "packages/ios/**"
+      - ".github/workflows/ios.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ios-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  kit:
+    name: ConclaveKit tests
+    runs-on: macos-15
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: packages/ios/ConclaveKit
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Toolchain
+        run: xcodebuild -version && swift --version
+
+      - name: swift test
+        run: swift test

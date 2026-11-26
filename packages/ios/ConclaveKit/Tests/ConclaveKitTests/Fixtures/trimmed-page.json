@@ -1,0 +1,5 @@
+[
+  {"id":"m1","sessionId":"s1","seq":1,"role":"user","content":[{"type":"text","text":"hi"},{"type":"image","mediaType":"image/png"}],"meta":{"trimmed":[{"index":1,"bytes":4000000}]}},
+  {"id":"m2","sessionId":"s1","seq":2,"role":"user","content":[{"type":"tool_result","toolUseId":"t1","content":[{"type":"text","text":"shot"},{"type":"image","mediaType":"image/png"}]}],"meta":{"trimmed":[{"index":0,"bytes":5000000}]}},
+  {"id":"m3","sessionId":"s1","seq":3,"role":"user","content":[{"type":"image","mediaType":"image/png","data":"AAAA"}]}
+]

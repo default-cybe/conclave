@@ -234,6 +234,64 @@ public struct NextModelResult: Sendable, Hashable, Codable {
 
 // MARK: - Session changes
 
+/// POST /api/sessions. Nil fields are left out.
+public struct CreateSessionInput: Sendable, Hashable, Encodable {
+    public var agent: String?
+    public var model: String?
+    public var mode: SessionMode?
+    public var permissionMode: PermissionMode?
+    public var cwd: String?
+    public var device: String?
+    public var title: String?
+    public var parentId: String?
+    /// Sent as the first message right away.
+    public var prompt: String?
+    /// `.chat` makes a plain chat: the chat agent, the hub as device, and the switches in `chat`.
+    public var kind: SessionKind?
+    public var chat: ChatSettingsPatch?
+    /// Not listed or searched, deleted when closed.
+    public var incognito: Bool?
+
+    public init(
+        agent: String? = nil, model: String? = nil, mode: SessionMode? = nil, permissionMode: PermissionMode? = nil,
+        cwd: String? = nil, device: String? = nil, title: String? = nil, parentId: String? = nil, prompt: String? = nil,
+        kind: SessionKind? = nil, chat: ChatSettingsPatch? = nil, incognito: Bool? = nil
+    ) {
+        self.agent = agent
+        self.model = model
+        self.mode = mode
+        self.permissionMode = permissionMode
+        self.cwd = cwd
+        self.device = device
+        self.title = title
+        self.parentId = parentId
+        self.prompt = prompt
+        self.kind = kind
+        self.chat = chat
+        self.incognito = incognito
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case agent, model, mode, permissionMode, cwd, device, title, parentId, prompt, kind, chat, incognito
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encodeIfPresent(agent, forKey: .agent)
+        try c.encodeIfPresent(model, forKey: .model)
+        try c.encodeIfPresent(mode, forKey: .mode)
+        try c.encodeIfPresent(permissionMode, forKey: .permissionMode)
+        try c.encodeIfPresent(cwd, forKey: .cwd)
+        try c.encodeIfPresent(device, forKey: .device)
+        try c.encodeIfPresent(title, forKey: .title)
+        try c.encodeIfPresent(parentId, forKey: .parentId)
+        try c.encodeIfPresent(prompt, forKey: .prompt)
+        try c.encodeIfPresent(kind, forKey: .kind)
+        try c.encodeIfPresent(chat.map { JSONValue.object($0.json) }, forKey: .chat)
+        try c.encodeIfPresent(incognito, forKey: .incognito)
+    }
+}
+
 /// PATCH /api/sessions/:id. Nil fields are left out.
 public struct SessionPatch: Sendable, Hashable {
     public var title: String?
