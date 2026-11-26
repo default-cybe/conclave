@@ -104,6 +104,14 @@ struct LiveTests {
         #expect(t.sentFrames[0] == [#"{"type":"since","seq":40}"#])
     }
 
+    @Test func presenceAfterEachConnectAndInPlaceOfPings() async throws {
+        let t = ScriptedTransport([.frames([#"{"type":"hello","seq":5}"#]), .frames([#"{"type":"hello","seq":5}"#, ev(6)])])
+        let c = ConclaveClient(baseURL: "http://localhost:7777", token: "t")
+        _ = await collect(c.live(presence: true, backoff: { _ in 1 }, transport: t)) { if case .event = $0 { true } else { false } }
+        #expect(t.sentFrames[0] == [#"{"type":"presence","active":true}"#])
+        #expect(t.sentFrames[1] == [#"{"type":"since","seq":5}"#, #"{"type":"presence","active":true}"#])
+    }
+
     @Test func aRestartedHubMeansResync() async throws {
         let t = ScriptedTransport([
             .frames([#"{"type":"hello","seq":30}"#, ev(31)]),

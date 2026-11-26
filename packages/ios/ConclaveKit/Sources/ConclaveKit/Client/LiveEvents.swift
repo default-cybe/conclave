@@ -107,19 +107,21 @@ extension ConclaveClient {
     /// Live events over the socket. Reconnects with backoff and replays what it missed with
     /// {"type":"since","seq":lastSeq}, as ConclaveClient.connect in TypeScript. A hub that counts
     /// from a lower seq restarted: that is a resync. Pings every `pingInterval`. Stop by ending the iteration.
+    /// With `presence` (the app is on screen) it sends {"type":"presence","active":true} after each
+    /// connect and in place of each ping: the hub keeps notifications quiet while the app is in use.
     public func live(
-        startSeq: Int64 = 0, pingInterval: Duration = .seconds(25),
+        startSeq: Int64 = 0, pingInterval: Duration = .seconds(25), presence: Bool = false,
         backoff: @escaping @Sendable (Int) -> Int64 = ConclaveClient.defaultBackoff,
         transport: any LiveTransport = URLSessionLiveTransport()
     ) -> AsyncStream<LiveEvent> {
         AsyncStream(bufferingPolicy: .unbounded) { out in
-            let task = Task { await self.runLive(startSeq, pingInterval, backoff, transport, out) }
+            let task = Task { await self.runLive(startSeq, pingInterval, presence, backoff, transport, out) }
             out.onTermination = { _ in task.cancel() }
         }
     }
 
     private func runLive(
-        _ startSeq: Int64, _ pingInterval: Duration, _ backoff: @Sendable (Int) -> Int64,
+        _ startSeq: Int64, _ pingInterval: Duration, _ presence: Bool, _ backoff: @Sendable (Int) -> Int64,
         _ transport: any LiveTransport, _ out: AsyncStream<LiveEvent>.Continuation
     ) async {
         var lastSeq = startSeq
@@ -180,10 +182,12 @@ extension ConclaveClient {
                     refusals = 0
                     out.yield(.status(.open))
                     if lastSeq > 0 { try await conn.send(#"{"type":"since","seq":\#(lastSeq)}"#) }
+                    let ping = presence ? Self.presenceFrame : #"{"type":"ping"}"#
+                    if presence { try await conn.send(ping) }
                     let pinger = Task {
                         while true {
                             guard (try? await Task.sleep(for: pingInterval)) != nil else { return }
-                            try? await conn.send(#"{"type":"ping"}"#)
+                            try? await conn.send(ping)
                         }
                     }
                     defer { pinger.cancel() }
@@ -205,6 +209,8 @@ extension ConclaveClient {
         }
         out.finish()
     }
+
+    static let presenceFrame = #"{"type":"presence","active":true}"#
 
     static func handle(_ frame: Frame, _ lastSeq: inout Int64, _ out: AsyncStream<LiveEvent>.Continuation) {
         switch frame {

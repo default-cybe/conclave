@@ -16,6 +16,14 @@ settings:
 packages:
   ConclaveKit:
     path: ConclaveKit
+  # exact versions: 0.7.2 and later need swift-tools 6.2 (Xcode 26); CI builds with Xcode 16.4.
+  # swift-cmark is listed only to pin swift-markdown's own dependency.
+  Markdown:
+    url: https://github.com/swiftlang/swift-markdown
+    exactVersion: 0.7.1
+  cmark:
+    url: https://github.com/swiftlang/swift-cmark
+    exactVersion: 0.7.1
 targets:
   Conclave:
     type: application
@@ -23,6 +31,8 @@ targets:
     sources: [App/Sources]
     dependencies:
       - package: ConclaveKit
+      - package: Markdown
+        product: Markdown
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: dev.conclave.app
@@ -31,6 +41,7 @@ targets:
         GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_KEY_CFBundleDisplayName: Conclave
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        INFOPLIST_KEY_NSCameraUsageDescription: "Conclave uses the camera to scan your hub's pairing QR code."
         INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad: "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
         INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone: "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
     info:
