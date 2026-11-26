@@ -35,3 +35,61 @@ jobs:
 
       - name: swift test
         run: swift test
+
+  app:
+    name: App on iPad simulator
+    runs-on: macos-15
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: packages/ios
+    env:
+      XCODEGEN_VERSION: "2.48.0"
+      XCODEGEN_SHA256: 620c9f0dc10849f94728ab5df52d225ebab8187439dd6fee1925e59e80dff892
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: XcodeGen (pinned, checksum checked)
+        run: |
+          curl -fsSL -o /tmp/xcodegen.zip "https://github.com/yonaskolb/XcodeGen/releases/download/${XCODEGEN_VERSION}/xcodegen.zip"
+          echo "${XCODEGEN_SHA256}  /tmp/xcodegen.zip" | shasum -a 256 -c -
+          unzip -q /tmp/xcodegen.zip -d /tmp
+          /tmp/xcodegen/bin/xcodegen generate
+
+      - name: Pick an iPad simulator
+        run: |
+          id=$(xcrun simctl list devices available -j | python3 -c '
+          import json, sys
+          d = json.load(sys.stdin)["devices"]
+          ipads = [x for rt, xs in d.items() if "iOS" in rt for x in xs if x["name"].startswith("iPad")]
+          print(ipads[-1]["udid"])')
+          echo "SIM=$id" >> "$GITHUB_ENV"
+          xcrun simctl list devices available | grep "$id"
+
+      - name: Build and test
+        run: |
+          xcodebuild test -project Conclave.xcodeproj -scheme Conclave \
+            -destination "id=$SIM" -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO > /tmp/xcodebuild.log 2>&1 \
+            || { grep -E "error:|failed" /tmp/xcodebuild.log | head -80; tail -40 /tmp/xcodebuild.log; exit 1; }
+          grep -E "Test run|Executed|TEST SUCCEEDED" /tmp/xcodebuild.log
+
+      - name: Screenshot the connect screen
+        run: |
+          xcrun simctl boot "$SIM" || true
+          xcrun simctl bootstatus "$SIM" -b
+          xcrun simctl install "$SIM" build/Build/Products/Debug-iphonesimulator/Conclave.app
+          xcrun simctl launch "$SIM" dev.conclave.app
+          sleep 8
+          mkdir -p shots
+          xcrun simctl io "$SIM" screenshot shots/ipad-connect-light.png
+          xcrun simctl ui "$SIM" appearance dark
+          sleep 3
+          xcrun simctl io "$SIM" screenshot shots/ipad-connect-dark.png
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: always()
+        with:
+          name: ios-screenshots
+          path: packages/ios/shots
+          if-no-files-found: ignore
