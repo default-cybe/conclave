@@ -41,9 +41,11 @@ struct ConnectView: View {
                 .disabled(!model.canPair)
                 .keyboardShortcut(.defaultAction)
             }
-            .navigationTitle("Connect to your hub")
+            // a readable column on a wide iPad, with the grouped background edge to edge
             .frame(maxWidth: 640)
             .frame(maxWidth: .infinity)
+            .background(Color(.systemGroupedBackground))
+            .navigationTitle("Connect to your hub")
         }
     }
 }
