@@ -48,6 +48,7 @@ import dev.conclave.client.moveToHub
 import dev.conclave.client.workflowRuns
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -145,8 +146,9 @@ class ChatViewModel(hub: HubRepository, val sessionId: String, drafts: DraftStor
                 val after = if (quiet) TranscriptReducer.reloadAfter(transcript.value) else null
                 val askedAt = System.currentTimeMillis()
                 val version = transcript.value.queueVersion
-                val msgs = hub.api { it.messages(sessionId, afterSeq = after) }
-                transcript.update { TranscriptReducer.merge(it, msgs) }
+                // the newest page, light (a 90 MB chat of screenshots ended the app); older pages come on scroll (loadOlder)
+                val msgs = hub.api { it.messages(sessionId, afterSeq = after, limit = if (after == null) TranscriptReducer.PAGE else null, trim = true) }
+                transcript.update { TranscriptReducer.loaded(it, msgs, paged = after == null) }
                 // what waits while it works; a hub from before the queue has none to say
                 runCatching { hub.api { it.queue(sessionId) } }.getOrNull()?.let { list ->
                     transcript.update { TranscriptReducer.loadedQueue(it, list, askedAt, version) }
@@ -171,6 +173,18 @@ class ChatViewModel(hub: HubRepository, val sessionId: String, drafts: DraftStor
             } finally {
                 loading.value = false
             }
+        }
+    }
+
+    private var olderLoad: Job? = null
+
+    /** Scrolled to the top: the page before the first message held, one read at a time. */
+    fun loadOlder() {
+        if (olderLoad?.isActive == true) return
+        val before = TranscriptReducer.olderBefore(transcript.value) ?: return
+        olderLoad = action {
+            val page = hub.api { it.messages(sessionId, beforeSeq = before, limit = TranscriptReducer.PAGE, trim = true) }
+            transcript.update { TranscriptReducer.olderPage(it, page) }
         }
     }
 
@@ -453,12 +467,14 @@ class ChatViewModel(hub: HubRepository, val sessionId: String, drafts: DraftStor
     }
 
     private suspend fun retryFrom(user: Message) {
+        // before the rewind: a file a trimmed page left out is read from the message the rewind drops
+        val files = attachmentsOf(hub, user)
         if (running.value) hub.api { it.abort(sessionId) }
         // the hub keeps messages up to the seq it is given and drops the rest
         _session.value = hub.api { it.rewind(sessionId, user.seq - 1) }
         transcript.value = Transcript(sessionId)
         load(quiet = true)
-        hub.api { it.send(sessionId, SendInput(text = user.content.visibleText(), attachments = attachmentsOf(user).ifEmpty { null })) }
+        hub.api { it.send(sessionId, SendInput(text = user.content.visibleText(), attachments = files.ifEmpty { null })) }
     }
 
     /** The refused reply sent to the next model: its button reads "Trying" until the hub drops the reply. */

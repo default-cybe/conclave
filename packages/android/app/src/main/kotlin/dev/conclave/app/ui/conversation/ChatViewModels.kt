@@ -55,6 +55,7 @@ import dev.conclave.client.model.ThinkingLevel
 import dev.conclave.client.model.visibleText
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -146,11 +147,11 @@ internal object ChatStarts {
     fun done(key: String) = _all.update { it - key }
 }
 
-/** The attachments a message was sent with, so Edit and Retry send them again. */
-fun attachmentsOf(m: Message): List<Attachment> = m.content.mapNotNull { b ->
+/** The attachments a message was sent with, so Edit and Retry send them again; one a trimmed page left out is read from the hub. */
+suspend fun attachmentsOf(hub: HubRepository, m: Message): List<Attachment> = m.content.mapNotNull { b ->
     when (b) {
-        is ImageBlock -> b.data?.let { Attachment(mediaType = b.mediaType, data = it, name = "image") }
-        is DocumentBlock -> b.data?.let { Attachment(mediaType = b.mediaType, data = it, name = b.title ?: "document") }
+        is ImageBlock -> hub.blockData(b.data, b.url)?.let { Attachment(mediaType = b.mediaType, data = it, name = "image") }
+        is DocumentBlock -> hub.blockData(b.data, b.url)?.let { Attachment(mediaType = b.mediaType, data = it, name = b.title ?: "document") }
         else -> null
     }
 }
@@ -351,8 +352,9 @@ class ChatThreadViewModel(
                 val after = if (quiet) TranscriptReducer.reloadAfter(transcript.value) else null
                 val askedAt = System.currentTimeMillis()
                 val version = transcript.value.queueVersion
-                val msgs = hub.api { it.messages(sessionId, afterSeq = after) }
-                transcript.update { TranscriptReducer.merge(it, msgs) }
+                // the newest page, light (a 90 MB chat of screenshots ended the app); older pages come on scroll (loadOlder)
+                val msgs = hub.api { it.messages(sessionId, afterSeq = after, limit = if (after == null) TranscriptReducer.PAGE else null, trim = true) }
+                transcript.update { TranscriptReducer.loaded(it, msgs, paged = after == null) }
                 // what waits behind the reply; a hub from before the queue has none to say
                 runCatching { hub.api { it.queue(sessionId) } }.getOrNull()?.let { list ->
                     transcript.update { TranscriptReducer.loadedQueue(it, list, askedAt, version) }
@@ -406,6 +408,18 @@ class ChatThreadViewModel(
     }
 
     private fun knownIds(): Set<String> = transcript.value.messages.map { it.id }.toSet()
+
+    private var olderLoad: Job? = null
+
+    /** Scrolled to the top: the page before the first message held, one read at a time. */
+    fun loadOlder() {
+        if (olderLoad?.isActive == true) return
+        val before = TranscriptReducer.olderBefore(transcript.value) ?: return
+        olderLoad = action {
+            val page = hub.api { it.messages(sessionId, beforeSeq = before, limit = TranscriptReducer.PAGE, trim = true) }
+            transcript.update { TranscriptReducer.olderPage(it, page) }
+        }
+    }
 
     /** Sends the draft. While a reply runs it queues: it shows at once, Queued, and goes out when that reply ends. */
     fun send() = send(loss = null)
@@ -552,8 +566,8 @@ class ChatThreadViewModel(
             val s = hub.api { it.rewind(sessionId, from.seq - 1) }
             rewound = true
             onSession(s)
-            val msgs = hub.api { it.messages(sessionId) }
-            transcript.value = TranscriptReducer.merge(Transcript(sessionId), msgs)
+            val msgs = hub.api { it.messages(sessionId, limit = TranscriptReducer.PAGE, trim = true) }
+            transcript.value = TranscriptReducer.loaded(Transcript(sessionId), msgs, paged = true)
             hidden.value = emptySet()
             hub.api { it.send(sessionId, SendInput(text = text, attachments = files.ifEmpty { null })) }
         } catch (e: CancellationException) {
@@ -593,11 +607,11 @@ class ChatThreadViewModel(
                     return@launch
                 }
             }
-            replaceFrom(user, user.content.visibleText(), attachmentsOf(user))
+            action { replaceFrom(user, user.content.visibleText(), attachmentsOf(hub, user)) }
         }
     }
 
-    fun edit(message: Message, text: String) = replaceFrom(message, text.trim(), attachmentsOf(message))
+    fun edit(message: Message, text: String) = action { replaceFrom(message, text.trim(), attachmentsOf(hub, message)) }
 
     /** Retry after a failure: send your last message again. */
     fun retryLast() {
@@ -606,7 +620,7 @@ class ChatThreadViewModel(
             return
         }
         val user = transcript.value.messages.lastOrNull { it.role == Role.USER && it.kind == MessageKind.NORMAL && !ChatItems.isToolResultsOnly(it) && !AgentResults.isContextOnly(it) } ?: return
-        replaceFrom(user, user.content.visibleText(), attachmentsOf(user))
+        action { replaceFrom(user, user.content.visibleText(), attachmentsOf(hub, user)) }
     }
 
     /** The refused reply sent to the next model: its button reads "Trying" until the hub drops the reply. */

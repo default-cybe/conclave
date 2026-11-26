@@ -321,7 +321,7 @@ private fun Thumbnail.viewerItem(hub: HubRepository, sessionId: String?): Viewer
     if (shared && sessionId != null) {
         card.viewerItem(hub, sessionId)
     } else {
-        ViewerItem(card) { withContext(Dispatchers.Default) { java.util.Base64.getDecoder().decode(block?.data.orEmpty()) } }
+        ViewerItem(card) { withContext(Dispatchers.Default) { java.util.Base64.getDecoder().decode(block?.let { hub.imageData(it) }.orEmpty()) } }
     }
 
 /**
@@ -353,7 +353,8 @@ private fun Thumb(t: Thumbnail, sessionId: String?, onClick: () -> Unit) {
     val bitmap by produceState<ImageBitmap?>(null, t.key, sessionId) {
         if (video) return@produceState
         val got = try {
-            val inline = t.block?.data
+            // a picture a trimmed page left out (Trimmed.kt) is read from the hub as it shows
+            val inline = t.block?.let { hub.imageData(it) }
             if (inline != null) {
                 withContext(Dispatchers.Default) { decodeScaled(inline, target) }
             } else {

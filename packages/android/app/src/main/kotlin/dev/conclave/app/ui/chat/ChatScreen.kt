@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
@@ -46,7 +47,9 @@ import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -219,6 +222,7 @@ fun ChatScreen(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val listState = rememberLazyListState()
+    OlderOnTop(listState, vm::loadOlder)
 
     var actionsFor by remember { mutableStateOf<Message?>(null) }
     var pickFor by remember { mutableStateOf<Pair<PickFor, Message?>?>(null) }
@@ -781,6 +785,20 @@ private fun MessageActionsSheet(
             SheetRow("Rewind to here", onClick = onRewind)
             if (onSendToFriend != null) SheetRow("Send to friend", onClick = onSendToFriend)
         }
+    }
+}
+
+/**
+ * Near the top of what a transcript holds (a reversed list, so its last
+ * items): [load] reads the page before it. The count asks again after each
+ * page lands, so a page that fits the screen still reads the next one.
+ */
+@Composable
+internal fun OlderOnTop(state: LazyListState, load: () -> Unit) {
+    val current by rememberUpdatedState(load)
+    LaunchedEffect(state) {
+        snapshotFlow { state.layoutInfo.run { totalItemsCount.takeIf { it > 0 && (visibleItemsInfo.lastOrNull()?.index ?: 0) >= it - 3 } } }
+            .collect { if (it != null) current() }
     }
 }
 

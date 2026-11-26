@@ -3,7 +3,6 @@
 package dev.conclave.app.ui.chat
 
 import dev.conclave.client.model.isReminder
-import android.graphics.BitmapFactory
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -63,18 +62,21 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.ImageBitmap
-import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.platform.LocalDensity
+import dev.conclave.app.ui.common.LocalAppContainer
 import dev.conclave.app.ui.common.MarkdownText
 import dev.conclave.app.ui.common.ModelMark
 import dev.conclave.app.ui.common.ModelName
 import dev.conclave.app.ui.common.rememberNow
 import dev.conclave.app.ui.conversation.ChatProse
 import dev.conclave.app.ui.conversation.FullImage
+import dev.conclave.app.ui.conversation.decodeScaled
+import dev.conclave.app.ui.conversation.imageData
 import dev.conclave.app.ui.conversation.LocalSessionWork
 import dev.conclave.app.ui.conversation.SessionWork
 import dev.conclave.app.ui.conversation.TurnWork
@@ -109,7 +111,6 @@ import dev.conclave.client.model.plainText
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.util.Base64
 
 /**
  * Your message in a session (MOBILE-V2 5): right aligned in a bubble of
@@ -518,18 +519,11 @@ fun SummaryLine(message: Message) {
 
 @Composable
 fun InlineImage(block: ImageBlock) {
-    val data = block.data
-    val bitmap by produceState<ImageBitmap?>(null, data) {
-        value = if (data.isNullOrBlank()) {
-            null
-        } else {
-            withContext(Dispatchers.Default) {
-                runCatching {
-                    val bytes = Base64.getDecoder().decode(data)
-                    BitmapFactory.decodeByteArray(bytes, 0, bytes.size)?.asImageBitmap()
-                }.getOrNull()
-            }
-        }
+    val hub = LocalAppContainer.current.hub
+    // decoded at about the size it shows, not full size; one a trimmed page left out is read from the hub now
+    val target = with(LocalDensity.current) { 560.dp.roundToPx() }
+    val bitmap by produceState<ImageBitmap?>(null, block, target) {
+        value = withContext(Dispatchers.Default) { hub.imageData(block)?.let { decodeScaled(it, target) } }
     }
     val img = bitmap
     var shown by remember { mutableStateOf(false) }
