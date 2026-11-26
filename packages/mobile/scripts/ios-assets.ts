@@ -1,9 +1,8 @@
 #!/usr/bin/env bun
 /**
- * Puts Conclave's icon, launch image and ground into the Xcode project that
- * `cap add ios` made (ios/ is not committed). `bun run add:ios` runs it once;
- * run it again (`bun run assets:ios`) after a logo change, or once on a
- * project made before the launch followed the system appearance.
+ * Puts Conclave's icon, launch image and ground into the Xcode project in
+ * ios/ (committed, made by `cap add ios --packagemanager SPM`). Run it
+ * (`bun run assets:ios`) after a logo change, then commit what it changed.
  *
  * - The app icon: assets/icon-1024.png.
  * - The launch image: assets/Splash.imageset, a light and a dark image that
@@ -27,7 +26,7 @@ const CATALOG = join(APP, 'Assets.xcassets');
 const ASSETS = join(MOBILE, 'assets');
 
 if (!existsSync(CATALOG)) {
-  console.error(`No Xcode project at ${APP}. Run bun run add:ios first.`);
+  console.error(`No Xcode project at ${APP}. Restore it from git (git checkout -- ios).`);
   process.exit(1);
 }
 

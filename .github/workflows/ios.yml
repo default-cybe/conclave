@@ -1,0 +1,94 @@
+name: iOS
+
+# Builds the iPhone and iPad app (packages/mobile, a Capacitor shell around
+# packages/web) on a Mac runner, unsigned: once for the iOS Simulator on an
+# iPad, once for a device. Signing happens on the owner's Mac (README).
+on:
+  push:
+    branches: [main]
+    paths:
+      - "packages/mobile/**"
+      - "packages/web/**"
+      - ".github/workflows/ios.yml"
+  pull_request:
+    paths:
+      - "packages/mobile/**"
+      - "packages/web/**"
+      - ".github/workflows/ios.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ios-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  BUN_VERSION: 1.4.2
+
+jobs:
+  build:
+    name: Build for iPad simulator and device
+    runs-on: macos-26
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: packages/mobile
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+
+      - name: Install
+        run: bun install --frozen-lockfile
+
+      - name: Xcode
+        run: xcodebuild -version
+
+      - name: Build the web app and copy it into the Xcode project
+        run: bun run sync
+
+      - name: Project changes the sync made (the committed project should not drift)
+        run: git status --short -- ios
+
+      - name: Build for the iOS Simulator (iPad)
+        run: |
+          # the first iPad the runner's Xcode has; the names change with every Xcode
+          ipad=$(xcrun simctl list devices available -j | bun -e 'const d=Object.values((await Bun.stdin.json()).devices).flat().find((x)=>/iPad/.test(x.name)); if(!d) process.exit(1); console.log(d.udid, d.name)')
+          echo "Simulator: $ipad"
+          xcodebuild -project ios/App/App.xcodeproj -scheme App -configuration Debug \
+            -destination "id=${ipad%% *}" -derivedDataPath build/sim \
+            CODE_SIGNING_ALLOWED=NO build
+
+      - name: Build for a device (unsigned)
+        run: |
+          xcodebuild -project ios/App/App.xcodeproj -scheme App -configuration Release \
+            -destination 'generic/platform=iOS' -derivedDataPath build/device \
+            CODE_SIGNING_ALLOWED=NO build
+
+      - name: The app is an iPad app that runs in Split View and Stage Manager
+        run: |
+          app=build/device/Build/Products/Release-iphoneos/App.app
+          plutil -p "$app/Info.plist" | tee info.txt
+          grep -A3 '"UIDeviceFamily"' info.txt | grep -q '=> 2'
+          grep -q '"UIRequiresFullScreen" => false' info.txt
+          grep -A5 '"UISupportedInterfaceOrientations~ipad"' info.txt | grep -q PortraitUpsideDown
+          grep -q '"NSCameraUsageDescription"' info.txt
+          # the asset catalog made the iPad icon from the one 1024 icon
+          grep -q 'CFBundleIcons~ipad' info.txt
+
+      - name: Package the unsigned device build
+        run: |
+          mkdir -p out/Payload
+          cp -R build/device/Build/Products/Release-iphoneos/App.app out/Payload/
+          (cd out && zip -qry Conclave-unsigned.ipa Payload)
+
+      - name: Upload the unsigned device build
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: conclave-ios-unsigned
+          path: packages/mobile/out/Conclave-unsigned.ipa
+          if-no-files-found: error
