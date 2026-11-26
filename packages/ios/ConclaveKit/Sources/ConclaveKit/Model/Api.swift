@@ -374,6 +374,12 @@ public struct ModelEffort: Sendable, Hashable, Codable {
         case defaultLevel = "default"
     }
 
+    public init(levels: [String] = [], off: Bool = false, defaultLevel: String? = nil) {
+        self.levels = levels
+        self.off = off
+        self.defaultLevel = defaultLevel
+    }
+
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         levels = try c.or(.levels, [])
