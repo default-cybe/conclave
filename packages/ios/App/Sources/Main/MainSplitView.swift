@@ -56,6 +56,9 @@ struct MainSplitView: View {
                     if let id = selection { InspectorView(sessionId: id, hub: hub) }
                 }
             }
+            // the inspector takes room from the chat: .automatic laid the sidebar over a dimmed chat
+            // once the inspector opened (web: three columns side by side)
+            .navigationSplitViewStyle(.balanced)
             #if DEBUG
             // CI screenshots open a chat with `-openChat <id>`, a page with `-openPage inbox|devices|settings`,
             // and the inspector with `-inspectorTab files|tasks`

@@ -46,6 +46,8 @@ enum MockHub {
             // PATCH and seen answer with the session, as GET does
             if p.count == 3 || (p.count == 4 && p[3] == "seen") { return session(id, patch: method == "PATCH" ? body : nil) }
             if p.count == 4, p[3] == "messages" { return (200, method == "POST" ? #"{"messageId":"m-sent"}"# : messages) }
+            // a block of the transcript (the Files tab's uploaded picture): every one is the picture
+            if p.count == 7, p[3] == "messages", p[5] == "blocks" { return (200, #"{"type":"image","mediaType":"image/png","data":"\#(png)"}"#) }
         }
         if path == "/api/sessions", let parent = query.first(where: { $0.name == "parentId" })?.value, parent != "none" {
             return (200, parent == "s1" ? children : "[]")

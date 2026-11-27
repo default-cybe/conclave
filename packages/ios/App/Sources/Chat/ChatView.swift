@@ -107,6 +107,10 @@ struct ChatView: View {
             if let id = Self.scrollTarget {
                 try? await Task.sleep(for: .seconds(1))
                 position.scrollTo(id: id, anchor: .bottom)
+                // again once the rows on the way are measured: the first lands on the lazy stack's
+                // estimate (the answer shot showed m2's top, not its table)
+                try? await Task.sleep(for: .milliseconds(600))
+                position.scrollTo(id: id, anchor: .bottom)
             }
             #endif
         }

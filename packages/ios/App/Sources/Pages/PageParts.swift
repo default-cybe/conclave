@@ -9,6 +9,7 @@ struct Page<Trailing: View, Content: View>: View {
     @ViewBuilder var trailing: () -> Trailing
     @ViewBuilder var content: () -> Content
     @Environment(\.horizontalSizeClass) private var sizeClass
+    @Environment(\.dismiss) private var dismiss
 
     var body: some View {
         let m = Metrics(sizeClass)
@@ -33,6 +34,19 @@ struct Page<Trailing: View, Content: View>: View {
         .background(Tone.bg.ignoresSafeArea())
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(Tone.bg, for: .navigationBar)
+        // phone: Android's top bar, the menu icon back to the drawer, as the chat has; no "‹ Back"
+        .navigationBarBackButtonHidden(m.compact)
+        .toolbar {
+            if m.compact {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button { dismiss() } label: {
+                        Image(systemName: "line.3.horizontal").font(.system(size: 18)).foregroundStyle(Tone.fg)
+                            .frame(width: 44, height: 44).contentShape(Rectangle())
+                    }
+                    .accessibilityLabel("Open the chat list")
+                }
+            }
+        }
     }
 }
 
@@ -76,7 +90,7 @@ struct CardRow<Value: View>: View {
         HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 2) {
                 Text(label).font(.sans(14)).foregroundStyle(Tone.fg)
-                if let detail { Text(detail).font(.sans(12)).foregroundStyle(Tone.fg3).lineLimit(2) }
+                if let detail { Text(detail).font(.sans(12)).foregroundStyle(Tone.fg3).fixedSize(horizontal: false, vertical: true) }
             }
             Spacer(minLength: 8)
             value()
