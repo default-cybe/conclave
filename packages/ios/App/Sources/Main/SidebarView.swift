@@ -20,17 +20,15 @@ struct SidebarView: View {
     private var m: Metrics { Metrics(sizeClass) }
 
     var body: some View {
-        let groups = Drawer.groups(hub.sessions, by: GroupBy.from(groupWire), waiting: hub.waiting, query: query)
+        // web lib/sidebar.ts sideGroups: a mode shows its own conversations; only Code groups by the
+        // chosen key, the others by time; Security and Canvas have no list here yet, so they show all
+        let start: StartMode? = mode == "chat" ? .chat : mode == "assistant" ? .assistant : mode == "code" ? .code : nil
+        let groups = Drawer.groups(hub.sessions, mode: start, by: mode == "code" ? GroupBy.from(groupWire) : .time, waiting: hub.waiting, query: query)
         VStack(spacing: 0) {
             header
             nav.padding(.horizontal, 8).padding(.top, 4)
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 1) {
-                    Text(mode == "code" ? "Sessions" : "Chats")
-                        .font(.sans(m.compact ? 13 : 12, .medium))
-                        .foregroundStyle(Tone.fg3)
-                        .frame(height: m.compact ? 36 : 28)
-                        .padding(.leading, 10)
                     if hub.loaded && groups.isEmpty {
                         Text(query.isEmpty ? "No chats." : "No chat matches \"\(query)\".")
                             .font(.sans(m.compact ? 14 : 12.5))
@@ -40,7 +38,8 @@ struct SidebarView: View {
                         ProgressView().tint(Tone.fg3).frame(maxWidth: .infinity).padding(.vertical, 12)
                     }
                     ForEach(groups) { g in
-                        Text(g.title)
+                        // sidebar.ts: by project, the folderless group is "No folder"
+                        Text(g.key == Drawer.chats ? "No folder" : g.title)
                             .font(.sans(m.compact ? 14 : 13, .semibold))
                             .foregroundStyle(Tone.fg)
                             .frame(height: m.compact ? 32 : 24, alignment: .bottom)
@@ -194,7 +193,8 @@ private struct NavLabel: View {
     var body: some View {
         HStack(spacing: 10) {
             Image(systemName: icon).font(.system(size: 14)).frame(width: 16)
-            Text(label).font(.sans(m.row)).lineLimit(1)
+            // phone: Android's PanelRow strong, 16 semibold in ink
+            Text(label).font(.sans(m.compact ? 16 : m.row, m.compact ? .semibold : .regular)).lineLimit(1)
             Spacer(minLength: 0)
             if count > 0 {
                 Text(count > 99 ? "99+" : "\(count)").font(.sans(12.5, .medium)).monospacedDigit().foregroundStyle(Tone.warn)
@@ -202,7 +202,7 @@ private struct NavLabel: View {
             }
             if let hint { Text(hint).font(.sans(12)).foregroundStyle(Tone.fg4) }
         }
-        .foregroundStyle(Tone.fg2)
+        .foregroundStyle(m.compact ? Tone.fg : Tone.fg2)
         .padding(.horizontal, 10)
         .frame(height: m.compact ? 44 : 32)
         .contentShape(Rectangle())
@@ -234,8 +234,8 @@ private struct SideRow: View {
         Button(action: action) {
             HStack(spacing: 8) {
                 Text(item.title)
-                    .font(.sans(m.row))
-                    .foregroundStyle(on ? Tone.fg : Tone.fg2)
+                    .font(.sans(m.compact ? 16 : m.row))
+                    .foregroundStyle(on || m.compact ? Tone.fg : Tone.fg2)
                     .lineLimit(1)
                 Spacer(minLength: 0)
                 switch item.dot {
@@ -248,7 +248,7 @@ private struct SideRow: View {
             .frame(height: m.compact ? 44 : 32)
             .contentShape(Rectangle())
         }
-        .buttonStyle(QuietPress(fill: Tone.sideHover, selected: on, selectedFill: Tone.sideActive))
+        .buttonStyle(QuietPress(fill: Tone.sideHover, radius: m.compact ? 10 : Radius.row, selected: on, selectedFill: m.compact ? Tone.surface2 : Tone.sideActive))
         .accessibilityAddTraits(on ? .isSelected : [])
     }
 }

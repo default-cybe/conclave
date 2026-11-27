@@ -24,6 +24,23 @@ final class ScreenshotTests: XCTestCase {
     @MainActor func testPickerLight() throws { try picker("light") }
     @MainActor func testPickerDark() throws { try picker("dark") }
 
+    /// The chat from its first message: your bubble, the thought, the tool folds (the second one
+    /// open), the code block and the table (iPad landscape).
+    @MainActor func testTopLight() throws { try top("light") }
+    @MainActor func testTopDark() throws { try top("dark") }
+
+    @MainActor
+    private func top(_ appearance: String) throws {
+        let dir = try folder()
+        guard prefix == "ipad", list("SHOT_APPEARANCES", "light,dark").contains(appearance) else { throw XCTSkip("not asked for") }
+        try shoot(dir, "\(prefix)-top-\(appearance)", "landscape", appearance, ["-mockHub", "-openChat", "s1", "-scrollTop"]) { app in
+            // folds: the thought, then the tools; open the first tool
+            let fold = app.buttons.matching(identifier: "fold").element(boundBy: 1)
+            if fold.waitForExistence(timeout: 12) { sleep(1); fold.tap() }
+            return app.staticTexts["The plan"]
+        }
+    }
+
     /// The chat list with no chat open: on iPhone the drawer, as Android's side panel.
     @MainActor func testDrawerLight() throws { try drawer("light") }
     @MainActor func testDrawerDark() throws { try drawer("dark") }
@@ -49,7 +66,7 @@ final class ScreenshotTests: XCTestCase {
         try shoot(dir, "\(prefix)-picker-\(appearance)", "landscape", appearance, ["-mockHub", "-openChat", "s1"]) { app in
             let chip = app.buttons["Model"]
             if chip.waitForExistence(timeout: 10) { chip.tap() }
-            return app.buttons["OpenAI"]
+            return app.staticTexts["OpenAI"]
         }
     }
 

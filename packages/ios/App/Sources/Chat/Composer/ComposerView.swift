@@ -49,7 +49,8 @@ struct ComposerView: View {
                 .padding(.bottom, 4)
                 HStack(spacing: 4) {
                     attachMenu(phone)
-                    if phone, let session { ModelMenu(hub: hub, session: session) }
+                    // the web's ChatComposer row: + then the model pick ({talk}), send at the right
+                    if let session { ModelMenu(hub: hub, session: session) }
                     Spacer()
                     SendStop(stops: stops, ready: chat.canSend, phone: phone) {
                         Task { if stops { await chat.stop() } else { await chat.send(busy: busy) } }
@@ -61,10 +62,6 @@ struct ComposerView: View {
             .background(phone ? Tone.surface2 : Tone.sunk, in: RoundedRectangle(cornerRadius: radius, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: radius, style: .continuous).strokeBorder(line, lineWidth: dropping ? 2 : 1))
             .animation(Motion.of(Motion.ease(Motion.dur1), reduce: reduce), value: dropping)
-            // the web's quiet row under the box: the model and its effort, at the right
-            if !phone, let session {
-                HStack { Spacer(); ModelMenu(hub: hub, session: session) }.padding(.horizontal, 2)
-            }
         }
         .onDrop(of: [.item], isTargeted: $dropping) { providers in
             Task {
@@ -153,8 +150,8 @@ private struct SendStop: View {
     }
 }
 
-/// The files in the composer (the web's AttachmentStrip): pictures as 44 pt thumbnails, other files
-/// as 40 pt chips with a hairline; each has a small round x at its corner.
+/// The files in the composer (the web's AttachmentStrip, Android's chips): a 44 pt raised chip with a
+/// hairline, the picture's thumbnail or a file glyph, the name over its size; a small round x at the corner.
 private struct FileChips: View {
     @Binding var files: [Attachment]
     @Environment(\.accessibilityReduceMotion) private var reduce
@@ -163,22 +160,26 @@ private struct FileChips: View {
         ScrollView(.horizontal) {
             HStack(spacing: 8) {
                 ForEach(Array(files.enumerated()), id: \.offset) { i, f in
-                    Group {
-                        if let img = Attachments.thumbnail(f, side: 88) {
+                    HStack(spacing: 8) {
+                        if let img = Attachments.thumbnail(f, side: 72) {
                             Image(uiImage: img).resizable().scaledToFill()
-                                .frame(width: 44, height: 44)
-                                .clipShape(RoundedRectangle(cornerRadius: Radius.r2, style: .continuous))
-                                .hairline(radius: Radius.r2)
+                                .frame(width: 34, height: 34)
+                                .clipShape(RoundedRectangle(cornerRadius: Radius.r1, style: .continuous))
                         } else {
-                            HStack(spacing: 8) {
-                                Image(systemName: "doc").font(.system(size: 13)).foregroundStyle(Tone.fg3)
-                                Text(f.name ?? "file").font(.sans(13)).foregroundStyle(Tone.fg2).lineLimit(1).frame(maxWidth: 180)
-                            }
-                            .padding(.horizontal, 12)
-                            .frame(height: 40)
-                            .hairline(radius: Radius.r2)
+                            Image(systemName: "doc.text").font(.system(size: 14)).foregroundStyle(Tone.fg3).frame(width: 20)
                         }
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(f.name ?? (f.mediaType.hasPrefix("image/") ? "Picture" : "File")).font(.sans(13)).foregroundStyle(Tone.fg2).lineLimit(1)
+                            // base64 carries 3 bytes in every 4 characters
+                            if let d = f.data {
+                                Text(ByteCountFormatter.string(fromByteCount: Int64(d.utf8.count / 4 * 3), countStyle: .file)).font(.sans(11.5)).monospacedDigit().foregroundStyle(Tone.fg3)
+                            }
+                        }
+                        .frame(maxWidth: 170, alignment: .leading)
                     }
+                    .padding(.leading, 5).padding(.trailing, 14)
+                    .frame(height: 44)
+                    .panel(Tone.raise, radius: Radius.r2, border: Tone.rule)
                     .overlay(alignment: .topTrailing) {
                         Button { withAnimation(Motion.of(Motion.ease(Motion.dur2), reduce: reduce)) { _ = files.remove(at: i) } } label: {
                             Image(systemName: "xmark").font(.system(size: 8, weight: .bold)).foregroundStyle(Tone.bg)

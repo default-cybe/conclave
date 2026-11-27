@@ -10,6 +10,7 @@ struct ChatView: View {
     @State private var position = ScrollPosition(edge: .bottom)
     @Environment(\.horizontalSizeClass) private var sizeClass
     @Environment(\.accessibilityReduceMotion) private var reduce
+    @Environment(\.dismiss) private var dismiss
 
     var body: some View {
         let t = chat.transcript
@@ -71,12 +72,32 @@ struct ChatView: View {
         .navigationTitle(title)
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(Tone.bg, for: .navigationBar)
+        // phone: Android's top bar, the menu icon that opens the drawer (the split view's list), no "‹ Back"
+        .navigationBarBackButtonHidden(m.compact)
         .toolbar {
+            if m.compact {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button { dismiss() } label: {
+                        Image(systemName: "line.3.horizontal").font(.system(size: 18)).foregroundStyle(Tone.fg)
+                            .frame(width: 44, height: 44).contentShape(Rectangle())
+                    }
+                    .accessibilityLabel("Open the chat list")
+                }
+            }
             ToolbarItem(placement: .principal) {
                 Text(title).font(.sans(m.compact ? 17 : 14, .semibold)).foregroundStyle(Tone.fg).lineLimit(1)
             }
         }
-        .task { await chat.loadIfNeeded() }
+        .task {
+            await chat.loadIfNeeded()
+            #if DEBUG
+            // CI screenshots: `-scrollTop` reads the chat from its first message
+            if ProcessInfo.processInfo.arguments.contains("-scrollTop") {
+                try? await Task.sleep(for: .milliseconds(400))
+                position.scrollTo(edge: .top)
+            }
+            #endif
+        }
     }
 
     private func older() async {
@@ -202,6 +223,7 @@ struct Fold<Content: View>: View {
             }
             .buttonStyle(.plain)
             .accessibilityValue(open ? "Open" : "Closed")
+            .accessibilityIdentifier("fold")
             if let note, !open {
                 Text(note).font(.mono(12)).foregroundStyle(Tone.fg3).lineLimit(1)
             }
