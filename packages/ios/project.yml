@@ -28,7 +28,9 @@ targets:
   Conclave:
     type: application
     platform: iOS
-    sources: [App/Sources]
+    # Resources: Mona Sans and JetBrains Mono (SIL OFL, from the Android app), the launch knot and
+    # ground (packages/mobile/assets, made by scripts/brand/knot.ts), the accent, makers' logos (@lobehub, MIT)
+    sources: [App/Sources, App/Resources]
     dependencies:
       - package: ConclaveKit
       - package: Markdown
@@ -40,7 +42,7 @@ targets:
         TARGETED_DEVICE_FAMILY: "1,2"
         GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_KEY_CFBundleDisplayName: Conclave
-        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
         INFOPLIST_KEY_NSCameraUsageDescription: "Conclave uses the camera to scan your hub's pairing QR code and to take photos you send in a chat."
         INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad: "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
         INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone: "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
@@ -53,6 +55,18 @@ targets:
         CFBundleURLTypes:
           - CFBundleURLName: dev.conclave.app
             CFBundleURLSchemes: [conclave]
+        # the knot on the app's ground, light and dark, as on Android and the Capacitor app
+        UILaunchScreen:
+          UIColorName: Ground
+          UIImageName: Splash
+          UIImageRespectsSafeAreaInsets: false
+        UIAppFonts:
+          - mona_sans_regular.ttf
+          - mona_sans_medium.ttf
+          - mona_sans_semibold.ttf
+          - jetbrains_mono_regular.ttf
+          - jetbrains_mono_medium.ttf
+          - jetbrains_mono_bold.ttf
   ConclaveTests:
     type: bundle.unit-test
     platform: iOS
