@@ -55,7 +55,7 @@ private struct ModelPicker: View {
         let m = Metrics(sizeClass)
         let effort = groups.lazy.flatMap(\.rows).first { $0.ref == current }?.model.effort
         let choices = Effort.choices(effort)
-        let level = Effort.shown(session.chat?.thinking, effort)
+        let level = effort.flatMap { Effort.shown(session.chat?.thinking, $0) }
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
                 if let effort, !choices.isEmpty {
