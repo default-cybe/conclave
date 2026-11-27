@@ -145,4 +145,25 @@ describe('output limit, refusal and empty replies', () => {
       await t.close();
     }
   }, 30_000);
+
+  test('an interactive reply cut inside thinking continues once, then stops with the notice', async () => {
+    const cut = { blocks: [{ thinking: 'planning the whole script...', signature: '' }], stop: 'max_tokens' };
+    const t = await startTestEngine({ script: [cut, [{ text: 'Here it is.' }], cut, cut, [{ text: 'never' }]] });
+    try {
+      // one cut, one continuation, a normal reply
+      const a = await t.engine.createSession({ title: 'a', cwd: t.cwd });
+      await t.run(a.id, 'write the script');
+      expect(t.requests.length).toBe(2);
+      expect(t.requests[1]).toContain('hit the output token limit and was cut off');
+      expect(notices(t.engine.getMessages(a.id))).toHaveLength(0);
+
+      // two cuts in a row: one continuation, then the stop and notice
+      const b = await t.engine.createSession({ title: 'b', cwd: t.cwd });
+      await t.run(b.id, 'write the script');
+      expect(t.requests.length).toBe(4);
+      expect(notices(t.engine.getMessages(b.id))).toContain('The reply hit the output token limit.');
+    } finally {
+      await t.close();
+    }
+  }, 30_000);
 });

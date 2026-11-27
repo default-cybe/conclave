@@ -1,6 +1,6 @@
 import type { ContentBlock, ImageBlock, StopReason, Usage } from '../types';
 import { findCatalogEntry, normalizeModelId } from './catalog';
-import { BaseProvider, budgetOf, capImageSizes, dataUrl, documentsForWire, effortOf, parseToolInput, toolResultMedia, toolResultString, toolTurnLabel, wantsThinking } from './common';
+import { BaseProvider, capImageSizes, dataUrl, documentsForWire, effortOf, parseToolInput, toolResultMedia, toolResultString, thinkingBudget, toolTurnLabel, wantsThinking } from './common';
 import { classifyStreamError, parseRateLimitHeaders } from './errors';
 import { SKIP_SIGNATURE as GEMINI_SKIP_SIGNATURE } from './gemini';
 import { hostOf, openStream, trimSlash } from './http';
@@ -124,10 +124,10 @@ function reasoningParams(host: string, req: ChatRequest, info: ModelInfo): Wire 
   if (!req.thinking || !wantsThinking(req.thinking) || !info.thinking) return {};
   const effort = effortOf(req.thinking);
   if (host.endsWith('openrouter.ai')) {
-    return { reasoning: req.thinking.budgetTokens ? { max_tokens: req.thinking.budgetTokens } : { effort } };
+    return { reasoning: req.thinking.budgetTokens ? { max_tokens: thinkingBudget(req.thinking, req.maxTokens) } : { effort } };
   }
   if (/deepseek\.com$/.test(host)) return { thinking: { type: 'enabled' } };
-  if (/dashscope|aliyuncs\.com$/.test(host)) return { enable_thinking: true, thinking_budget: budgetOf(req.thinking) };
+  if (/dashscope|aliyuncs\.com$/.test(host)) return { enable_thinking: true, thinking_budget: thinkingBudget(req.thinking, req.maxTokens) };
   return { reasoning_effort: effort };
 }
 

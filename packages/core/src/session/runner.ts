@@ -1508,8 +1508,10 @@ export class SessionRunner {
 
       if (!toolUses.length) {
         if (result.stopReason === 'max_tokens') {
-          // unattended runs get a continuation note (nobody is there to say "go on"); interactive ones stop with a notice
-          if (isUnattended(this.session, mode, this.depth) && lengthStops <= MAX_LENGTH_CONTINUES) {
+          // unattended runs get a continuation note (nobody is there to say "go on"); interactive ones stop with a notice,
+          // except once when the cut left nothing to read (it ended inside thinking, or has no text)
+          const nothingShown = isEmptyReply(result.content) || result.content.at(-1)?.type === 'thinking';
+          if (isUnattended(this.session, mode, this.depth) ? lengthStops <= MAX_LENGTH_CONTINUES : nothingShown && lengthStops === 1) {
             engine.addMessage(this.id, { role: 'user', kind: 'normal', content: [reminder(CONTINUE_AFTER_OUTPUT_LIMIT)], meta: { auto: true } });
             continue;
           }

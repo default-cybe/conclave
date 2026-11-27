@@ -1,6 +1,6 @@
 import type { ContentBlock, JsonSchema, StopReason, Usage } from '../types';
 import { normalizeModelId } from './catalog';
-import { BaseProvider, budgetOf, capImageBytes, documentsForWire, effortOf, toolResultMedia, toolResultText, toolTurnLabel, wantsThinking } from './common';
+import { BaseProvider, capImageBytes, documentsForWire, effortOf, thinkingBudget, toolResultMedia, toolResultText, toolTurnLabel, wantsThinking } from './common';
 import { classifyStreamError } from './errors';
 import { getJson, openStream, postJson, trimSlash } from './http';
 import { ownSignature, tagSignature } from './signatures';
@@ -288,7 +288,7 @@ export function geminiThinkingConfig(model: string, req: ChatRequest, info: Mode
     const effort = asked === 'xhigh' || asked === 'max' ? 'high' : asked;
     cfg.thinkingLevel = effort === 'medium' && id.includes('pro') ? 'high' : effort;
   } else {
-    cfg.thinkingBudget = budgetOf(req.thinking);
+    cfg.thinkingBudget = thinkingBudget(req.thinking, req.maxTokens);
   }
   return cfg;
 }

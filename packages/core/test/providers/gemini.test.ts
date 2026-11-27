@@ -232,6 +232,11 @@ describe('Gemini helpers', () => {
       includeThoughts: true,
       thinkingBudget: 2048,
     });
+    // high (32K) under a 32K cap: the reply keeps 16K
+    expect(geminiThinkingConfig('gemini-2.5-flash', { ...req({ effort: 'high' }), maxTokens: 32_000 }, lookupModel('g', 'gemini-2.5-flash'))).toEqual({
+      includeThoughts: true,
+      thinkingBudget: 16_000,
+    });
     expect(geminiThinkingConfig('gemini-3.1-pro-preview', req({ effort: 'medium' }), lookupModel('g', 'gemini-3.1-pro-preview'))).toEqual({
       includeThoughts: true,
       thinkingLevel: 'high',

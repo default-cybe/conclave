@@ -1,5 +1,5 @@
 import type { ContentBlock, StopReason, Usage } from '../types';
-import type { ChatRequest, ProviderMessage } from '../providers/types';
+import type { ChatRequest, ModelInfo, ProviderMessage } from '../providers/types';
 import { ProviderError, parseModelRef } from '../providers/types';
 import { SHORT_LIMIT_MS, modelRefusal } from '../providers/errors';
 import type { Engine } from '../engine/engine';
@@ -205,7 +205,7 @@ async function streamCall(
     held.release?.();
     held.release = undefined;
     if (!member || paidBy !== 'hub') return;
-    const maxOut = req.maxTokens ?? Math.min(resolved.info.maxOutput, 32_000);
+    const maxOut = req.maxTokens ?? resolved.info.maxOutput;
     const usd = engine.providers.costOf(resolved.info, { inputTokens: estimateInput(req), outputTokens: Math.min(maxOut, HELD_OUTPUT_TOKENS), cacheReadTokens: 0, cacheWriteTokens: 0 });
     held.release = engine.access.reserve(accountId, resolved.provider, usd);
   };
@@ -338,10 +338,10 @@ async function streamCall(
   }
 
   for (;;) {
-    const maxTokens = Math.min(req.maxTokens ?? 32_000, resolved.info.maxOutput);
+    const inputTokens = estimateInput(req);
+    const maxTokens = outputCap(resolved.info, req.maxTokens, inputTokens);
     if (!Number.isSafeInteger(maxTokens) || maxTokens <= 0) throw new ProviderError('bad_request', 'Output token limit must be a positive integer.');
     const liveSession = target.sessionId ? engine.getSession(target.sessionId) : session;
-    const inputTokens = estimateInput(req);
     const check = checkFallback(engine, liveSession, resolved, inputTokens, maxTokens);
     if (switchFrom && !check.ok) throw new ProviderError('bad_request', check.why!, { code: 'fallback_policy' });
     const settleBudget = reserveFallback(engine, liveSession, resolved, inputTokens, req.thinking ? resolved.info.maxOutput : maxTokens);
@@ -574,6 +574,20 @@ async function streamCall(
 }
 
 /** About how many tokens a request's input is (4 characters a token, a picture as 1500 characters), for a call that ended before its usage came. */
+/**
+ * Output tokens for one call: the caller's cap, else the model's own limit
+ * (modelOverrides.maxOutput changes it), lowered to what the context window has
+ * left, since the API rejects input + max_tokens above the window. The input is
+ * an estimate, so it counts 3 characters a token here, plus 1K of framing. Never
+ * below the old fixed 32K (or the caller's smaller cap): a nearly full window
+ * gets what it got before and compaction makes room.
+ */
+export function outputCap(info: Pick<ModelInfo, 'maxOutput' | 'contextWindow'>, asked: number | undefined, inputTokens: number): number {
+  const cap = Math.min(asked ?? info.maxOutput, info.maxOutput);
+  const room = info.contextWindow - Math.ceil((inputTokens * 4) / 3) - 1024;
+  return Number.isFinite(room) ? Math.min(cap, Math.max(room, Math.min(cap, 32_000))) : cap;
+}
+
 function estimateInput(req: Omit<ChatRequest, 'model'>): number {
   let chars = 0;
   for (const b of req.system ?? []) chars += b.text.length;
