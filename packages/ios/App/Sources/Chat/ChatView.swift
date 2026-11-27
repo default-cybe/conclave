@@ -31,10 +31,11 @@ struct ChatView: View {
             }
             .scrollTargetLayout()
             .padding(.vertical)
-            // a fixed width: a wide code line or table must not widen the column past the margins
-            .containerRelativeFrame(.horizontal) { w, _ in min(w - 32, 820) }
-            // centred in the full width: frame(maxWidth: .infinity) left it at x 0 with 32 pt on the right
-            .containerRelativeFrame(.horizontal)
+            // plain frames, not containerRelativeFrame: in the iPhone stack that collapsed the
+            // ScrollView to 0 pt wide (blank transcript), and on iPad it left the column flush left
+            .frame(maxWidth: 820)
+            .padding(.horizontal, 16)
+            .frame(maxWidth: .infinity)
         }
         .scrollPosition($position)
         .defaultScrollAnchor(.bottom)
