@@ -101,8 +101,14 @@ struct ChatView: View {
             // `-scrollTo <id>`: a message or a table ("m2-table0") in the middle, clear of the composer
             let args = ProcessInfo.processInfo.arguments
             if let i = args.firstIndex(of: "-scrollTo"), i + 1 < args.count {
-                try? await Task.sleep(for: .milliseconds(400))
-                proxy.scrollTo(args[i + 1], anchor: .center)
+                let id = args[i + 1]
+                // after the cards load; a table's row first, so the lazy stack draws it and the reader finds the table
+                try? await Task.sleep(for: .seconds(1))
+                if let r = id.range(of: "-table") {
+                    proxy.scrollTo(String(id[..<r.lowerBound]), anchor: .top)
+                    try? await Task.sleep(for: .milliseconds(400))
+                }
+                proxy.scrollTo(id, anchor: .center)
             }
             #endif
         }
