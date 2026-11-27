@@ -103,12 +103,16 @@ struct PagesTests {
     }
 
     @Test func approvalCardsSayWhatTheAgentWants() {
-        #expect(InboxWords.approvalLines("Bash", "Run: git push origin fix/login") == ("Wants to run", "git push origin fix/login"))
-        #expect(InboxWords.approvalLines("Shell", "run: rm -rf build/cache") == ("Wants to run", "rm -rf build/cache"))
-        #expect(InboxWords.approvalLines("Edit", "Edit src/auth/callback.ts") == ("Wants to use Edit", "Edit src/auth/callback.ts"))
-        #expect(InboxWords.approvalLines("WebFetch", " ") == ("Wants to use WebFetch", "WebFetch"))
+        func lines(_ tool: String, _ summary: String, _ input: JSONObject? = nil) -> [String] {
+            let r = InboxWords.approvalLines(tool, summary, input: input)
+            return [r.label, r.line]
+        }
+        #expect(lines("Bash", "Run: git push origin fix/login") == ["Wants to run", "git push origin fix/login"])
+        #expect(lines("Shell", "run: rm -rf build/cache") == ["Wants to run", "rm -rf build/cache"])
+        #expect(lines("Edit", "Edit src/auth/callback.ts") == ["Wants to use Edit", "Edit src/auth/callback.ts"])
+        #expect(lines("WebFetch", " ") == ["Wants to use WebFetch", "WebFetch"])
         // the hub's summary of a shell call is the agent's description: the command comes from input
-        #expect(InboxWords.approvalLines("Bash", "Push fix/login", input: ["command": "git push origin fix/login"]) == ("Wants to run", "git push origin fix/login"))
+        #expect(lines("Bash", "Push fix/login", ["command": "git push origin fix/login"]) == ["Wants to run", "git push origin fix/login"])
     }
 
     @Test func aQuestionsLineIsItsFirstQuestion() throws {

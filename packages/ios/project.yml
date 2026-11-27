@@ -44,6 +44,7 @@ targets:
         INFOPLIST_KEY_CFBundleDisplayName: Conclave
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
         INFOPLIST_KEY_NSCameraUsageDescription: "Conclave uses the camera to scan your hub's pairing QR code and to take photos you send in a chat."
+        INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription: "Conclave saves pictures from your chats to Photos when you tap the download icon."
         INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad: "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
         INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone: "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
     info:

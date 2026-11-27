@@ -26,6 +26,6 @@ extension ConclaveClient {
     /// Sets the person's own default model; nil clears it (the hub's default applies again).
     /// The hub answers { ok: true }: read `me()` again for the saved state.
     public func setDefaultModel(_ ref: String?) async throws {
-        try await sendUnit("PATCH", ["api", "me"], JSONValue.object(["defaultModel": ref.map { .string($0) } ?? .null]))
+        try await sendUnit("PATCH", ["api", "me"], JSONValue.object(["defaultModel": ref.map(JSONValue.string) ?? JSONValue.null]))
     }
 }

@@ -13,6 +13,13 @@ final class HubModel {
     private(set) var error: String?
     /// Sessions an open approval or question shows in: their row gets the waiting dot.
     private(set) var waiting: Set<String> = []
+    /// What waits on you across sessions, for the Inbox.
+    private(set) var approvals: [ApprovalRequest] = []
+    private(set) var questions: [QuestionRequest] = []
+    /// Bumps when a session under another changes (a subagent starts, runs, ends): the Tasks pane reads again.
+    private(set) var childTick = 0
+    /// Bumps on device.updated and device.deleted: the Devices page reads again.
+    private(set) var deviceTick = 0
     /// The hub's model list, read when a picker first opens.
     private(set) var models: [ModelGroup] = []
 
@@ -50,8 +57,8 @@ final class HubModel {
     }
 
     private func loadAsks() async {
-        let approvals = (try? await client.approvals()) ?? []
-        let questions = (try? await client.questions()) ?? []
+        approvals = (try? await client.approvals()) ?? []
+        questions = (try? await client.questions()) ?? []
         waiting = Set(approvals.map { Asks.home($0) } + questions.map { Asks.home($0) })
     }
 
@@ -82,12 +89,17 @@ final class HubModel {
         switch e {
         case .sessionCreated(let s), .sessionUpdated(let s):
             if let i = sessions.firstIndex(where: { $0.id == s.id }) { sessions[i] = s } else if s.parentId == nil { sessions.append(s) }
+            if s.parentId != nil { childTick += 1 }
         case .sessionDeleted(let id):
             sessions.removeAll { $0.id == id }
         case .approvalRequested(let a):
             waiting.insert(Asks.home(a))
+            if !approvals.contains(where: { $0.id == a.id }) { approvals.append(a) }
         case .questionAsked(let q):
             waiting.insert(Asks.home(q))
+            if !questions.contains(where: { $0.id == q.id }) { questions.append(q) }
+        case .other(let type) where type == "device.updated" || type == "device.deleted":
+            deviceTick += 1
         case .approvalResolved, .questionAnswered:
             // the event names the one that asked, not where it showed: read the list again
             Task { await loadAsks() }
@@ -105,6 +117,17 @@ final class HubModel {
     }
 
     func session(_ id: String) -> Session? { sessions.first { $0.id == id } }
+
+    /// An answer from the Inbox; the list is read again once the hub took it.
+    func answer(_ a: ApprovalRequest, _ r: ApprovalResponse) async {
+        do { try await client.resolveApproval(a.id, r) } catch { self.error = error.localizedDescription }
+        await loadAsks()
+    }
+
+    func answer(_ q: QuestionRequest, _ answers: [String: String]) async {
+        do { try await client.answerQuestion(q.id, answers) } catch { self.error = error.localizedDescription }
+        await loadAsks()
+    }
 
     func loadModels() async {
         guard models.isEmpty, let m = try? await client.models() else { return }

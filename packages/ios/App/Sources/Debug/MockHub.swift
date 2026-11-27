@@ -36,19 +36,43 @@ enum MockHub {
     }
 
     /// Status and JSON body for a request, shaped as the hub answers it.
-    static func reply(_ method: String, _ path: String, _ body: Data?) -> (Int, String) {
+    static func reply(_ method: String, _ url: URL, _ body: Data?) -> (Int, String) {
+        let path = url.path
+        let query = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
         let p = path.split(separator: "/").map(String.init) // ["api", "sessions", id, ...]
         if p.count >= 3, p[0] == "api", p[1] == "sessions" {
             let id = p[2]
+            if p.count == 4, p[3] == "files" { return (200, files) }
             // PATCH and seen answer with the session, as GET does
             if p.count == 3 || (p.count == 4 && p[3] == "seen") { return session(id, patch: method == "PATCH" ? body : nil) }
             if p.count == 4, p[3] == "messages" { return (200, method == "POST" ? #"{"messageId":"m-sent"}"# : messages) }
         }
+        if path == "/api/sessions", let parent = query.first(where: { $0.name == "parentId" })?.value, parent != "none" {
+            return (200, parent == "s1" ? children : "[]")
+        }
         if path == "/api/sessions" { return (200, json(sessionList())) }
+        if path == "/api/devices" { return (200, devices) }
+        if path == "/api/pairing" {
+            return (200, #"{"code":"K7QM-4XPD","url":"https://hub.mock.test","deepLink":"conclave://pair?url=https%3A%2F%2Fhub.mock.test&code=K7QM-4XPD","expiresAt":\#(Int64(Date().timeIntervalSince1970 * 1000) + 582_000),"fingerprint":"9f3ac1e07b52d4e8"}"#)
+        }
+        if path == "/api/me" { return (200, method == "PATCH" ? #"{"ok":true}"# : #"{"id":"owner","name":"sam","role":"owner","preferences":{"defaultModel":"anthropic/claude-opus-5-5"}}"#) }
+        if path == "/api/info" { return (200, #"{"name":"homelab","version":"0.4.107","defaultModel":"anthropic/claude-sonnet-5-5"}"#) }
         if path == "/api/approvals" { return (200, approvals) }
         if path == "/api/questions" { return (200, questions) }
         if path == "/api/models" { return (200, models) }
         return (200, "[]")
+    }
+
+    /// A tool's file as raw bytes (GET /api/sessions/:id/files/:toolUseId): a one-page PDF for t9,
+    /// the purple picture for the rest. Nil for every other route.
+    static func bytes(_ url: URL) -> (String, Data)? {
+        let p = url.path.split(separator: "/").map(String.init)
+        guard p.count == 5, p[1] == "sessions", p[3] == "files" else { return nil }
+        switch p[4] {
+        case "t9": return ("application/pdf", Data(pdf.utf8))
+        case "t8": return ("text/markdown", Data("# Notes\n\nThe iPad keeps the web's column.\n".utf8))
+        default: return ("image/png", Data(base64Encoded: png) ?? Data())
+        }
     }
 
     /// PATCHed sessions as JSON, so a model pick outlives the next list load. JSON Data keeps the lock state Sendable.
@@ -105,6 +129,38 @@ enum MockHub {
         """
     }
 
+    static var devices: String {
+        """
+        [{"id":"local","name":"homelab","online":true,"info":{"hostname":"conclave","platform":"linux","arch":"x64"}},
+         {"id":"d1","name":"MacBook Pro","online":true,"lastSeenAt":\(ago(0)),"info":{"hostname":"sams-mbp","platform":"darwin","arch":"arm64"}},
+         {"id":"d2","name":"Gaming PC","online":false,"lastSeenAt":\(ago(3)),"info":{"hostname":"desktop-7k","platform":"win32","arch":"x64"}},
+         {"id":"d3","name":"NAS","online":false,"lastSeenAt":\(ago(52)),"info":{"hostname":"nas","platform":"linux","arch":"arm64"}}]
+        """
+    }
+
+    static var children: String {
+        """
+        [{"id":"s1-sub","parentId":"s1","title":"Build the app with xcodegen","agent":"builder","status":"waiting_approval","updatedAt":\(ago(0.05))},
+         {"id":"c2","parentId":"s1","title":"Find the Android transcript logic","agent":"explore","status":"running","updatedAt":\(ago(0.02))},
+         {"id":"c3","parentId":"s1","title":"Review the markdown renderer","agent":"reviewer","status":"idle","updatedAt":\(ago(0.6))},
+         {"id":"c4","parentId":"s1","title":"Run the snapshot tests","agent":"tester","status":"error","updatedAt":\(ago(1.2))}]
+        """
+    }
+
+    static var files: String {
+        """
+        [{"key":"share:t9","group":"generated","name":"ipad-plan.pdf","mediaType":"application/pdf","size":48210,"at":\(ago(0.1)),"messageId":"m3","index":3,"toolUseId":"t9"},
+         {"key":"share:t8","group":"generated","name":"notes.md","mediaType":"text/markdown","size":2310,"at":\(ago(0.15)),"messageId":"m3","index":4,"toolUseId":"t8"},
+         {"key":"gen:t7:0","group":"generated","name":"icon-a.png","mediaType":"image/png","size":912,"at":\(ago(0.2)),"messageId":"m3","index":5,"toolUseId":"t7","image":0},
+         {"key":"gen:t7:1","group":"generated","name":"icon-b.png","mediaType":"image/png","size":912,"at":\(ago(0.2)),"messageId":"m3","index":5,"toolUseId":"t7","image":1},
+         {"key":"m4:1","group":"uploaded","name":"icon-colour.png","mediaType":"image/png","size":120,"at":\(ago(0.3)),"messageId":"m4","index":1},
+         {"key":"m5:0","group":"uploaded","name":"brief.txt","mediaType":"text/plain","size":640,"at":\(ago(0.4)),"messageId":"m5","index":0}]
+        """
+    }
+
+    // a minimal one-page PDF with one line of text, for Quick Look
+    private static let pdf = "%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj 2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj 3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 300 120]/Contents 4 0 R/Resources<</Font<</F1 5 0 R>>>>>>endobj 4 0 obj<</Length 44>>stream\nBT /F1 18 Tf 20 60 Td (iPad plan) Tj ET\nendstream endobj 5 0 obj<</Type/Font/Subtype/Type1/BaseFont/Helvetica>>endobj\ntrailer<</Root 1 0 R>>\n%%EOF"
+
     static let approvals = """
     [{"id":"ap1","sessionId":"s1-sub","rootSessionId":"s1","tool":"Bash","summary":"Run: xcodegen generate","suggestedRule":"Bash(xcodegen:*)",
       "input":{"command":"xcodegen generate"},"from":{"sessionId":"s1-sub","agent":"builder","label":"build the app","chain":["s1-sub"]}}]
@@ -155,8 +211,10 @@ enum MockHub {
            {"type":"tool_use","id":"t1","name":"Bash","input":{"command":"ls packages/ios"}},
            {"type":"tool_use","id":"t2","name":"Read","input":{"file_path":"packages/android/app/src/main/kotlin/dev/conclave/app/ui/panel/SidePanel.kt"}},
            {"type":"tool_use","id":"t3","name":"Grep","input":{"pattern":"TranscriptReducer","path":"packages/ios"}},
+           {"type":"tool_use","id":"t9","name":"ShareFile","input":{"path":"ipad-plan.pdf"}},
            {"type":"text","text":"\(answer)"}]},
-         {"id":"m3","sessionId":"s1","seq":3,"role":"user","content":[{"type":"tool_result","toolUseId":"t1","content":"App\\nConclaveKit\\nproject.yml"},{"type":"tool_result","toolUseId":"t2","content":"620 lines"},{"type":"tool_result","toolUseId":"t3","content":"4 files"}]},
+         {"id":"m3","sessionId":"s1","seq":3,"role":"user","content":[{"type":"tool_result","toolUseId":"t1","content":"App\\nConclaveKit\\nproject.yml"},{"type":"tool_result","toolUseId":"t2","content":"620 lines"},{"type":"tool_result","toolUseId":"t3","content":"4 files"},
+           {"type":"tool_result","toolUseId":"t9","content":"Shared ipad-plan.pdf","meta":{"file":{"toolUseId":"t9","name":"ipad-plan.pdf","title":"iPad plan","mediaType":"application/pdf","size":48210}}}]},
          {"id":"m4","sessionId":"s1","seq":4,"role":"user","content":[{"type":"text","text":"Here is the icon colour."},{"type":"image","mediaType":"image/png","data":"\(png)"}]}
         ]
         """
@@ -170,10 +228,16 @@ final class MockProtocol: URLProtocol, @unchecked Sendable {
 
     override func startLoading() {
         let url = request.url!
-        let (status, text) = MockHub.reply(request.httpMethod ?? "GET", url.path, Self.body(request))
-        let res = HTTPURLResponse(url: url, statusCode: status, httpVersion: "HTTP/1.1", headerFields: ["Content-Type": "application/json"])!
+        let (status, type, data): (Int, String, Data)
+        if let b = MockHub.bytes(url) {
+            (status, type, data) = (200, b.0, b.1)
+        } else {
+            let (s, text) = MockHub.reply(request.httpMethod ?? "GET", url, Self.body(request))
+            (status, type, data) = (s, "application/json", Data(text.utf8))
+        }
+        let res = HTTPURLResponse(url: url, statusCode: status, httpVersion: "HTTP/1.1", headerFields: ["Content-Type": type])!
         client?.urlProtocol(self, didReceive: res, cacheStoragePolicy: .notAllowed)
-        client?.urlProtocol(self, didLoad: Data(text.utf8))
+        client?.urlProtocol(self, didLoad: data)
         client?.urlProtocolDidFinishLoading(self)
     }
 

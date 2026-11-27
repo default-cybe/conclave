@@ -11,6 +11,7 @@ struct SidebarView: View {
     @Environment(\.accessibilityReduceMotion) private var reduce
     let hub: HubModel
     @Binding var selection: String?
+    @Binding var page: SidePage?
     @AppStorage("drawerGroup") private var groupWire = GroupBy.project.rawValue
     @AppStorage("sideMode") private var mode = "chat"
     @State private var query = ""
@@ -46,7 +47,7 @@ struct SidebarView: View {
                             .padding(.leading, 10).padding(.top, g.id == groups.first?.id ? 0 : 8).padding(.bottom, 2)
                             .accessibilityAddTraits(.isHeader)
                         ForEach(g.items) { item in
-                            SideRow(item: item, on: selection == item.id, m: m) {
+                            SideRow(item: item, on: page == nil && selection == item.id, m: m) {
                                 withAnimation(Motion.of(Motion.ease(Motion.dur2), reduce: reduce)) { selection = item.id }
                             }
                         }
@@ -103,14 +104,16 @@ struct SidebarView: View {
                 Task { if let id = await hub.newChat() { selection = id } }
             }
             .keyboardShortcut("n", modifiers: .command)
-            NavRow(icon: "tray", label: "Inbox", m: m, count: hub.waiting.count) {
-                if let id = hub.waiting.first { selection = id }
-            }
+            NavRow(icon: "tray", label: "Inbox", m: m, count: hub.approvals.count + hub.questions.count, on: page == .inbox) { page = .inbox }
+                .accessibilityIdentifier("nav-inbox")
+            NavRow(icon: "desktopcomputer", label: "Devices", m: m, on: page == .devices) { page = .devices }
+                .accessibilityIdentifier("nav-devices")
             NavRow(icon: "person.wave.2", label: "Meetings", m: m) {}
             Menu {
                 Picker("Group by", selection: $groupWire) {
                     ForEach(GroupBy.allCases, id: \.self) { Text($0.label).tag($0.rawValue) }
                 }
+                Button("Settings", systemImage: "gearshape") { page = .settings }
                 Button("Forget this hub", role: .destructive) { model.forget() }
             } label: {
                 NavLabel(icon: "ellipsis", label: "More", m: m)
@@ -217,11 +220,15 @@ private struct NavRow: View {
     let m: Metrics
     var hint: String?
     var count = 0
+    /// Its page is open: the row sits on the active tint, as a picked chat's.
+    var on = false
     let action: () -> Void
 
     var body: some View {
         Button(action: action) { NavLabel(icon: icon, label: label, m: m, hint: hint, count: count) }
             .buttonStyle(QuietPress(fill: Tone.sideHover))
+            .background(on ? Tone.sideActive : .clear, in: RoundedRectangle(cornerRadius: Radius.row, style: .continuous))
+            .accessibilityAddTraits(on ? .isSelected : [])
     }
 }
 

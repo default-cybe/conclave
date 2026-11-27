@@ -8,6 +8,8 @@ struct ChatView: View {
     let hub: HubModel
     let title: String
     @State private var position = ScrollPosition(edge: .bottom)
+    /// The media viewer, open on a picture with every picture of the chat to swipe through.
+    @State private var media = MediaPresenter()
     @Environment(\.horizontalSizeClass) private var sizeClass
     @Environment(\.accessibilityReduceMotion) private var reduce
     @Environment(\.dismiss) private var dismiss
@@ -50,6 +52,8 @@ struct ChatView: View {
             .animation(Motion.of(Motion.ease, reduce: reduce), value: chat.outgoing != nil)
         }
         .background(Tone.bg.ignoresSafeArea())
+        .mediaViewer(media, client: chat.client)
+        .onAppear { [chat] in media.gallery = { Gallery.pictures(chat.transcript.messages, toolResults: chat.transcript.toolResults) } }
         .scrollPosition($position)
         .defaultScrollAnchor(.bottom, for: .initialOffset)
         // the bottom anchor on size changes kept pulling a scrollTo(id:) back to the end; off for `-scrollTo`
@@ -136,9 +140,11 @@ private struct MessageView: View {
         } else if message.role == .user {
             let text = message.content.compactMap { b -> String? in if case .text(let s) = b, !b.isReminder { s } else { nil } }.joined(separator: "\n")
             let images = message.content.compactMap { b -> MediaBlock? in if case .image(let m) = b { m } else { nil } }
-            if !text.isEmpty || !images.isEmpty {
+            let docs = message.content.compactMap { b -> MediaBlock? in if case .document(let m) = b { m } else { nil } }
+            if !text.isEmpty || !images.isEmpty || !docs.isEmpty {
                 VStack(alignment: .trailing, spacing: 8) {
                     ForEach(Array(images.enumerated()), id: \.offset) { PictureView(media: $0.element, client: client) }
+                    ForEach(Array(docs.enumerated()), id: \.offset) { DocumentCard(media: $0.element, client: client) }
                     if !text.isEmpty { UserBubble(text: text) }
                 }
                 .frame(maxWidth: .infinity, alignment: .trailing)
@@ -152,13 +158,31 @@ private struct MessageView: View {
                     case .thinking(let th): Fold(title: th.durationMs.map { "Thought for \(max(1, $0 / 1000))s" } ?? "Thinking") {
                         Text(th.thinking).font(.sans(13)).lineSpacing(4).foregroundStyle(Tone.fg2).textSelection(.enabled)
                     }
-                    case .toolUse(let u): ToolFold(use: u, result: transcript.toolResults[u.id], running: transcript.runningTools.contains(u.id), progress: transcript.toolProgress[u.id], client: client)
+                    case .toolUse(let u):
+                        ToolFold(use: u, result: transcript.toolResults[u.id], running: transcript.runningTools.contains(u.id), progress: transcript.toolProgress[u.id], client: client)
+                        // a file the tool handed over shows as its card, outside the fold (Android FileCards)
+                        if let f = SharedFile(transcript.toolResults[u.id]) {
+                            FileCard(name: f.name, title: f.title, mediaType: f.mediaType, size: f.size,
+                                     media: MediaBlock(mediaType: f.mediaType, url: MediaBytes.fileURL(session: message.sessionId, toolUseId: f.toolUseId, image: nil)), client: client)
+                        }
                     case .image(let m): PictureView(media: m, client: client)
+                    case .document(let m): DocumentCard(media: m, client: client)
                     default: EmptyView()
                     }
                 }
             }
         }
+    }
+}
+
+/// A document block (a PDF someone attached): its card, opened in Quick Look.
+private struct DocumentCard: View {
+    let media: MediaBlock
+    let client: ConclaveClient
+
+    var body: some View {
+        let name = media.title?.isEmpty == false ? media.title! : "Document." + (media.mediaType.split(separator: "/").last.map(String.init) ?? "pdf")
+        FileCard(name: name, mediaType: media.mediaType, size: media.data.map { Int64($0.count * 3 / 4) }, media: media, client: client)
     }
 }
 
@@ -289,9 +313,7 @@ private struct ToolFold: View {
                 }
                 if let parts = result?.content.array {
                     ForEach(Array(parts.enumerated()), id: \.offset) { _, p in
-                        if p["type"]?.string == "image" {
-                            PictureView(media: MediaBlock(mediaType: p["mediaType"]?.string ?? "image/png", data: (p["data"] ?? p["source"]?["data"])?.string, url: p["url"]?.string), client: client)
-                        }
+                        if let m = Gallery.picture(p) { PictureView(media: m, client: client) }
                     }
                 }
             }

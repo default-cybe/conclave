@@ -3,17 +3,27 @@ import SwiftUI
 @main
 struct ConclaveApp: App {
     @State private var model = ConclaveApp.makeModel()
+    /// Settings > Appearance: system, light or dark.
+    @AppStorage("theme") private var theme = "system"
+    /// Settings > Appearance > Reduce motion: every animation becomes a short linear one (Motion.of's).
+    @AppStorage("reduceMotion") private var reduceMotion = false
 
     var body: some Scene {
         WindowGroup {
             RootView()
                 .environment(model)
                 .onOpenURL { model.open($0) }
-                #if DEBUG
-                // CI screenshots: `-appearance dark|light` (XCUIDevice.appearance left every shot light)
-                .preferredColorScheme(UserDefaults.standard.string(forKey: "appearance").map { $0 == "dark" ? ColorScheme.dark : ColorScheme.light })
-                #endif
+                .preferredColorScheme(scheme)
+                .transaction { t in if reduceMotion, t.animation != nil { t.animation = .linear(duration: Motion.dur1) } }
         }
+    }
+
+    private var scheme: ColorScheme? {
+        #if DEBUG
+        // CI screenshots: `-appearance dark|light` (XCUIDevice.appearance left every shot light)
+        if let a = UserDefaults.standard.string(forKey: "appearance") { return a == "dark" ? .dark : .light }
+        #endif
+        return theme == "dark" ? .dark : theme == "light" ? .light : nil
     }
 
     @MainActor

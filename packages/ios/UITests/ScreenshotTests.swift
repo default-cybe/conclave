@@ -58,6 +58,50 @@ final class ScreenshotTests: XCTestCase {
         }
     }
 
+    // phase 4 screens: iPad landscape light and dark, iPhone portrait light
+    @MainActor func testViewerLight() throws { try viewer("light") }
+    @MainActor func testViewerDark() throws { try viewer("dark") }
+    @MainActor func testFilesLight() throws { try page("files", "light", ["-openChat", "s1", "-inspectorTab", "files"]) { $0.staticTexts["ipad-plan.pdf"] } }
+    @MainActor func testFilesDark() throws { try page("files", "dark", ["-openChat", "s1", "-inspectorTab", "files"]) { $0.staticTexts["ipad-plan.pdf"] } }
+    @MainActor func testTasksLight() throws { try page("tasks", "light", ["-openChat", "s1", "-inspectorTab", "tasks"]) { $0.staticTexts["4 tasks, 2 running, 1 failed"] } }
+    @MainActor func testTasksDark() throws { try page("tasks", "dark", ["-openChat", "s1", "-inspectorTab", "tasks"]) { $0.staticTexts["4 tasks, 2 running, 1 failed"] } }
+    @MainActor func testInboxLight() throws { try page("inbox", "light", ["-openPage", "inbox"]) { $0.buttons["Open chat"].firstMatch } }
+    @MainActor func testInboxDark() throws { try page("inbox", "dark", ["-openPage", "inbox"]) { $0.buttons["Open chat"].firstMatch } }
+    @MainActor func testDevicesLight() throws { try page("devices", "light", ["-openPage", "devices"]) { $0.staticTexts["MacBook Pro"] } }
+    @MainActor func testDevicesDark() throws { try page("devices", "dark", ["-openPage", "devices"]) { $0.staticTexts["MacBook Pro"] } }
+    @MainActor func testPairLight() throws { try pair("light") }
+    @MainActor func testPairDark() throws { try pair("dark") }
+    @MainActor func testSettingsLight() throws { try page("settings", "light", ["-openPage", "settings"]) { $0.staticTexts["0.4.107"] } }
+    @MainActor func testSettingsDark() throws { try page("settings", "dark", ["-openPage", "settings"]) { $0.staticTexts["0.4.107"] } }
+
+    /// A screen of phase 4: iPad landscape in light and dark, iPhone portrait in light only.
+    @MainActor
+    private func page(_ name: String, _ appearance: String, _ args: [String], ready: (XCUIApplication) -> XCUIElement) throws {
+        let dir = try folder()
+        guard list("SHOT_APPEARANCES", "light,dark").contains(appearance), prefix == "ipad" || appearance == "light" else { throw XCTSkip("not asked for") }
+        try shoot(dir, "\(prefix)-\(name)-\(appearance)", prefix == "ipad" ? "landscape" : "portrait", appearance, ["-mockHub"] + args, ready: ready)
+    }
+
+    /// The media viewer, opened by a tap on the picture at the chat's end.
+    @MainActor
+    private func viewer(_ appearance: String) throws {
+        try page("viewer", appearance, ["-openChat", "s1"]) { app in
+            let pic = app.buttons.matching(identifier: "picture").firstMatch
+            if pic.waitForExistence(timeout: 12) { sleep(1); pic.tap() }
+            return app.buttons["Save to Photos"]
+        }
+    }
+
+    /// Devices, then Pair a device: the QR code, the code and its countdown.
+    @MainActor
+    private func pair(_ appearance: String) throws {
+        try page("pair", appearance, ["-openPage", "devices"]) { app in
+            let b = app.buttons["pair-device"]
+            if b.waitForExistence(timeout: 12) { b.tap() }
+            return app.staticTexts["K7QM-4XPD"]
+        }
+    }
+
     /// The chat list with no chat open: on iPhone the drawer, as Android's side panel.
     @MainActor func testDrawerLight() throws { try drawer("light") }
     @MainActor func testDrawerDark() throws { try drawer("dark") }
