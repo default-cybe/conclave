@@ -29,7 +29,7 @@ struct SidebarView: View {
                     Text(mode == "code" ? "Sessions" : "Chats")
                         .font(.sans(m.compact ? 13 : 12, .medium))
                         .foregroundStyle(Tone.fg3)
-                        .frame(height: m.compact ? 44 : 28)
+                        .frame(height: m.compact ? 36 : 28)
                         .padding(.leading, 10)
                     if hub.loaded && groups.isEmpty {
                         Text(query.isEmpty ? "No chats." : "No chat matches \"\(query)\".")
@@ -43,8 +43,8 @@ struct SidebarView: View {
                         Text(g.title)
                             .font(.sans(m.compact ? 14 : 13, .semibold))
                             .foregroundStyle(Tone.fg)
-                            .frame(height: m.compact ? 40 : 24, alignment: .bottom)
-                            .padding(.leading, 10).padding(.top, 10).padding(.bottom, 2)
+                            .frame(height: m.compact ? 32 : 24, alignment: .bottom)
+                            .padding(.leading, 10).padding(.top, g.id == groups.first?.id ? 0 : 8).padding(.bottom, 2)
                             .accessibilityAddTraits(.isHeader)
                         ForEach(g.items) { item in
                             SideRow(item: item, on: selection == item.id, m: m) {
@@ -53,7 +53,7 @@ struct SidebarView: View {
                         }
                     }
                 }
-                .padding(.horizontal, 8).padding(.top, 16).padding(.bottom, 20)
+                .padding(.horizontal, 8).padding(.top, 12).padding(.bottom, 20)
             }
             .scrollIndicators(.hidden)
             .refreshable { await hub.load() }

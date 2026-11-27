@@ -7,10 +7,12 @@ struct MainSplitView: View {
     @Environment(AppModel.self) private var model
     @State private var selection: String?
     @State private var showInspector = false
+    /// Collapsed (iPhone, a narrow window) the sidebar is not a List, so a pick pushes the chat through this.
+    @State private var column = NavigationSplitViewColumn.sidebar
 
     var body: some View {
         if let hub = model.hub {
-            NavigationSplitView {
+            NavigationSplitView(preferredCompactColumn: $column) {
                 SidebarView(hub: hub, selection: $selection)
             } detail: {
                 Group {
@@ -46,7 +48,11 @@ struct MainSplitView: View {
                 if ProcessInfo.processInfo.arguments.contains("-mockHub"), let id = selection { MockHub.fillComposer(hub.chat(id)) }
             }
             #endif
-            .tint(Tone.signal)
+            // chrome icons in fg-2 as the web's (no accent on the sidebar toggles); content sets signal where it means focus
+            .tint(Tone.fg2)
+            .onChange(of: selection, initial: true) { _, s in if s != nil { column = .detail } }
+            // back to the list: forget the pick, so tapping the same chat opens it again
+            .onChange(of: column) { _, c in if c == .sidebar { selection = nil } }
             .onChange(of: hub.sessions.map(\.id)) { _, ids in
                 if let s = selection, !ids.contains(s) { selection = nil }
             }

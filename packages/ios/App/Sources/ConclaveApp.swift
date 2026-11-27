@@ -9,6 +9,10 @@ struct ConclaveApp: App {
             RootView()
                 .environment(model)
                 .onOpenURL { model.open($0) }
+                #if DEBUG
+                // CI screenshots: `-appearance dark|light` (XCUIDevice.appearance left every shot light)
+                .preferredColorScheme(UserDefaults.standard.string(forKey: "appearance").map { $0 == "dark" ? ColorScheme.dark : ColorScheme.light })
+                #endif
         }
     }
 

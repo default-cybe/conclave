@@ -57,7 +57,7 @@ final class ScreenshotTests: XCTestCase {
     private func drawer(_ appearance: String) throws {
         let dir = try folder()
         guard prefix == "iphone", list("SHOT_APPEARANCES", "light,dark").contains(appearance) else { throw XCTSkip("not asked for") }
-        try shoot(dir, "\(prefix)-drawer-\(appearance)", "portrait", appearance, ["-mockHub"]) { $0.buttons["Native iPad client plan"] }
+        try shoot(dir, "\(prefix)-drawer-\(appearance)", "portrait", appearance, ["-mockHub"]) { $0.buttons["New chat"] }
     }
 
     @MainActor
@@ -83,7 +83,7 @@ final class ScreenshotTests: XCTestCase {
         XCUIDevice.shared.appearance = appearance == "dark" ? .dark : .light
         XCUIDevice.shared.orientation = orientation == "landscape" ? .landscapeLeft : .portrait
         let app = XCUIApplication()
-        app.launchArguments = args
+        app.launchArguments = args + ["-appearance", appearance]
         app.launch()
         let folder = URL(fileURLWithPath: dir)
         guard ready(app).waitForExistence(timeout: 15) else {
