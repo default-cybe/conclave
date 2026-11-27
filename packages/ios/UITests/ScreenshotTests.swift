@@ -20,6 +20,14 @@ final class ScreenshotTests: XCTestCase {
     @MainActor func testPortraitLight() throws { try chat("portrait", "light") }
     @MainActor func testPortraitDark() throws { try chat("portrait", "dark") }
 
+    /// The model picker open from the composer's chip, makers with their logos (iPad landscape).
+    @MainActor func testPickerLight() throws { try picker("light") }
+    @MainActor func testPickerDark() throws { try picker("dark") }
+
+    /// The chat list with no chat open: on iPhone the drawer, as Android's side panel.
+    @MainActor func testDrawerLight() throws { try drawer("light") }
+    @MainActor func testDrawerDark() throws { try drawer("dark") }
+
     /// The first screen, with no hub paired (the simulator's keychain is empty).
     @MainActor func testConnectLight() throws { try connect("light") }
     @MainActor func testConnectDark() throws { try connect("dark") }
@@ -31,6 +39,25 @@ final class ScreenshotTests: XCTestCase {
               list("SHOT_APPEARANCES", "light,dark").contains(appearance) else { throw XCTSkip("not asked for") }
         // the last things the transcript draws: the approval and question cards from the mock hub
         try shoot(dir, "\(prefix)-\(orientation)-\(appearance)", orientation, appearance, ["-mockHub", "-openChat", "s1"]) { $0.buttons["Allow once"] }
+    }
+
+    @MainActor
+    private func picker(_ appearance: String) throws {
+        let dir = try folder()
+        guard prefix == "ipad", list("SHOT_ORIENTATIONS", "landscape,portrait").contains("landscape"),
+              list("SHOT_APPEARANCES", "light,dark").contains(appearance) else { throw XCTSkip("not asked for") }
+        try shoot(dir, "\(prefix)-picker-\(appearance)", "landscape", appearance, ["-mockHub", "-openChat", "s1"]) { app in
+            let chip = app.buttons["Model"]
+            if chip.waitForExistence(timeout: 10) { chip.tap() }
+            return app.buttons["OpenAI"]
+        }
+    }
+
+    @MainActor
+    private func drawer(_ appearance: String) throws {
+        let dir = try folder()
+        guard prefix == "iphone", list("SHOT_APPEARANCES", "light,dark").contains(appearance) else { throw XCTSkip("not asked for") }
+        try shoot(dir, "\(prefix)-drawer-\(appearance)", "portrait", appearance, ["-mockHub"]) { $0.buttons["Native iPad client plan"] }
     }
 
     @MainActor

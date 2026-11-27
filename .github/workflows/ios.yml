@@ -117,7 +117,7 @@ jobs:
           # one simulator at a time: booting a second next to the iPad took 15 minutes
           xcrun simctl shutdown "$SIM" || true
           TEST_RUNNER_SHOTS="$PWD/shots" TEST_RUNNER_SHOT_PREFIX=iphone \
-          TEST_RUNNER_SHOT_ORIENTATIONS=portrait TEST_RUNNER_SHOT_APPEARANCES=light \
+          TEST_RUNNER_SHOT_ORIENTATIONS=portrait TEST_RUNNER_SHOT_APPEARANCES=light,dark \
           xcodebuild test -project Conclave.xcodeproj -scheme Screenshots \
             -destination "id=$PHONE" -derivedDataPath build -resultBundlePath logs/shots-iphone.xcresult $TEST_TIMEOUTS \
             CODE_SIGNING_ALLOWED=NO 2>&1 | tee logs/shots-iphone.log \
