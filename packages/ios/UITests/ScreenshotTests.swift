@@ -41,6 +41,22 @@ final class ScreenshotTests: XCTestCase {
         }
     }
 
+    /// The answer's end: the list, the code block, the table and the quote (iPad landscape).
+    @MainActor func testAnswerLight() throws { try answer("light") }
+    @MainActor func testAnswerDark() throws { try answer("dark") }
+
+    @MainActor
+    private func answer(_ appearance: String) throws {
+        let dir = try folder()
+        guard prefix == "ipad", list("SHOT_APPEARANCES", "light,dark").contains(appearance) else { throw XCTSkip("not asked for") }
+        try shoot(dir, "\(prefix)-answer-\(appearance)", "landscape", appearance, ["-mockHub", "-openChat", "s1", "-scrollTo", "m2"]) { app in
+            // the composer's chip is always there; the wait lets the scroll to the answer's end land
+            let chip = app.buttons["Model"]
+            if chip.waitForExistence(timeout: 12) { sleep(2) }
+            return chip
+        }
+    }
+
     /// The chat list with no chat open: on iPhone the drawer, as Android's side panel.
     @MainActor func testDrawerLight() throws { try drawer("light") }
     @MainActor func testDrawerDark() throws { try drawer("dark") }

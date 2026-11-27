@@ -97,7 +97,9 @@ struct Metrics {
     /// Extra space between lines for the reading leading (Mona Sans sets about 1.25 by itself).
     var readSpacing: CGFloat { compact ? 4.8 : 5.25 }
     var meta: CGFloat { compact ? 13.5 : 12.5 }
-    var row: CGFloat { compact ? 15 : 13.5 }
+    /// Sidebar rows: 13 on iPad, a step under the web's 13.5 px, since the iPad is 1180 pt wide
+    /// against the web's 1440 and the same size read larger next to it (chat-desktop-dark.png).
+    var row: CGFloat { compact ? 15 : 13 }
     var code: CGFloat { compact ? 13 : 12.5 }
     var gutter: CGFloat { compact ? 16 : 32 }
 }

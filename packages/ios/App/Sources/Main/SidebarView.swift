@@ -40,7 +40,7 @@ struct SidebarView: View {
                     ForEach(groups) { g in
                         // sidebar.ts: by project, the folderless group is "No folder"
                         Text(g.key == Drawer.chats ? "No folder" : g.title)
-                            .font(.sans(m.compact ? 14 : 13, .semibold))
+                            .font(.sans(m.compact ? 14 : 12.5, .semibold))
                             .foregroundStyle(Tone.fg)
                             .frame(height: m.compact ? 32 : 24, alignment: .bottom)
                             .padding(.leading, 10).padding(.top, g.id == groups.first?.id ? 0 : 8).padding(.bottom, 2)
@@ -60,6 +60,8 @@ struct SidebarView: View {
             account.padding(.horizontal, 8).padding(.top, 4).padding(.bottom, 8)
         }
         .background(Tone.side.ignoresSafeArea())
+        // the web's sidebar is 264 px; the system default (320) made it read wide on iPad
+        .navigationSplitViewColumnWidth(min: 240, ideal: 272, max: 340)
         .toolbar(.hidden, for: .navigationBar)
     }
 
@@ -127,8 +129,8 @@ struct SidebarView: View {
                 .frame(width: 26, height: 26)
                 .background(Tone.fg2, in: Circle())
             VStack(alignment: .leading, spacing: 1) {
-                Text("Owner").font(.sans(m.compact ? 15.5 : 13.5, .medium)).foregroundStyle(Tone.fg)
-                Text(name).font(.sans(m.compact ? 13 : 12)).foregroundStyle(Tone.fg3)
+                Text("Owner").font(.sans(m.compact ? 15.5 : 13, .medium)).foregroundStyle(Tone.fg)
+                Text(name).font(.sans(m.compact ? 13 : 11.5)).foregroundStyle(Tone.fg3)
             }
             Spacer(minLength: 0)
             Circle()
@@ -192,7 +194,7 @@ private struct NavLabel: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            Image(systemName: icon).font(.system(size: 14)).frame(width: 16)
+            Image(systemName: icon).font(.system(size: m.compact ? 14 : 13)).frame(width: 16)
             // phone: Android's PanelRow strong, 16 semibold in ink
             Text(label).font(.sans(m.compact ? 16 : m.row, m.compact ? .semibold : .regular)).lineLimit(1)
             Spacer(minLength: 0)
@@ -239,8 +241,8 @@ private struct SideRow: View {
                     .lineLimit(1)
                 Spacer(minLength: 0)
                 switch item.dot {
-                case .waiting: Text("waiting").font(.sans(m.compact ? 13 : 12)).foregroundStyle(Tone.warn).accessibilityLabel("waiting on you")
-                case .running: Text("running").font(.sans(m.compact ? 13 : 12)).foregroundStyle(Tone.signal)
+                case .waiting: Text("waiting").font(.sans(m.compact ? 13 : 11.5)).foregroundStyle(Tone.warn).accessibilityLabel("waiting on you")
+                case .running: Text("running").font(.sans(m.compact ? 13 : 11.5)).foregroundStyle(Tone.signal)
                 case .none: EmptyView()
                 }
             }

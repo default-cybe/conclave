@@ -99,8 +99,8 @@ jobs:
       # UITests/ScreenshotTests.swift turns the device and writes the PNGs; TEST_RUNNER_ vars reach it.
       # The connect screen is shot there too: simctl install took 7.5 minutes in run 45871676418.
       - name: Screenshot connect, sidebar and transcript on iPad (mock hub)
-        # ten shots now (picker and top of chat added): 10 minutes ran out on the ninth
-        timeout-minutes: 16
+        # twelve shots now (picker, top and end of chat added): 10 minutes ran out on the ninth
+        timeout-minutes: 20
         run: |
           set -o pipefail
           TEST_RUNNER_SHOTS="$PWD/shots" TEST_RUNNER_SHOT_PREFIX=ipad TEST_RUNNER_SHOT_CONNECT=1 \

@@ -97,7 +97,7 @@ private struct ModelPicker: View {
                         if !f.name.isEmpty, f.name != g.name {
                             Text(f.name).font(.sans(12)).foregroundStyle(Tone.fg3).padding(.horizontal, 12).padding(.top, 6).padding(.bottom, 2)
                         }
-                        ForEach(f.rows, id: \.ref) { r in row(r, m) }
+                        ForEach(f.rows, id: \.ref) { r in row(r, m, maker: g.name) }
                     }
                 }
             }
@@ -107,7 +107,8 @@ private struct ModelPicker: View {
         .background(Tone.raise)
     }
 
-    private func row(_ r: ModelPicks.Row, _ m: Metrics) -> some View {
+    /// `maker`: the header the row sits under; a route named the same says nothing new.
+    private func row(_ r: ModelPicks.Row, _ m: Metrics, maker: String) -> some View {
         let on = r.ref == current
         return Button {
             Task { await hub.update(session.id, SessionPatch(model: r.ref)) }
@@ -115,7 +116,7 @@ private struct ModelPicker: View {
         } label: {
             HStack(spacing: 8) {
                 Text(r.label).font(.sans(m.compact ? 15 : 13.5)).foregroundStyle(r.model.unavailable == nil ? Tone.fg : Tone.fg4).lineLimit(1)
-                if let via = r.via { Text(via).font(.sans(12)).foregroundStyle(Tone.fg3).lineLimit(1) }
+                if let via = r.via, via.caseInsensitiveCompare(maker) != .orderedSame { Text(via).font(.sans(12)).foregroundStyle(Tone.fg3).lineLimit(1) }
                 Spacer(minLength: 0)
                 if on { Image(systemName: "checkmark").font(.system(size: 11, weight: .semibold)).foregroundStyle(Tone.fg) }
             }

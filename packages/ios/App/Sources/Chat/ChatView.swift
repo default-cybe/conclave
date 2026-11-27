@@ -96,6 +96,12 @@ struct ChatView: View {
                 try? await Task.sleep(for: .milliseconds(400))
                 position.scrollTo(edge: .top)
             }
+            // `-scrollTo <message id>`: that message's end at the bottom (the answer's code block and table)
+            let args = ProcessInfo.processInfo.arguments
+            if let i = args.firstIndex(of: "-scrollTo"), i + 1 < args.count {
+                try? await Task.sleep(for: .milliseconds(400))
+                position.scrollTo(id: args[i + 1], anchor: .bottom)
+            }
             #endif
         }
     }
@@ -252,7 +258,17 @@ private struct ToolFold: View {
         let failed = result?.isError == true
         Fold(title: ToolSummary.of(use.name, use.input) + (failed ? ", failed" : running ? ", running" : ""), note: running ? progress : nil, tone: failed ? Tone.fault : Tone.fg3) {
             VStack(alignment: .leading, spacing: 8) {
-                if let json = use.input.pretty {
+                // the web's ToolFold: a command, a path or a pattern as itself; other tools as JSON
+                if let cmd = use.input["command"]?.string {
+                    if let d = use.input["description"]?.string, !d.isEmpty {
+                        Text(d).font(.sans(13)).foregroundStyle(Tone.fg3)
+                    }
+                    CodeBlockView(language: "bash", text: cmd)
+                } else if let path = use.input["file_path"]?.string ?? use.input["path"]?.string, use.name == "Read" || use.name == "Write" || use.name == "Edit" {
+                    CodeBlockView(language: use.name, text: path)
+                } else if let pattern = use.input["pattern"]?.string {
+                    CodeBlockView(language: use.name, text: pattern + (use.input["path"]?.string.map { "\nin \($0)" } ?? ""))
+                } else if let json = use.input.pretty {
                     CodeBlockView(language: use.name, text: json)
                 }
                 if let result, !result.text.isEmpty {
