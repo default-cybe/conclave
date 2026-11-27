@@ -86,9 +86,16 @@ struct CardRow<Value: View>: View {
     }
 }
 
-extension CardRow where Value == Text {
+/// A row's value as words: 14 pt fg-2, or mono for an address, on one line.
+struct RowValue: View {
+    let text: String
+    var mono = false
+    var body: some View { Text(text).font(mono ? .mono(12.5) : .sans(14)).foregroundStyle(Tone.fg2).lineLimit(1) }
+}
+
+extension CardRow where Value == RowValue {
     init(_ label: String, _ text: String, mono: Bool = false) {
-        self.init(label: label) { Text(text).font(mono ? .mono(12.5) : .sans(14)).foregroundStyle(Tone.fg2).lineLimit(1) }
+        self.init(label: label) { RowValue(text: text, mono: mono) }
     }
 }
 
