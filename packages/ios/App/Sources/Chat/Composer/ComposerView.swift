@@ -32,7 +32,7 @@ struct ComposerView: View {
             } else if let e = chat.sendError {
                 Text(e).font(.sans(12.5)).foregroundStyle(Tone.fault)
             }
-            let phone = sizeClass == .compact
+            let phone = Metrics(sizeClass).compact
             // web desktop: radius 5, rule-2 line, sunk; phone (PhoneBox, Android): radius 24 on surface-2, a line only in light
             let radius = phone ? Radius.box : Radius.r2
             let line = dropping ? Tone.signal : phone ? (scheme == .light ? Tone.rule : Color.clear) : Tone.rule2

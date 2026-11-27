@@ -29,7 +29,7 @@ struct ComposerField: UIViewRepresentable {
 
     func updateUIView(_ v: Field, context: Context) {
         // the reading size, Mona Sans: 16 on a phone, 15 wider (the web's --read-base)
-        let size: CGFloat = context.environment.horizontalSizeClass == .compact ? 16 : 15
+        let size: CGFloat = Metrics(context.environment.horizontalSizeClass).compact ? 16 : 15
         if v.font?.pointSize != UIFontMetrics(forTextStyle: .body).scaledValue(for: size) {
             let f = UIFontMetrics(forTextStyle: .body).scaledFont(for: UIFont(name: "MonaSans-Regular", size: size) ?? .systemFont(ofSize: size))
             v.font = f

@@ -184,7 +184,7 @@ struct Fold<Content: View>: View {
     @Environment(\.horizontalSizeClass) private var sizeClass
 
     var body: some View {
-        let size: CGFloat = sizeClass == .compact ? 15 : 13
+        let size: CGFloat = Metrics(sizeClass).compact ? 15 : 13
         VStack(alignment: .leading, spacing: 4) {
             Button {
                 withAnimation(Motion.of(open ? Motion.ease(0.2) : Motion.ease(0.28), reduce: reduce)) { open.toggle() }
@@ -197,7 +197,7 @@ struct Fold<Content: View>: View {
                         .rotationEffect(.degrees(open ? 90 : 0))
                 }
                 .foregroundStyle(tone)
-                .frame(minHeight: sizeClass == .compact ? 44 : 25)
+                .frame(minHeight: Metrics(sizeClass).compact ? 44 : 25)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)

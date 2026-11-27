@@ -15,7 +15,7 @@ struct ModelMenu: View {
         let row = groups.lazy.flatMap(\.rows).first { $0.ref == current }
         let effort = row?.model.effort
         let level = session.chat?.thinking
-        let phone = sizeClass == .compact
+        let phone = Metrics(sizeClass).compact
         Menu {
             if hub.models.isEmpty { Text("Loading models") }
             ForEach(groups, id: \.key) { g in

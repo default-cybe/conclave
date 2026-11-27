@@ -16,7 +16,7 @@ struct ApprovalCard: View {
     @Environment(\.accessibilityReduceMotion) private var reduce
 
     var body: some View {
-        let phone = sizeClass == .compact
+        let phone = Metrics(sizeClass).compact
         let pr = request.tool == AskCards.pullRequest
         CardFrame(from: Asks.fromLine(request, viewing: viewing), landed: sent.map { _ in denied ? Tone.fg3 : Tone.ok }) {
             HStack(alignment: .firstTextBaseline, spacing: 12) {
@@ -101,7 +101,7 @@ struct QuestionCard: View {
     @Environment(\.horizontalSizeClass) private var sizeClass
 
     var body: some View {
-        let phone = sizeClass == .compact
+        let phone = Metrics(sizeClass).compact
         CardFrame(from: Asks.fromLine(request, viewing: viewing), landed: sent ? Tone.ok : nil) {
             ForEach(Array(request.questions.enumerated()), id: \.offset) { i, q in
                 VStack(alignment: .leading, spacing: 2) {
@@ -180,7 +180,7 @@ private struct CardFrame<Content: View>: View {
     @Environment(\.accessibilityReduceMotion) private var reduce
 
     var body: some View {
-        let radius = sizeClass == .compact ? Radius.phoneCard : Radius.r2
+        let radius = Metrics(sizeClass).compact ? Radius.phoneCard : Radius.r2
         VStack(alignment: .leading, spacing: 6) {
             if let from { Text(from).font(.sans(12.5)).foregroundStyle(Tone.fg3).lineLimit(1) }
             VStack(alignment: .leading, spacing: 0, content: content)

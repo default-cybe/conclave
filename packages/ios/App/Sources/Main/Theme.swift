@@ -86,7 +86,11 @@ extension Font {
 struct Metrics {
     let compact: Bool
 
-    init(_ sizeClass: UserInterfaceSizeClass?) { compact = sizeClass == .compact }
+    /// Phone sizes only on a phone: NavigationSplitView gives the iPad sidebar column a compact
+    /// size class too, which drew it at phone sizes. A narrow iPad window keeps the web's desktop sizes.
+    init(_ sizeClass: UserInterfaceSizeClass?) {
+        compact = sizeClass == .compact && UIDevice.current.userInterfaceIdiom == .phone
+    }
 
     var read: CGFloat { compact ? 16 : 15 }
     /// Extra space between lines for the reading leading (Mona Sans sets about 1.25 by itself).
