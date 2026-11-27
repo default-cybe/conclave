@@ -118,7 +118,8 @@ describe('AnthropicProvider streaming', () => {
     expect(req.headers['anthropic-version']).toBe('2023-06-01');
     expect(req.headers['x-extra']).toBe('1');
     expect(req.body.stream).toBe(true);
-    expect(req.body.max_tokens).toBe(64_000);
+    // no cap from the caller: the model's own limit (catalog maxOutput)
+    expect(req.body.max_tokens).toBe(128_000);
   });
 
   test('cache writes split by lifetime: the 1 hour part is read from usage.cache_creation and priced at 2x input', async () => {
@@ -599,11 +600,24 @@ describe('planAnthropicThinking', () => {
     const p = plan('claude-sonnet-4-5-20250929', { thinking: { budgetTokens: 2000 } });
     expect(p.thinking).toEqual({ type: 'enabled', budget_tokens: 2000 });
     expect(p.dropTemperature).toBe(true);
+    // a cap below the budget grows; thinking then leaves the reply its reserve (half of a small cap)
     const tight = plan('claude-sonnet-4-5', { thinking: { budgetTokens: 10_000 } }, 4000);
-    expect(tight.thinking).toEqual({ type: 'enabled', budget_tokens: 10_000 });
+    expect(tight.thinking).toEqual({ type: 'enabled', budget_tokens: 9096 });
     expect(tight.maxTokens).toBe(18_192);
     expect(plan('glm-5', { thinking: { effort: 'low' } }).thinking).toEqual({ type: 'enabled', budget_tokens: 4096 });
     expect(plan('claude-sonnet-4-5', {}).thinking).toBeUndefined();
+  });
+
+  test('thinking never takes the whole reply: the budget leaves max(16K, 25%) of max_tokens', () => {
+    // max effort asks 64K: fits under a 128K cap with 32K (25%) left for the reply
+    expect(plan('glm-5', { thinking: { effort: 'max' } }, 128_000).thinking).toEqual({ type: 'enabled', budget_tokens: 64_000 });
+    expect(plan('glm-5', { thinking: { budgetTokens: 120_000 } }, 128_000).thinking).toEqual({ type: 'enabled', budget_tokens: 96_000 });
+    // a 40K cap keeps 16K (16,384) for the reply, so high (32K) thinks at most 23,616
+    const p = plan('glm-5', { thinking: { effort: 'high' } }, 40_000);
+    expect(p.thinking).toEqual({ type: 'enabled', budget_tokens: 23_616 });
+    expect(p.maxTokens).toBe(40_000);
+    // the caller's effort still sets the budget when it fits
+    expect(plan('glm-5', { thinking: { effort: 'low' } }, 32_000).thinking).toEqual({ type: 'enabled', budget_tokens: 4096 });
   });
 
   test('forced tool choice falls back to auto when thinking is on', () => {

@@ -307,3 +307,18 @@ export function budgetOf(thinking: ChatRequest['thinking']): number | undefined 
   if (thinking.budgetTokens !== undefined) return thinking.budgetTokens;
   return { low: 4096, medium: 12_000, high: 32_000, xhigh: 48_000, max: 64_000, ultra: 64_000 }[thinking.effort ?? 'medium'];
 }
+
+/**
+ * Output tokens a reply keeps for its visible text and tool calls when it thinks:
+ * a quarter of the cap, at least 16K (half of a smaller cap). A cut thinking
+ * block shows nothing and runs no tool, so thinking may never take the whole reply.
+ */
+export function replyReserve(maxTokens: number): number {
+  return Math.max(Math.min(16_384, Math.floor(maxTokens / 2)), Math.ceil(maxTokens / 4));
+}
+
+/** budgetOf, lowered so the reply reserve stays free under `maxTokens` (when known). */
+export function thinkingBudget(thinking: ChatRequest['thinking'], maxTokens?: number): number | undefined {
+  const b = budgetOf(thinking);
+  return b === undefined || !maxTokens ? b : Math.min(b, maxTokens - replyReserve(maxTokens));
+}

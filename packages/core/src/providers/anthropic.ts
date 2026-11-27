@@ -4,7 +4,7 @@ import type { ContentBlock, StopReason, Usage } from '../types';
 import type { ProviderConfig } from '../config/schema';
 import { sanitizeToolId } from '../util/ids';
 import { normalizeModelId } from './catalog';
-import { BaseProvider, budgetOf, capImageSizes, documentsForWire, effortOf, parseToolInput } from './common';
+import { BaseProvider, budgetOf, capImageSizes, documentsForWire, effortOf, parseToolInput, replyReserve } from './common';
 import { clampEffort, claudeEffort, claudeThinkingOff, type Effort } from './effort';
 import { classifyStreamError, isUnreadablePdfError, parseRateLimitHeaders } from './errors';
 import { getJson, hostOf, openStream, postJson, trimSlash } from './http';
@@ -140,7 +140,8 @@ export function planAnthropicThinking(model: string, req: ChatRequest, info: Mod
   let budget = Math.max(1024, budgetOf(req.thinking) ?? 12_000);
   let max = maxTokens;
   if (max <= budget) max = Math.min(info.maxOutput, budget + 8192);
-  if (max <= budget) budget = max - 1024;
+  // thinking leaves the reply its reserve, so a long plan cannot use up the whole reply
+  budget = Math.min(budget, max - replyReserve(max));
   if (budget < 1024) return plan;
   return { thinking: { type: 'enabled', budget_tokens: budget }, dropTemperature: true, noForcedToolChoice: true, maxTokens: max };
 }
@@ -438,7 +439,7 @@ export class AnthropicProvider extends BaseProvider {
   /** Request body for /v1/messages. Public for tests and token counting. */
   buildBody(req: ChatRequest, names = new ToolNameMap()): Wire {
     const info = this.model(req.model);
-    const plan = planAnthropicThinking(req.model, req, info, req.maxTokens ?? Math.min(info.maxOutput, 64_000));
+    const plan = planAnthropicThinking(req.model, req, info, req.maxTokens ?? info.maxOutput);
     const body: Wire = { model: req.model, max_tokens: plan.maxTokens };
     const breakpoints: Wire[] = [];
     const claude = /^claude-/.test(normalizeModelId(req.model));

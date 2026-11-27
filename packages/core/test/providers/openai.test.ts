@@ -311,6 +311,8 @@ describe('OpenAIProvider request mapping', () => {
     expect(body.reasoning_effort).toBe('low');
     const router = new OpenAIProvider({ id: 'openrouter', config: { type: 'openai', baseUrl: 'https://openrouter.ai/api/v1' } });
     expect((router.buildBody({ ...ask('x'), model: 'anthropic/claude-sonnet-5.5', thinking: { budgetTokens: 3000 } }) as any).reasoning).toEqual({ max_tokens: 3000 });
+    // a budget that would eat the reply leaves max(16K, 25%) of max_tokens for it
+    expect((router.buildBody({ ...ask('x'), model: 'anthropic/claude-sonnet-5.5', maxTokens: 32_000, thinking: { budgetTokens: 30_000 } }) as any).reasoning).toEqual({ max_tokens: 16_000 });
   });
 
   test('Z.ai coding endpoint: thinking off is said, on keeps reasoning across tool loops, long tool lists go whole', () => {

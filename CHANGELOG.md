@@ -7,6 +7,12 @@ from the section of its version (`scripts/releases/notes.ts`); a release
 without one fails. At tag time, rename `[Unreleased]` to the version and date,
 like `## [0.4.16] - 2026-10-24`.
 
+## [Unreleased]
+
+### Fixed
+
+- Replies are no longer cut at a fixed 32K output tokens: a turn may now use the model's own output limit (128K on Opus 5.5), lowered only to what the context window has left. `modelOverrides.<model>.maxOutput` on a provider still sets it. Where a thinking budget is sent (older Claude, Anthropic-compatible gateways, OpenRouter, Qwen, Gemini 2.5), thinking leaves at least a quarter of the reply (16K or more) for the answer and tool calls. A chat reply cut inside its thinking, or with nothing to show, now continues once on its own before the "output token limit" notice.
+
 ## [0.4.107] - 2026-11-26
 
 ### Fixed
