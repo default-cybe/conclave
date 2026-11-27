@@ -20,6 +20,48 @@ final class ScreenshotTests: XCTestCase {
     @MainActor func testPortraitLight() throws { try chat("portrait", "light") }
     @MainActor func testPortraitDark() throws { try chat("portrait", "dark") }
 
+    /// The model picker open from the composer's chip, makers with their logos (iPad landscape).
+    @MainActor func testPickerLight() throws { try picker("light") }
+    @MainActor func testPickerDark() throws { try picker("dark") }
+
+    /// The chat from its first message: your bubble, the thought, the tool folds (the second one
+    /// open), the code block and the table (iPad landscape).
+    @MainActor func testTopLight() throws { try top("light") }
+    @MainActor func testTopDark() throws { try top("dark") }
+
+    @MainActor
+    private func top(_ appearance: String) throws {
+        let dir = try folder()
+        guard prefix == "ipad", list("SHOT_APPEARANCES", "light,dark").contains(appearance) else { throw XCTSkip("not asked for") }
+        try shoot(dir, "\(prefix)-top-\(appearance)", "landscape", appearance, ["-mockHub", "-openChat", "s1", "-scrollTop"]) { app in
+            // folds: the thought, then the tools; open the first tool
+            let fold = app.buttons.matching(identifier: "fold").element(boundBy: 1)
+            if fold.waitForExistence(timeout: 12) { sleep(1); fold.tap() }
+            return app.staticTexts["The plan"]
+        }
+    }
+
+    /// The answer's end: the list, the code block, the table and the quote (iPad landscape).
+    @MainActor func testAnswerLight() throws { try answer("light") }
+    @MainActor func testAnswerDark() throws { try answer("dark") }
+
+    @MainActor
+    private func answer(_ appearance: String) throws {
+        let dir = try folder()
+        guard prefix == "ipad", list("SHOT_APPEARANCES", "light,dark").contains(appearance) else { throw XCTSkip("not asked for") }
+        try shoot(dir, "\(prefix)-answer-\(appearance)", "landscape", appearance, ["-mockHub", "-openChat", "s1", "-scrollTo", "m4"]) { app in
+            // m4 (the message after the answer) at the bottom: m2's own end sat under the composer
+            // the composer's chip is always there; the wait lets the scroll to the answer's end land
+            let chip = app.buttons["Model"]
+            if chip.waitForExistence(timeout: 12) { sleep(2) }
+            return chip
+        }
+    }
+
+    /// The chat list with no chat open: on iPhone the drawer, as Android's side panel.
+    @MainActor func testDrawerLight() throws { try drawer("light") }
+    @MainActor func testDrawerDark() throws { try drawer("dark") }
+
     /// The first screen, with no hub paired (the simulator's keychain is empty).
     @MainActor func testConnectLight() throws { try connect("light") }
     @MainActor func testConnectDark() throws { try connect("dark") }
@@ -31,6 +73,25 @@ final class ScreenshotTests: XCTestCase {
               list("SHOT_APPEARANCES", "light,dark").contains(appearance) else { throw XCTSkip("not asked for") }
         // the last things the transcript draws: the approval and question cards from the mock hub
         try shoot(dir, "\(prefix)-\(orientation)-\(appearance)", orientation, appearance, ["-mockHub", "-openChat", "s1"]) { $0.buttons["Allow once"] }
+    }
+
+    @MainActor
+    private func picker(_ appearance: String) throws {
+        let dir = try folder()
+        guard prefix == "ipad", list("SHOT_ORIENTATIONS", "landscape,portrait").contains("landscape"),
+              list("SHOT_APPEARANCES", "light,dark").contains(appearance) else { throw XCTSkip("not asked for") }
+        try shoot(dir, "\(prefix)-picker-\(appearance)", "landscape", appearance, ["-mockHub", "-openChat", "s1"]) { app in
+            let chip = app.buttons["Model"]
+            if chip.waitForExistence(timeout: 10) { chip.tap() }
+            return app.staticTexts["OpenAI"]
+        }
+    }
+
+    @MainActor
+    private func drawer(_ appearance: String) throws {
+        let dir = try folder()
+        guard prefix == "iphone", list("SHOT_APPEARANCES", "light,dark").contains(appearance) else { throw XCTSkip("not asked for") }
+        try shoot(dir, "\(prefix)-drawer-\(appearance)", "portrait", appearance, ["-mockHub"]) { $0.buttons["New chat"] }
     }
 
     @MainActor
@@ -56,7 +117,7 @@ final class ScreenshotTests: XCTestCase {
         XCUIDevice.shared.appearance = appearance == "dark" ? .dark : .light
         XCUIDevice.shared.orientation = orientation == "landscape" ? .landscapeLeft : .portrait
         let app = XCUIApplication()
-        app.launchArguments = args
+        app.launchArguments = args + ["-appearance", appearance]
         app.launch()
         let folder = URL(fileURLWithPath: dir)
         guard ready(app).waitForExistence(timeout: 15) else {

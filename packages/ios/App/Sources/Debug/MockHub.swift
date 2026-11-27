@@ -93,9 +93,14 @@ enum MockHub {
          {"id":"s1","title":"Native iPad client plan","kind":"chat","model":"anthropic/claude-opus-5-5","chat":{"thinking":"high"},"updatedAt":\(ago(0.2))},
          {"id":"s2","title":"Fix login redirect","agent":"coder","cwd":"/home/sam/conclave","status":"running","updatedAt":\(ago(1))},
          {"id":"s3","title":"Backup script for PBS","agent":"coder","cwd":"/srv/backup","status":"waiting_approval","updatedAt":\(ago(3))},
+         {"id":"s7","title":"Move auth middleware to jose","agent":"coder","cwd":"/home/sam/conclave","updatedAt":\(ago(5))},
+         {"id":"s8","title":"Compare Postgres backup tools","kind":"chat","model":"openai/gpt-5.5","updatedAt":\(ago(7))},
          {"id":"s4","title":"Trip to Lisbon","kind":"chat","pinned":true,"updatedAt":\(ago(30))},
          {"id":"s5","title":"Weekly plan","kind":"chat","updatedAt":\(ago(50))},
-         {"id":"s6","title":"Sonarr episodes","agent":"coder","cwd":"/srv/media","updatedAt":\(ago(200))}
+         {"id":"s9","title":"Rust daemon sidecar review","agent":"coder","cwd":"/home/sam/conclave","updatedAt":\(ago(60))},
+         {"id":"s10","title":"Grocery list for the week","kind":"chat","updatedAt":\(ago(120))},
+         {"id":"s6","title":"Sonarr episodes","agent":"coder","cwd":"/srv/media","updatedAt":\(ago(200))},
+         {"id":"s11","title":"Paper section 4 edits","kind":"chat","updatedAt":\(ago(260))}
         ]
         """
     }
@@ -114,7 +119,16 @@ enum MockHub {
     static let models = """
     [{"provider":"anthropic","name":"Anthropic","enabled":true,"configured":true,"models":[
       {"id":"claude-opus-5-5","ref":"anthropic/claude-opus-5-5","name":"Claude Opus 5.5","effort":{"levels":["low","medium","high","xhigh","max"],"default":"medium"}},
-      {"id":"claude-sonnet-5-5","ref":"anthropic/claude-sonnet-5-5","name":"Claude Sonnet 5.5","effort":{"levels":["low","medium","high"],"default":"medium"}}]}]
+      {"id":"claude-sonnet-5-5","ref":"anthropic/claude-sonnet-5-5","name":"Claude Sonnet 5.5","effort":{"levels":["low","medium","high"],"default":"medium"}},
+      {"id":"claude-haiku-5","ref":"anthropic/claude-haiku-5","name":"Claude Haiku 5"}]},
+     {"provider":"openai","name":"OpenAI","enabled":true,"configured":true,"models":[
+      {"id":"gpt-5.5","ref":"openai/gpt-5.5","name":"GPT-5.5","effort":{"levels":["low","medium","high"],"default":"medium"}},
+      {"id":"gpt-5.5-mini","ref":"openai/gpt-5.5-mini","name":"GPT-5.5 mini"}]},
+     {"provider":"gemini","name":"Google","enabled":true,"configured":true,"models":[
+      {"id":"gemini-3-pro","ref":"gemini/gemini-3-pro","name":"Gemini 3 Pro"},
+      {"id":"gemini-3-flash","ref":"gemini/gemini-3-flash","name":"Gemini 3 Flash"}]},
+     {"provider":"zai","name":"Z.ai","enabled":true,"configured":true,"models":[
+      {"id":"glm-5","ref":"zai/glm-5","name":"GLM-5"}]}]
     """
 
     /// The composer as the screenshots show it: words and one picture.
@@ -136,10 +150,12 @@ enum MockHub {
         [
          {"id":"m1","sessionId":"s1","seq":1,"role":"user","content":[{"type":"text","text":"How should the native iPad client read chats?"}]},
          {"id":"m2","sessionId":"s1","seq":2,"role":"assistant","content":[
-           {"type":"thinking","thinking":"Port the Android transcript logic first.","durationMs":4000},
+           {"type":"thinking","thinking":"Port the Android transcript logic first, then match the web's reading type.","durationMs":4000},
            {"type":"tool_use","id":"t1","name":"Bash","input":{"command":"ls packages/ios"}},
+           {"type":"tool_use","id":"t2","name":"Read","input":{"file_path":"packages/android/app/src/main/kotlin/dev/conclave/app/ui/panel/SidePanel.kt"}},
+           {"type":"tool_use","id":"t3","name":"Grep","input":{"pattern":"TranscriptReducer","path":"packages/ios"}},
            {"type":"text","text":"\(answer)"}]},
-         {"id":"m3","sessionId":"s1","seq":3,"role":"user","content":[{"type":"tool_result","toolUseId":"t1","content":"App\\nConclaveKit\\nproject.yml"}]},
+         {"id":"m3","sessionId":"s1","seq":3,"role":"user","content":[{"type":"tool_result","toolUseId":"t1","content":"App\\nConclaveKit\\nproject.yml"},{"type":"tool_result","toolUseId":"t2","content":"620 lines"},{"type":"tool_result","toolUseId":"t3","content":"4 files"}]},
          {"id":"m4","sessionId":"s1","seq":4,"role":"user","content":[{"type":"text","text":"Here is the icon colour."},{"type":"image","mediaType":"image/png","data":"\(png)"}]}
         ]
         """

@@ -14,9 +14,10 @@ struct ComposerField: UIViewRepresentable {
     func makeUIView(context: Context) -> Field {
         let v = Field()
         v.delegate = context.coordinator
-        v.font = .preferredFont(forTextStyle: .body)
         v.adjustsFontForContentSizeCategory = true
         v.backgroundColor = .clear
+        v.textColor = UIColor(Tone.fg)
+        v.tintColor = UIColor(Tone.signal)
         v.textContainerInset = UIEdgeInsets(top: 8, left: 0, bottom: 8, right: 0)
         v.textContainer.lineFragmentPadding = 0
         v.isScrollEnabled = false
@@ -27,6 +28,13 @@ struct ComposerField: UIViewRepresentable {
     }
 
     func updateUIView(_ v: Field, context: Context) {
+        // the reading size, Mona Sans: 16 on a phone, 15 wider (the web's --read-base)
+        let size: CGFloat = Metrics(context.environment.horizontalSizeClass).compact ? 16 : 15
+        if v.font?.pointSize != UIFontMetrics(forTextStyle: .body).scaledValue(for: size) {
+            let f = UIFontMetrics(forTextStyle: .body).scaledFont(for: UIFont(name: "MonaSans-Regular", size: size) ?? .systemFont(ofSize: size))
+            v.font = f
+            v.placeholder.font = f
+        }
         if v.text != text { v.text = text }
         v.placeholder.text = placeholder
         v.placeholder.isHidden = !text.isEmpty
@@ -60,8 +68,7 @@ struct ComposerField: UIViewRepresentable {
 
         override init(frame: CGRect, textContainer: NSTextContainer?) {
             super.init(frame: frame, textContainer: textContainer)
-            placeholder.textColor = .placeholderText
-            placeholder.font = .preferredFont(forTextStyle: .body)
+            placeholder.textColor = UIColor(Tone.fg3)
             placeholder.adjustsFontForContentSizeCategory = true
             placeholder.translatesAutoresizingMaskIntoConstraints = false
             addSubview(placeholder)

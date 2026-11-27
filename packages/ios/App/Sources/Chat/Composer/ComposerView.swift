@@ -12,6 +12,9 @@ struct ComposerView: View {
     @State private var showFiles = false
     @State private var showCamera = false
     @State private var dropping = false
+    @Environment(\.horizontalSizeClass) private var sizeClass
+    @Environment(\.colorScheme) private var scheme
+    @Environment(\.accessibilityReduceMotion) private var reduce
 
     private var session: Session? { hub.session(chat.sessionId) }
 
@@ -23,40 +26,42 @@ struct ComposerView: View {
             QueueRows(chat: chat)
             if let lost = chat.lostFile {
                 HStack {
-                    Text(lost).font(.footnote).foregroundStyle(Tone.warn)
-                    Button("Send without it") { Task { await chat.send(busy: busy, dropLost: true) } }.font(.footnote)
+                    Text(lost).font(.sans(12.5)).foregroundStyle(Tone.warn)
+                    Button("Send without it") { Task { await chat.send(busy: busy, dropLost: true) } }.buttonStyle(CVButton(look: .quiet, height: 26, size: 12.5))
                 }
             } else if let e = chat.sendError {
-                Text(e).font(.footnote).foregroundStyle(Tone.fault)
+                Text(e).font(.sans(12.5)).foregroundStyle(Tone.fault)
             }
-            VStack(alignment: .leading, spacing: 6) {
-                if !chat.files.isEmpty { FileChips(files: $chat.files) }
+            let phone = Metrics(sizeClass).compact
+            // web desktop: radius 5, rule-2 line, sunk; phone (PhoneBox, Android): radius 24 on surface-2, a line only in light
+            let radius = phone ? Radius.box : Radius.r2
+            let line = dropping ? Tone.signal : phone ? (scheme == .light ? Tone.rule : Color.clear) : Tone.rule2
+            VStack(alignment: .leading, spacing: 0) {
+                if !chat.files.isEmpty { FileChips(files: $chat.files).padding(.horizontal, 12).padding(.top, 12) }
                 ComposerField(
                     text: $chat.draft,
                     placeholder: busy ? "Reply, it will be sent when this one finishes" : "Reply",
                     onSend: { Task { await chat.send(busy: busy) } },
                     onPasteImages: { add($0.compactMap { $0.jpegData(compressionQuality: 1).flatMap { Attachments.image($0, name: "pasted.jpg") } }) }
                 )
-                HStack(spacing: 14) {
-                    attachMenu
+                .padding(.horizontal, phone ? 16 : 14)
+                .padding(.top, 12)
+                .padding(.bottom, 4)
+                HStack(spacing: 4) {
+                    attachMenu(phone)
+                    // the web's ChatComposer row: + then the model pick ({talk}), send at the right
                     if let session { ModelMenu(hub: hub, session: session) }
                     Spacer()
-                    if stops {
-                        Button { Task { await chat.stop() } } label: { Image(systemName: "stop.circle.fill").font(.title2) }
-                            .keyboardShortcut(".", modifiers: .command)
-                            .accessibilityLabel("Stop")
-                    } else {
-                        Button { Task { await chat.send(busy: busy) } } label: { Image(systemName: "arrow.up.circle.fill").font(.title2) }
-                            .disabled(!chat.canSend)
-                            .accessibilityLabel("Send")
+                    SendStop(stops: stops, ready: chat.canSend, phone: phone) {
+                        Task { if stops { await chat.stop() } else { await chat.send(busy: busy) } }
                     }
                 }
-                .tint(Tone.signal)
+                .padding(.horizontal, phone ? 6 : 8)
+                .padding(.bottom, phone ? 6 : 8)
             }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 8)
-            .background(Tone.raise, in: RoundedRectangle(cornerRadius: 20))
-            .overlay(RoundedRectangle(cornerRadius: 20).stroke(dropping ? Tone.signal : Tone.rule, lineWidth: dropping ? 2 : 1))
+            .background(phone ? Tone.surface2 : Tone.sunk, in: RoundedRectangle(cornerRadius: radius, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: radius, style: .continuous).strokeBorder(line, lineWidth: dropping ? 2 : 1))
+            .animation(Motion.of(Motion.ease(Motion.dur1), reduce: reduce), value: dropping)
         }
         .onDrop(of: [.item], isTargeted: $dropping) { providers in
             Task {
@@ -83,7 +88,8 @@ struct ComposerView: View {
         }
     }
 
-    private var attachMenu: some View {
+    /// The web's PlusMenu: a round + that opens photos, camera and files.
+    private func attachMenu(_ phone: Bool) -> some View {
         Menu {
             Button { showPhotos = true } label: { Label("Photos", systemImage: "photo.on.rectangle") }
             if CameraPicker.available {
@@ -91,9 +97,13 @@ struct ComposerView: View {
             }
             Button { showFiles = true } label: { Label("Files", systemImage: "folder") }
         } label: {
-            Image(systemName: "paperclip").font(.body.weight(.medium)).foregroundStyle(Tone.fg2)
+            Image(systemName: "plus")
+                .font(.system(size: phone ? 20 : 16, weight: .regular))
+                .foregroundStyle(Tone.fg2)
+                .frame(width: phone ? 44 : 30, height: phone ? 44 : 30)
+                .contentShape(Circle())
         }
-        .accessibilityLabel("Attach")
+        .accessibilityLabel("Add photos or files")
     }
 
     /// Files join while the message stays under what the hub reads in one request.
@@ -105,27 +115,83 @@ struct ComposerView: View {
     }
 }
 
-/// The files in the composer, each with its x.
+/// Send, and Stop while a reply runs with the box empty: the web's SendStopButton. iPad: a 30 pt
+/// square, radius 3, ink when there is something to send, a hover fill when not. Phone: Android's
+/// 36 pt circle, signal when ready, an fg-4 ring when empty. The arrow turns into the square in place.
+private struct SendStop: View {
+    let stops: Bool
+    let ready: Bool
+    let phone: Bool
+    let action: () -> Void
+    @Environment(\.accessibilityReduceMotion) private var reduce
+
+    var body: some View {
+        let solid = stops || ready
+        let face: CGFloat = phone ? 36 : 30
+        let shape = RoundedRectangle(cornerRadius: phone ? face / 2 : Radius.r1, style: .continuous)
+        let fill = phone ? Tone.signal : Tone.solid
+        Button(action: action) {
+            Image(systemName: stops ? "stop.fill" : "arrow.up")
+                .font(.system(size: stops ? (phone ? 13 : 11) : (phone ? 17 : 15), weight: .semibold))
+                .contentTransition(.symbolEffect(.replace))
+                .foregroundStyle(solid ? Tone.bg : Tone.fg4)
+                .frame(width: face, height: face)
+                .background(solid ? fill : (phone ? .clear : Tone.hover), in: shape)
+                .overlay(shape.strokeBorder(solid ? .clear : (phone ? Tone.fg4 : Tone.rule), lineWidth: phone ? 1.5 : 1))
+                .frame(width: phone ? 48 : 30, height: phone ? 48 : 30)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(!solid)
+        .keyboardShortcut(stops ? "." : .return, modifiers: .command)
+        .accessibilityLabel(stops ? "Stop" : "Send")
+        .animation(Motion.of(Motion.ease(Motion.dur1), reduce: reduce), value: solid)
+        .animation(Motion.of(.spring(response: 0.28, dampingFraction: 0.8), reduce: reduce), value: stops)
+    }
+}
+
+/// The files in the composer (the web's AttachmentStrip, Android's chips): a 44 pt raised chip with a
+/// hairline, the picture's thumbnail or a file glyph, the name over its size; a small round x at the corner.
 private struct FileChips: View {
     @Binding var files: [Attachment]
+    @Environment(\.accessibilityReduceMotion) private var reduce
 
     var body: some View {
         ScrollView(.horizontal) {
             HStack(spacing: 8) {
                 ForEach(Array(files.enumerated()), id: \.offset) { i, f in
-                    HStack(spacing: 6) {
-                        if let img = Attachments.thumbnail(f, side: 64) {
-                            Image(uiImage: img).resizable().scaledToFill().frame(width: 32, height: 32).clipShape(RoundedRectangle(cornerRadius: 6))
+                    HStack(spacing: 8) {
+                        if let img = Attachments.thumbnail(f, side: 72) {
+                            Image(uiImage: img).resizable().scaledToFill()
+                                .frame(width: 34, height: 34)
+                                .clipShape(RoundedRectangle(cornerRadius: Radius.r1, style: .continuous))
                         } else {
-                            Image(systemName: "doc").frame(width: 32, height: 32)
+                            Image(systemName: "doc.text").font(.system(size: 14)).foregroundStyle(Tone.fg3).frame(width: 20)
                         }
-                        Text(f.name ?? "file").font(.footnote).lineLimit(1).frame(maxWidth: 140)
-                        Button { files.remove(at: i) } label: { Image(systemName: "xmark.circle.fill").foregroundStyle(Tone.fg3) }
-                            .buttonStyle(.plain)
-                            .accessibilityLabel("Remove \(f.name ?? "file")")
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(f.name ?? (f.mediaType.hasPrefix("image/") ? "Picture" : "File")).font(.sans(13)).foregroundStyle(Tone.fg2).lineLimit(1)
+                            // base64 carries 3 bytes in every 4 characters
+                            if let d = f.data {
+                                Text(ByteCountFormatter.string(fromByteCount: Int64(d.utf8.count / 4 * 3), countStyle: .file)).font(.sans(11.5)).monospacedDigit().foregroundStyle(Tone.fg3)
+                            }
+                        }
+                        .frame(maxWidth: 170, alignment: .leading)
                     }
-                    .padding(6)
-                    .background(Tone.sunk, in: RoundedRectangle(cornerRadius: 10))
+                    .padding(.leading, 5).padding(.trailing, 14)
+                    .frame(height: 44)
+                    .panel(Tone.raise, radius: Radius.r2, border: Tone.rule)
+                    .overlay(alignment: .topTrailing) {
+                        Button { withAnimation(Motion.of(Motion.ease(Motion.dur2), reduce: reduce)) { _ = files.remove(at: i) } } label: {
+                            Image(systemName: "xmark").font(.system(size: 8, weight: .bold)).foregroundStyle(Tone.bg)
+                                .frame(width: 18, height: 18).background(Tone.fg2, in: Circle())
+                                .frame(width: 30, height: 30).contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .offset(x: 10, y: -10)
+                        .accessibilityLabel("Remove \(f.name ?? "file")")
+                    }
+                    .padding(.top, 6).padding(.trailing, 6)
+                    .transition(.opacity.combined(with: .scale(scale: 0.9)))
                 }
             }
         }
@@ -140,19 +206,19 @@ private struct QueueRows: View {
     var body: some View {
         ForEach(chat.transcript.pending) { q in
             HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Image(systemName: "clock").foregroundStyle(Tone.fg3)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(q.text.isEmpty ? Attach.filesWord(q.attachments.count) : q.text).lineLimit(2)
-                    Text(PendingQueue.pendingWord(q.whenBusy, held: q.held)).font(.caption).foregroundStyle(Tone.fg3)
+                    Text(q.text.isEmpty ? Attach.filesWord(q.attachments.count) : q.text).font(.sans(13.5)).foregroundStyle(Tone.fg).lineLimit(2)
+                    Text(PendingQueue.pendingWord(q.whenBusy, held: q.held)).font(.sans(12)).foregroundStyle(Tone.fg3)
                 }
                 Spacer()
-                Button("Edit") { Task { await chat.unqueue(q, edit: true) } }.font(.footnote)
-                Button { Task { await chat.unqueue(q, edit: false) } } label: { Image(systemName: "xmark") }
+                Button("Edit") { Task { await chat.unqueue(q, edit: true) } }.buttonStyle(CVButton(look: .quiet, height: 26, size: 12.5))
+                Button { Task { await chat.unqueue(q, edit: false) } } label: { Image(systemName: "xmark").font(.system(size: 11, weight: .medium)) }
+                    .buttonStyle(CVButton(look: .quiet, height: 26, size: 12.5))
                     .accessibilityLabel("Remove from queue")
             }
-            .buttonStyle(.borderless)
-            .padding(10)
-            .background(Tone.sunk, in: RoundedRectangle(cornerRadius: 12))
+            .padding(.horizontal, 12).padding(.vertical, 8)
+            .panel(Tone.raise, radius: Radius.r2, border: Tone.rule)
+            .rise()
         }
     }
 }
