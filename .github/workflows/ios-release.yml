@@ -1,0 +1,190 @@
+name: iOS release
+
+# An installable iPad/iPhone build for SideStore and AltStore (packages/ios/README.md, Install on
+# iPad with SideStore): a Release device build with no signing, packed as an IPA, plus a source
+# JSON in the AltStore format (https://faq.altstore.io/developers/make-a-source). SideStore signs
+# the app on the device with the owner's free Apple ID, so the IPA carries no entitlements.
+#
+# - push to feat/ios-native: the rolling pre-release `ios-preview`, assets Conclave.ipa and
+#   sidestore-source.json, source URL
+#   https://github.com/default-cybe/conclave/releases/download/ios-preview/sidestore-source.json
+# - a v* tag (called by release.yml's ios job): Conclave-<tag>.ipa and sidestore-source.json on
+#   that release, so releases/latest/download/sidestore-source.json follows the latest release
+# - by hand (workflow_dispatch) or from another branch: the IPA and JSON as run artifacts only
+
+on:
+  push:
+    branches: [feat/ios-native]
+    paths:
+      - "packages/ios/**"
+      - ".github/workflows/ios-release.yml"
+  workflow_call:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ios-release-${{ github.ref }}
+  # a cancelled publish could leave the release without its IPA
+  cancel-in-progress: false
+
+jobs:
+  ipa:
+    name: IPA for SideStore
+    runs-on: macos-15
+    timeout-minutes: 40
+    defaults:
+      run:
+        working-directory: packages/ios
+    env:
+      XCODEGEN_VERSION: "2.48.0"
+      XCODEGEN_SHA256: 620c9f0dc10849f94728ab5df52d225ebab8187439dd6fee1925e59e80dff892
+      REPO_URL: https://github.com/${{ github.repository }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - name: Version
+        # a tag gives its numbers (v0.4.108-rc1 gives 0.4.108: CFBundleShortVersionString is numbers
+        # only); otherwise 0.<run number>. CFBundleVersion is the run number.
+        run: |
+          if [ "$GITHUB_REF_TYPE" = tag ]; then
+            v="${GITHUB_REF_NAME#v}"; v="${v%%-*}"
+            echo "TAG=$GITHUB_REF_NAME" >> "$GITHUB_ENV"
+          else
+            v="0.$GITHUB_RUN_NUMBER"
+          fi
+          echo "VERSION=$v" >> "$GITHUB_ENV"
+          echo "BUILD=$GITHUB_RUN_NUMBER" >> "$GITHUB_ENV"
+          echo "version $v ($GITHUB_RUN_NUMBER)"
+
+      - name: XcodeGen (pinned, checksum checked)
+        run: |
+          curl -fsSL -o /tmp/xcodegen.zip "https://github.com/yonaskolb/XcodeGen/releases/download/${XCODEGEN_VERSION}/xcodegen.zip"
+          echo "${XCODEGEN_SHA256}  /tmp/xcodegen.zip" | shasum -a 256 -c -
+          unzip -q /tmp/xcodegen.zip -d /tmp
+          /tmp/xcodegen/bin/xcodegen generate
+
+      - name: Release build for devices, unsigned
+        timeout-minutes: 25
+        run: |
+          set -o pipefail
+          xcodebuild build -project Conclave.xcodeproj -scheme Conclave -configuration Release \
+            -destination "generic/platform=iOS" -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
+            MARKETING_VERSION="$VERSION" CURRENT_PROJECT_VERSION="$BUILD" 2>&1 | tee /tmp/build.log \
+            | grep -E --line-buffered "error:|BUILD (SUCCEEDED|FAILED)" \
+            || { tail -60 /tmp/build.log; exit 1; }
+
+      - name: Check the app for what SideStore needs
+        run: |
+          app=build/Build/Products/Release-iphoneos/Conclave.app
+          plist="$app/Info.plist"
+          get() { /usr/libexec/PlistBuddy -c "Print :$1" "$plist"; }
+          test "$(get CFBundleIdentifier)" = dev.conclave.app
+          test "$(get CFBundleShortVersionString)" = "$VERSION"
+          test "$(get CFBundleVersion)" = "$BUILD"
+          echo "MIN_OS=$(get MinimumOSVersion)" >> "$GITHUB_ENV"
+          # a free Apple ID cannot sign push, app groups, iCloud or other capabilities: none may be asked for
+          if get UIBackgroundModes > /dev/null 2>&1; then echo "UIBackgroundModes set"; exit 1; fi
+          if find "$app" -name '*.entitlements' -o -name embedded.mobileprovision -o -name '*.appex' | grep .; then
+            echo "entitlements, a profile or an app extension in the bundle"; exit 1
+          fi
+          # unsigned, so no entitlements are embedded; SideStore signs with only what the free account allows
+          if codesign -d --entitlements - "$app" 2>/dev/null | grep -q '<key>'; then echo "signed with entitlements"; exit 1; fi
+          rm -rf "$app/_CodeSignature"
+          plutil -p "$plist"
+
+      - name: Pack the IPA
+        run: |
+          rm -rf /tmp/ipa && mkdir -p /tmp/ipa/Payload out
+          cp -R build/Build/Products/Release-iphoneos/Conclave.app /tmp/ipa/Payload/
+          (cd /tmp/ipa && zip -qry "$GITHUB_WORKSPACE/packages/ios/out/Conclave-$VERSION.ipa" Payload)
+          unzip -l "out/Conclave-$VERSION.ipa" | tail -1
+          echo "SIZE=$(stat -f%z "out/Conclave-$VERSION.ipa")" >> "$GITHUB_ENV"
+
+      - name: SideStore source
+        run: |
+          if [ -n "${TAG:-}" ]; then
+            export IPA_URL="$REPO_URL/releases/download/$TAG/Conclave-$TAG.ipa" SOURCE_NAME="Conclave" SOURCE_ID="dev.conclave.source"
+          elif [ "$GITHUB_REF_NAME" = feat/ios-native ]; then
+            export IPA_URL="$REPO_URL/releases/download/ios-preview/Conclave.ipa" SOURCE_NAME="Conclave (preview)" SOURCE_ID="dev.conclave.source.preview"
+          else
+            export IPA_URL="$REPO_URL/actions/runs/$GITHUB_RUN_ID" SOURCE_NAME="Conclave (test build)" SOURCE_ID="dev.conclave.source.test"
+          fi
+          # the icon at this commit: a fixed URL that outlives the branch
+          export ICON_URL="https://raw.githubusercontent.com/$GITHUB_REPOSITORY/$GITHUB_SHA/packages/ios/App/Resources/Assets.xcassets/AppIcon.appiconset/icon-1024.png"
+          export PLIST=build/Build/Products/Release-iphoneos/Conclave.app/Info.plist
+          python3 - <<'PY'
+          import datetime, json, os, plistlib
+          info = plistlib.load(open(os.environ["PLIST"], "rb"))
+          # AltStore and SideStore refuse an app whose listed permissions differ from the IPA's
+          privacy = {k: v for k, v in info.items() if k.endswith("UsageDescription")}
+          sha = os.environ["GITHUB_SHA"][:7]
+          app = {
+              "name": "Conclave",
+              "bundleIdentifier": info["CFBundleIdentifier"],
+              "developerName": "Kaivalya Ahir",
+              "subtitle": "Your self-hosted agent hub on iPad and iPhone.",
+              "localizedDescription": "The native Conclave client: your hub's chats, agents and approvals. Pair it once with the QR code on the hub's Devices page.",
+              "iconURL": os.environ["ICON_URL"],
+              "tintColor": "#7A4ABA",
+              "category": "developer",
+              "versions": [{
+                  "version": info["CFBundleShortVersionString"],
+                  "buildVersion": info["CFBundleVersion"],
+                  "date": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                  "localizedDescription": f"Built from {sha}.",
+                  "downloadURL": os.environ["IPA_URL"],
+                  "size": int(os.environ["SIZE"]),
+                  "minOSVersion": os.environ["MIN_OS"],
+              }],
+              "appPermissions": {"entitlements": [], "privacy": privacy},
+          }
+          source = {
+              "name": os.environ["SOURCE_NAME"],
+              "identifier": os.environ["SOURCE_ID"],
+              "subtitle": "Conclave for iPad and iPhone",
+              "website": "https://github.com/default-cybe/conclave",
+              "iconURL": os.environ["ICON_URL"],
+              "tintColor": "#7A4ABA",
+              "featuredApps": [app["bundleIdentifier"]],
+              "apps": [app],
+              "news": [],
+          }
+          json.dump(source, open("out/sidestore-source.json", "w"), indent=2)
+          print(json.dumps(source, indent=2))
+          PY
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: conclave-ipa
+          path: packages/ios/out
+
+      - name: Publish ios-preview
+        if: github.ref_type == 'branch' && github.ref_name == 'feat/ios-native' && github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          notes="Rolling iPad preview from feat/ios-native, built from $GITHUB_SHA (version $VERSION, build $BUILD). Add the source to SideStore: $REPO_URL/releases/download/ios-preview/sidestore-source.json"
+          if gh release view ios-preview > /dev/null 2>&1; then
+            gh release edit ios-preview --prerelease --latest=false --notes "$notes"
+          else
+            gh release create ios-preview --target "$GITHUB_SHA" --prerelease --latest=false --title "Conclave iPad preview" --notes "$notes"
+          fi
+          for a in Conclave.ipa sidestore-source.json; do gh release delete-asset ios-preview "$a" --yes 2> /dev/null || true; done
+          cp "out/Conclave-$VERSION.ipa" /tmp/Conclave.ipa
+          gh release upload ios-preview /tmp/Conclave.ipa out/sidestore-source.json
+
+      - name: Attach to the v* release
+        if: github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # release.yml's create-release makes the draft; this job waits for it instead of needing it
+          for i in $(seq 60); do gh release view "$TAG" > /dev/null 2>&1 && break; sleep 10; done
+          cp "out/Conclave-$VERSION.ipa" "/tmp/Conclave-$TAG.ipa"
+          gh release upload "$TAG" "/tmp/Conclave-$TAG.ipa" out/sidestore-source.json --clobber

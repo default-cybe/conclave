@@ -483,3 +483,10 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           ID: ${{ needs.create-release.outputs.id }}
         run: gh api -X PATCH "repos/$GITHUB_REPOSITORY/releases/$ID" -F draft=false
+
+  # The iPad/iPhone IPA for SideStore and its source JSON (ios-release.yml). It needs no other
+  # job and none needs it, so it cannot hold back or fail the CLI, desktop and daemon files.
+  ios:
+    name: iPad app (SideStore)
+    if: github.ref_type == 'tag'
+    uses: ./.github/workflows/ios-release.yml
