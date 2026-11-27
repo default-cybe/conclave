@@ -21,6 +21,7 @@ struct MainSplitView: View {
             NavigationSplitView(preferredCompactColumn: $column) {
                 SidebarView(hub: hub, selection: $selection, page: $page)
             } detail: {
+              HStack(spacing: 0) {
                 Group {
                     if let page {
                         switch page {
@@ -40,6 +41,14 @@ struct MainSplitView: View {
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                     }
                 }
+                .frame(maxWidth: .infinity)
+                // iPad: the inspector as the web's right column beside the chat. SwiftUI's .inspector
+                // laid itself over a dimmed chat at this width, the chat's cards running under it
+                if sizeClass != .compact, inspectorShown, let id = selection {
+                    Rectangle().fill(Tone.rule).frame(width: 1).ignoresSafeArea(edges: .bottom)
+                    InspectorView(sessionId: id, hub: hub).frame(width: 320)
+                }
+              }
                 .background(Tone.bg.ignoresSafeArea())
                 .toolbar {
                     if page == nil, selection != nil {
@@ -52,13 +61,11 @@ struct MainSplitView: View {
                         .accessibilityIdentifier("inspector-toggle")
                     }
                 }
-                .inspector(isPresented: Binding(get: { showInspector && page == nil && selection != nil }, set: { showInspector = $0 })) {
-                    if let id = selection { InspectorView(sessionId: id, hub: hub) }
+                // iPhone: a sheet, as .inspector gave it
+                .sheet(isPresented: Binding(get: { sizeClass == .compact && inspectorShown }, set: { showInspector = $0 })) {
+                    if let id = selection { InspectorView(sessionId: id, hub: hub).presentationDetents([.medium, .large]) }
                 }
             }
-            // the inspector takes room from the chat: .automatic laid the sidebar over a dimmed chat
-            // once the inspector opened (web: three columns side by side)
-            .navigationSplitViewStyle(.balanced)
             #if DEBUG
             // CI screenshots open a chat with `-openChat <id>`, a page with `-openPage inbox|devices|settings`,
             // and the inspector with `-inspectorTab files|tasks`
@@ -81,6 +88,8 @@ struct MainSplitView: View {
             }
         }
     }
+
+    private var inspectorShown: Bool { showInspector && page == nil && selection != nil }
 
     private func open(_ id: String) {
         page = nil
