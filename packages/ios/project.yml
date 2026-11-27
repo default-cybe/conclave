@@ -9,8 +9,10 @@ options:
 settings:
   base:
     SWIFT_VERSION: "6.0"
-    MARKETING_VERSION: "0.1.0"
-    CURRENT_PROJECT_VERSION: "1"
+    # ios-release.yml sets both on every build: 0.<run number> and the run number (Settings, About
+    # reads them). 0.0 marks a build that did not come from it.
+    MARKETING_VERSION: "0.0"
+    CURRENT_PROJECT_VERSION: "0"
     DEVELOPMENT_TEAM: ""
     CODE_SIGN_STYLE: Automatic
 packages:

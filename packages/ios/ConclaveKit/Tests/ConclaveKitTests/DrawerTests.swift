@@ -73,6 +73,27 @@ struct DrawerTests {
         #expect(of(nil) == ["assistant", "code", "chat"])
     }
 
+    @Test func securityHuntsHaveTheirOwnModeAndRoutineRunsStayOut() {
+        var hunt = code("hunt", at(22, 9), cwd: "/srv/target")
+        hunt.agent = StartMode.securityAgent
+        var routine = code("routine", at(22, 10))
+        routine.routineId = "r1"
+        let sessions = [hunt, routine, code("code", at(22, 8))]
+        #expect(ids(Drawer.groups(sessions, mode: .security, by: .project, now: now, zone: utc)) == ["hunt"])
+        #expect(ids(Drawer.groups(sessions, mode: .code, by: .time, now: now, zone: utc)) == ["code"])
+    }
+
+    @Test func theAssistantsHomeComesFirstThenHistory() {
+        var home = Session(id: "home", title: "Assistant", updatedAt: at(10, 9))
+        home.agent = StartMode.assistantAgent
+        home.meta = ["home": .bool(true)]
+        var older = Session(id: "older", title: "Plan the week", updatedAt: at(22, 9))
+        older.agent = StartMode.assistantAgent
+        let groups = Drawer.groups([older, home], mode: .assistant, by: .time, now: now, zone: utc)
+        #expect(groups.map(\.title) == ["Assistant", "History"])
+        #expect(ids(groups) == ["home", "older"])
+    }
+
     @Test func pinnedComeFirstWhateverTheGrouping() {
         var pinned = code("pinned", at(10, 9), cwd: "/Users/sam/src/conclave")
         pinned.pinned = true

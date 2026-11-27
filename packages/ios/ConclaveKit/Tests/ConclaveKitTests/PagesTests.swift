@@ -149,7 +149,7 @@ struct PagesTests {
         let me = try await hub.client().me()
         #expect(me.role == "member")
         #expect(me.preferences.defaultModel == "openai/gpt-5.5")
-        #expect(me.shownName == "sam")
+        #expect(me.personName == "Sam")
         _ = hub.take()
         hub.enqueue(#"{"ok":true}"#)
         try await hub.client().setDefaultModel(nil)
@@ -157,6 +157,19 @@ struct PagesTests {
         #expect(req.method == "PATCH")
         #expect(req.path == "/api/me")
         #expect(req.json == ["defaultModel": nil])
+    }
+
+    @Test func theAccountRowNamesThePersonNotTheHub() throws {
+        let kai = try decode(#"{"id":"owner","name":"owner","displayName":"Kai","role":"owner"}"#, as: Me.self)
+        #expect(AccountLabel.of(kai, hubName: "madx") == AccountLabel(name: "Kai", sub: "Owner, madx", initial: "K"))
+        // the owner still called "owner": the hub's ui.name, else just Owner
+        let plain = try decode(#"{"id":"owner","name":"owner","role":"owner","preferences":{"modes":{"security":false}}}"#, as: Me.self)
+        #expect(plain.personName == nil)
+        #expect(AccountLabel.of(plain, uiName: "Kaivalya", hubName: "madx").name == "Kaivalya")
+        #expect(AccountLabel.of(plain, hubName: "madx") == AccountLabel(name: "Owner", sub: "madx", initial: "O"))
+        #expect(!plain.modeOn("security") && plain.modeOn("meetings") && plain.modeOn("canvas"))
+        let member = try decode(#"{"id":"u2","name":"riya","role":"member"}"#, as: Me.self)
+        #expect(AccountLabel.of(member, uiName: "Kai", hubName: "") == AccountLabel(name: "Riya", sub: "Member, Hub", initial: "R"))
     }
 
     @Test func filesListAndBytesUseTheSessionRoutes() async throws {

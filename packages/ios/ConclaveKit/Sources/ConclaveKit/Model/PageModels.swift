@@ -142,11 +142,25 @@ public struct SessionFile: Sendable, Hashable, Codable, Identifiable {
     }
 }
 
+/// The modes a person may hide (core/client/people.ts ModesPreference); missing is on.
+public struct ModesPreference: Sendable, Hashable, Codable {
+    public var security: Bool?
+    public var canvas: Bool?
+    public var meetings: Bool?
+
+    public init(security: Bool? = nil, canvas: Bool? = nil, meetings: Bool? = nil) {
+        self.security = security
+        self.canvas = canvas
+        self.meetings = meetings
+    }
+}
+
 /// The person's own defaults (MeDto.preferences); empty ones are left out by the hub.
 public struct MePreferences: Sendable, Hashable, Codable {
     public var defaultModel: String?
     public var smallModel: String?
     public var defaultAgent: String?
+    public var modes: ModesPreference?
 
     public init(defaultModel: String? = nil, smallModel: String? = nil, defaultAgent: String? = nil) {
         self.defaultModel = defaultModel
@@ -181,8 +195,44 @@ public struct Me: Sendable, Hashable, Codable {
         preferences = (try? c.opt(.preferences)) ?? MePreferences()
     }
 
-    public var shownName: String {
+    public var isMember: Bool { role == "member" }
+
+    /// The person's own name (core/client/people.ts shownName): a display name set apart from the
+    /// sign-in name, else the sign-in name capitalised; nil for the owner still called "owner".
+    public var personName: String? {
         let d = displayName?.trimmingCharacters(in: .whitespaces) ?? ""
-        return d.isEmpty ? (name.isEmpty ? "Owner" : name) : d
+        if !d.isEmpty && d != name { return d }
+        let n = (d.isEmpty ? name : d).trimmingCharacters(in: .whitespaces)
+        if n.isEmpty || (role == "owner" && n.lowercased() == "owner") { return nil }
+        return n.prefix(1).uppercased() + n.dropFirst()
+    }
+
+    /// Security, Canvas or Meetings is on unless the person turned it off (people.ts modeOn).
+    public func modeOn(_ mode: String) -> Bool {
+        let m = preferences.modes
+        switch mode {
+        case "security": return m?.security != false
+        case "canvas": return m?.canvas != false
+        case "meetings": return m?.meetings != false
+        default: return true
+        }
+    }
+}
+
+/// The sidebar's account row (web components/AccountMenu.tsx useAccount): the person's name, "Owner,
+/// homelab" under it, and the initial of the person, never of the hub.
+public struct AccountLabel: Sendable, Hashable {
+    public var name: String
+    public var sub: String
+    public var initial: String
+
+    /// `uiName`: the hub's ui.name (the owner's name for Home's greeting), used when the owner has no name of their own.
+    public static func of(_ me: Me?, uiName: String? = nil, hubName: String) -> AccountLabel {
+        let hub = hubName.isEmpty ? "Hub" : hubName
+        let ui = uiName?.trimmingCharacters(in: .whitespaces) ?? ""
+        let own = me?.personName ?? (me?.isMember != true && !ui.isEmpty ? ui : nil)
+        let role = me?.isMember == true ? "Member" : "Owner"
+        let name = own ?? role
+        return AccountLabel(name: name, sub: own != nil ? "\(role), \(hub)" : hub, initial: name.trimmingCharacters(in: .whitespaces).prefix(1).uppercased())
     }
 }

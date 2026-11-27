@@ -110,7 +110,7 @@ final class AppModel {
         let key = res.identity.map(\.publicKey).flatMap { HubKeys.rawKey($0) != nil ? $0 : nil }
         let saved = SavedPairing(
             addresses: HubAddresses.atPairing(used: url, reply: res.addresses), token: res.token,
-            hubName: res.hub.name, publicKey: key
+            hubName: res.hub.name, publicKey: key, clientId: res.clientId.isEmpty ? nil : res.clientId
         )
         store.save(saved)
         pairing = saved
@@ -126,6 +126,15 @@ final class AppModel {
         pairing = p
         notYourHub = nil
         hub = makeHub(p)
+    }
+
+    /// Sign out (the web's Log out): the hub revokes this app's token, then the app forgets the hub.
+    /// A hub that is away, or a pairing from before the client id was kept, is forgotten here anyway.
+    func signOut() async {
+        if let id = pairing?.clientId, let client = hub?.client {
+            try? await client.signOut(clientId: id)
+        }
+        forget()
     }
 
     func forget() {
@@ -145,6 +154,7 @@ final class AppModel {
             onMismatch: { [weak self] e in Task { @MainActor in self?.notYourHub = e.address } }
         )
         let client = ConclaveClient(baseURL: p.addresses.first ?? "", token: p.token, identity: checksIdentity ? guardian : nil, session: session)
+        AppLogs.start(client)
         return HubModel(client: client, transport: transport)
     }
 

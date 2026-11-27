@@ -55,7 +55,7 @@ struct RootView: View {
         }
         // the socket runs while the app is on screen: that is the hub's presence signal
         .onChange(of: phase, initial: true) { _, now in
-            if now == .active { model.hub?.start() } else if now == .background { model.hub?.stop() }
+            if now == .active { model.hub?.start() } else if now == .background { model.hub?.stop(); AppLogs.flush() }
         }
         .onChange(of: model.hub.map(ObjectIdentifier.init)) { if phase == .active { model.hub?.start() } }
     }

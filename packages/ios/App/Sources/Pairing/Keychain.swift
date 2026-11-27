@@ -7,6 +7,8 @@ struct SavedPairing: Codable, Equatable, Sendable {
     var token: String
     var hubName: String
     var publicKey: String?
+    /// This app's row on the hub (DELETE /api/clients/:id signs it out). Missing on pairings from before 0.11.
+    var clientId: String?
 }
 
 protocol PairingStore: Sendable {

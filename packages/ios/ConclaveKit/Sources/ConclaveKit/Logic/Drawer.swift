@@ -5,14 +5,39 @@ import Foundation
 // come with the Devices and Projects pages (phase 5). Without the project list a session groups
 // under its folder, or under its projectId with the folder's name, as Android does before it loads.
 
-/// Chat, Assistant or Code (Android Start.modeOf).
-public enum StartMode: Sendable, Hashable {
-    case chat, assistant, code
+/// Chat, Assistant, Code or Security (web lib/sidebar.ts sideModeOf, Android Start.modeOf).
+public enum StartMode: String, Sendable, Hashable, CaseIterable {
+    case chat, assistant, code, security
 
     public static let assistantAgent = "assistant"
+    public static let securityAgent = "security"
+    public static let codeAgent = "coder"
 
     public static func of(_ s: Session) -> StartMode {
-        s.isChat ? .chat : s.agent == assistantAgent ? .assistant : .code
+        s.isChat ? .chat : s.agent == assistantAgent ? .assistant : s.agent == securityAgent ? .security : .code
+    }
+
+    /// Code and Security list by project, in folders on computers.
+    public var inFolders: Bool { self == .code || self == .security }
+
+    /// What New says in this mode (web NEW_WORDS).
+    public var newWords: String {
+        switch self {
+        case .chat: "New chat"
+        case .assistant: "Message assistant"
+        case .code: "New session"
+        case .security: "New hunt"
+        }
+    }
+
+    /// The empty list's words (web Sidebar ModeSessions).
+    public var emptyWords: String {
+        switch self {
+        case .chat: "No chats."
+        case .assistant: "No assistant conversations."
+        case .code: "No sessions. They are listed by project."
+        case .security: "No hunts. They are listed by project."
+        }
     }
 }
 
@@ -47,7 +72,7 @@ public enum Panel {
     public static func shown(_ s: Session) -> Bool {
         let moved = s.meta?["movedFrom"]?.object != nil
         let workflowAgent = s.meta?["workflow"]?["runId"]?.string != nil
-        return !s.archived && !s.isIncognito && !(s.parentId != nil && !moved) && !workflowAgent
+        return !s.archived && !s.isIncognito && !(s.parentId != nil && !moved) && !workflowAgent && s.routineId == nil
     }
 
     /// Waiting on you wins over running.
@@ -80,12 +105,16 @@ public enum Drawer {
             .enumerated().sorted { ($0.element.updatedAt, -$0.offset) > ($1.element.updatedAt, -$1.offset) }.map(\.element)
         var out: [DrawerGroup] = []
         for s in list {
-            let (key, title) = s.pinned ? (pinned, "Pinned") : by == .project ? projectGroup(s) : timeGroup(s.updatedAt, now: now, zone: zone)
+            // the assistant's: its home conversation, then History (web sideGroups)
+            let home = s.meta?["home"].map { $0 != .null && $0 != .bool(false) } ?? false
+            let (key, title) = mode == .assistant ? (home ? ("home", "Assistant") : ("history", "History"))
+                : s.pinned ? (pinned, "Pinned") : by == .project ? projectGroup(s) : timeGroup(s.updatedAt, now: now, zone: zone)
             if !needle.isEmpty && !matches(s, needle, key.hasPrefix("p:") ? title : "") { continue }
             let row = Recent(id: s.id, title: Panel.title(s), isChat: s.isChat, dot: Panel.dot(s, asked: waiting.contains(s.id)))
             if let i = out.firstIndex(where: { $0.key == key }) { out[i].items.append(row) } else { out.append(DrawerGroup(key: key, title: title, items: [row])) }
         }
         let tail = [noProject, chats]
+        if mode == .assistant { return out.filter { $0.key == "home" } + out.filter { $0.key == "history" } }
         return out.filter { $0.key == pinned } + out.filter { $0.key != pinned && !tail.contains($0.key) }
             + tail.flatMap { k in out.filter { $0.key == k } }
     }

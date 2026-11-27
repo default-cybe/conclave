@@ -8,8 +8,6 @@ struct SettingsView: View {
     @Environment(AppModel.self) private var model
     @AppStorage("theme") private var theme = "system"
     @AppStorage("reduceMotion") private var reduceMotion = false
-    @State private var me: Me?
-    @State private var info: HubInfo?
     @State private var error: String?
     @State private var confirmForget = false
 
@@ -19,10 +17,11 @@ struct SettingsView: View {
     var body: some View {
         Page(title: "Settings") {
             CardSection(title: "Account") {
-                CardRow("Signed in as", me.map { "\($0.shownName), \($0.role == "owner" ? "owner" : "member")" } ?? "…")
-                CardRow("Hub", model.pairing?.hubName.isEmpty == false ? model.pairing!.hubName : "Conclave")
+                CardRow("Signed in as", me.map { "\(account.name), \($0.isMember ? "member" : "owner")" } ?? "…")
+                if let email = me?.email, !email.isEmpty { CardRow("Email", email) }
+                CardRow("Hub", info?.name.isEmpty == false ? info!.name : model.pairing?.hubName ?? "Conclave")
                 CardRow("Address", model.pairing?.addresses.first ?? "", mono: true)
-                CardRow(label: "Sign out", detail: "Forgets this hub on this device. Pair again to come back.") {
+                CardRow(label: "Sign out", detail: "Signs this device out on the hub and forgets it here. Pair again to come back.") {
                     Button("Sign out") { confirmForget = true }.buttonStyle(CVButton(look: .quietFault))
                         .accessibilityIdentifier("sign-out")
                 }
@@ -41,7 +40,7 @@ struct SettingsView: View {
                 }
             }
             CardSection(title: "About") {
-                CardRow("App version", Self.appVersion)
+                CardRow("App version", AppLogs.version)
                 CardRow("Hub version", info?.version.isEmpty == false ? info!.version : "…")
                 CardRow(label: "Updates", detail: "SideStore updates the app from the Conclave source.") {
                     Link("Check for updates", destination: Self.releaseURL).font(.sans(13, .medium)).foregroundStyle(Tone.signal)
@@ -59,14 +58,19 @@ struct SettingsView: View {
         }
         .task {
             await hub.loadModels()
-            await load()
+            await hub.loadAccount()
         }
+        .refreshable { await hub.loadAccount() }
         .confirmationDialog("Sign out of this hub?", isPresented: $confirmForget, titleVisibility: .visible) {
-            Button("Sign out", role: .destructive) { model.forget() }
+            Button("Sign out", role: .destructive) { Task { await model.signOut() } }
         } message: {
-            Text("The app forgets the hub's address and token. Chats stay on the hub.")
+            Text("The hub stops accepting this device's token and the app forgets the hub. Chats stay on the hub.")
         }
     }
+
+    private var me: Me? { hub.me }
+    private var info: HubInfo? { hub.info }
+    private var account: AccountLabel { AccountLabel.of(me, uiName: hub.uiName, hubName: info?.name ?? "") }
 
     private var modelMenu: some View {
         let current = me?.preferences.defaultModel
@@ -93,26 +97,13 @@ struct SettingsView: View {
         .accessibilityIdentifier("default-model")
     }
 
-    private func load() async {
-        async let m = try? hub.client.me()
-        async let i = try? hub.client.info()
-        me = await m
-        info = await i
-    }
-
     private func set(_ ref: String?) async {
         do {
             try await hub.client.setDefaultModel(ref)
-            me = try await hub.client.me()
+            hub.setMe(try await hub.client.me())
             error = nil
         } catch {
-            self.error = error.localizedDescription
+            self.error = (error as? ConclaveAPIError)?.message ?? error.localizedDescription
         }
-    }
-
-    static var appVersion: String {
-        let v = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "?"
-        let b = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "?"
-        return "\(v) (\(b))"
     }
 }

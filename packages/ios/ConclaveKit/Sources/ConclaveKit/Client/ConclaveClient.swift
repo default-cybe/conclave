@@ -60,6 +60,17 @@ public final class ConclaveClient: Sendable {
     /// Sends one request and returns the body of a 2xx reply. With `auth` false the call carries
     /// no token and needs no identity check (pairing, health, identity).
     func request(_ method: String, _ segments: [String], query: [(String, String?)] = [], body: Data? = nil, auth: Bool = true) async throws -> (Data, HTTPURLResponse) {
+        do {
+            return try await perform(method, segments, query: query, body: body, auth: auth)
+        } catch {
+            // the hub's log sees every failed call (ClientLogs); a cancelled one is not a failure
+            let cancelled = error is CancellationError || (error as? URLError)?.code == .cancelled
+            if !cancelled { ClientLogs.requestFailed(method, segments, status: (error as? ConclaveAPIError)?.status ?? 0, msg: ClientLogs.describe(error)) }
+            throw error
+        }
+    }
+
+    private func perform(_ method: String, _ segments: [String], query: [(String, String?)], body: Data?, auth: Bool) async throws -> (Data, HTTPURLResponse) {
         var req = URLRequest(url: try url(segments, query))
         req.httpMethod = method
         if auth, let token {
@@ -90,7 +101,12 @@ public final class ConclaveClient: Sendable {
         if data.allSatisfy({ $0 == 0x20 || $0 == 0x0A || $0 == 0x0D || $0 == 0x09 }) {
             throw ConclaveAPIError(status: http.statusCode, message: "Empty response", body: "")
         }
-        return try Wire.decoder().decode(T.self, from: data)
+        do {
+            return try Wire.decoder().decode(T.self, from: data)
+        } catch {
+            ClientLogs.decodeFailed(segments, error)
+            throw error
+        }
     }
 
     func get<T: Decodable>(_ segments: [String], query: [(String, String?)] = []) async throws -> T {

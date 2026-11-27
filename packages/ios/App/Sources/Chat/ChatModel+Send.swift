@@ -1,5 +1,6 @@
 import ConclaveKit
 import Foundation
+import UIKit
 
 /// A message sent while the session was idle, on screen until the hub stores it (Android ChatViewModels Pending).
 struct Outgoing: Equatable {
@@ -43,6 +44,7 @@ extension ChatModel {
         outgoing = Outgoing(text: text, files: files, known: Set(transcript.messages.map(\.id)))
         do {
             let r = try await client.send(sessionId, SendInput(text: text, attachments: files.isEmpty ? nil : files, attachmentLoss: loss))
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
             // the session was busy after all: the queue shows it
             if r.queued { outgoing = nil }
         } catch {
@@ -84,13 +86,18 @@ extension ChatModel {
         do {
             try await client.resolveApproval(a.id, r)
             transcript.approvals.removeAll { $0.id == a.id }
-        } catch { sendError = error.localizedDescription }
+            UINotificationFeedbackGenerator().notificationOccurred(.success)
+        } catch {
+            UINotificationFeedbackGenerator().notificationOccurred(.error)
+            sendError = error.localizedDescription
+        }
     }
 
     func answer(_ q: QuestionRequest, _ answers: [String: String]) async {
         do {
             try await client.answerQuestion(q.id, answers)
             transcript.questions.removeAll { $0.id == q.id }
+            UINotificationFeedbackGenerator().notificationOccurred(.success)
         } catch { sendError = error.localizedDescription }
     }
 

@@ -109,7 +109,14 @@ public enum Frame: Sendable, Hashable {
         default:
             let ts = obj["ts"]?.number.map { Int64($0) } ?? 0
             // a known event with a bad body is still an event, as on Android: it decodes to other
-            let event = (try? decodeEvent(type, data)) ?? .other(type: type)
+            let event: EngineEvent
+            do {
+                event = try decodeEvent(type, data)
+            } catch {
+                // a body the app cannot read for an event it knows: the hub's log hears of it
+                ClientLogs.decodeFailed(["event", type], error)
+                event = .other(type: type)
+            }
             return .event(EventEnvelope(seq: seq, ts: ts, type: type, event: event))
         }
     }

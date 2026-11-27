@@ -23,6 +23,15 @@ extension ConclaveClient {
 
     public func me() async throws -> Me { try await get(["api", "me"]) }
 
+    /// Revokes a paired app's token (DELETE /api/clients/:id); this app's own signs it out.
+    public func signOut(clientId: String) async throws { try await sendUnit("DELETE", ["api", "clients", clientId]) }
+
+    /// The hub's ui.name from GET /api/config: the owner's name when their account has none.
+    public func uiName() async throws -> String? {
+        let c: JSONValue = try await get(["api", "config"])
+        return c["config"]?["ui"]?["name"]?.string
+    }
+
     /// Sets the person's own default model; nil clears it (the hub's default applies again).
     /// The hub answers { ok: true }: read `me()` again for the saved state.
     public func setDefaultModel(_ ref: String?) async throws {

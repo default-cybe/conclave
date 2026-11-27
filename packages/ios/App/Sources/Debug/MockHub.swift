@@ -14,7 +14,7 @@ enum MockHub {
     }
 
     struct Store: PairingStore {
-        func load() -> SavedPairing? { SavedPairing(addresses: ["https://hub.mock.test"], token: "mock", hubName: "homelab", publicKey: nil) }
+        func load() -> SavedPairing? { SavedPairing(addresses: ["https://conclave.tail4e2c.ts.net"], token: "mock", hubName: "conclave", publicKey: nil, clientId: "cli_mock") }
         func save(_ p: SavedPairing?) {}
     }
 
@@ -52,13 +52,23 @@ enum MockHub {
         if path == "/api/sessions", let parent = query.first(where: { $0.name == "parentId" })?.value, parent != "none" {
             return (200, parent == "s1" ? children : "[]")
         }
+        if path == "/api/sessions", method == "POST" {
+            // a new session, as the hub makes it: the person's default model filled in
+            let input = body.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] } ?? [:]
+            var s: [String: Any] = ["id": "new-\(UUID().uuidString.prefix(6))", "title": "", "model": "anthropic/claude-opus-5-5", "updatedAt": now]
+            for k in ["kind", "agent", "cwd", "device"] { if let v = input[k] { s[k] = v } }
+            return (200, json(s))
+        }
         if path == "/api/sessions" { return (200, json(sessionList())) }
         if path == "/api/devices" { return (200, devices) }
         if path == "/api/pairing" {
             return (200, #"{"code":"K7QM-4XPD","url":"https://hub.mock.test","deepLink":"conclave://pair?url=https%3A%2F%2Fhub.mock.test&code=K7QM-4XPD","expiresAt":\#(Int64(Date().timeIntervalSince1970 * 1000) + 582_000),"fingerprint":"9f3ac1e07b52d4e8"}"#)
         }
-        if path == "/api/me" { return (200, method == "PATCH" ? #"{"ok":true}"# : #"{"id":"owner","name":"sam","role":"owner","preferences":{"defaultModel":"anthropic/claude-opus-5-5"}}"#) }
-        if path == "/api/info" { return (200, #"{"name":"homelab","version":"0.4.107","defaultModel":"anthropic/claude-sonnet-5-5"}"#) }
+        // the owner's real shape: sign-in name "owner", the name to show set apart, several people
+        if path == "/api/me" { return (200, method == "PATCH" ? #"{"ok":true}"# : #"{"id":"owner","name":"owner","displayName":"Kai","role":"owner","email":"kai@dymnitguys.com","people":true,"preferences":{"defaultModel":"anthropic/claude-opus-5-5"}}"#) }
+        if path == "/api/info" { return (200, #"{"name":"conclave","version":"0.4.107","defaultModel":"anthropic/claude-sonnet-5-5"}"#) }
+        if path == "/api/config" { return (200, #"{"config":{"ui":{"name":"Kai"}},"user":{},"secrets":{}}"#) }
+        if path == "/api/logs/client" { return (200, #"{"accepted":1}"#) }
         if path == "/api/approvals" { return (200, approvals) }
         if path == "/api/questions" { return (200, questions) }
         if path == "/api/models" { return (200, models) }
@@ -117,24 +127,35 @@ enum MockHub {
         """
         [
          {"id":"s1","title":"Native iPad client plan","kind":"chat","model":"anthropic/claude-opus-5-5","chat":{"thinking":"high"},"updatedAt":\(ago(0.2))},
-         {"id":"s2","title":"Fix login redirect","agent":"coder","cwd":"/home/sam/conclave","status":"running","updatedAt":\(ago(1))},
-         {"id":"s3","title":"Backup script for PBS","agent":"coder","cwd":"/srv/backup","status":"waiting_approval","updatedAt":\(ago(3))},
-         {"id":"s7","title":"Move auth middleware to jose","agent":"coder","cwd":"/home/sam/conclave","updatedAt":\(ago(5))},
-         {"id":"s8","title":"Compare Postgres backup tools","kind":"chat","model":"openai/gpt-5.5","updatedAt":\(ago(7))},
+         {"id":"s2","title":"Fix login redirect after the passkey prompt is dismissed on Safari and the hub restarts","agent":"coder","cwd":"/home/conclave/work/conclave","device":"local","status":"running","updatedAt":\(ago(1))},
+         {"id":"s3","title":"Backup script for PBS","agent":"coder","cwd":"/root/scripts","device":"d3","status":"waiting_approval","updatedAt":\(ago(3))},
+         {"id":"s7","title":"Move auth middleware to jose","agent":"coder","cwd":"/home/conclave/work/conclave","updatedAt":\(ago(5))},
+         {"id":"s8","title":"Compare Postgres backup tools: pgBackRest, Barman, WAL-G and plain pg_dump on a 40 GB database","kind":"chat","model":"openai/gpt-5.5","updatedAt":\(ago(7))},
+         {"id":"s12","title":"Why does the Sonarr import keep failing for anime batches with absolute numbering","kind":"chat","updatedAt":\(ago(8))},
+         {"id":"s13","title":"FSE paper: rewrite threats to validity","kind":"chat","model":"anthropic/claude-opus-5-5","updatedAt":\(ago(9))},
          {"id":"s4","title":"Trip to Lisbon","kind":"chat","pinned":true,"updatedAt":\(ago(30))},
          {"id":"s5","title":"Weekly plan","kind":"chat","updatedAt":\(ago(50))},
-         {"id":"s9","title":"Rust daemon sidecar review","agent":"coder","cwd":"/home/sam/conclave","updatedAt":\(ago(60))},
+         {"id":"s14","title":"LeetCode 238 product except self in Python","kind":"chat","updatedAt":\(ago(52))},
+         {"id":"s9","title":"Rust daemon sidecar review","agent":"coder","cwd":"/home/conclave/work/conclave","updatedAt":\(ago(60))},
+         {"id":"s15","title":"Kener status page theme","agent":"coder","cwd":"/home/conclave/work/kener-theme","updatedAt":\(ago(70))},
          {"id":"s10","title":"Grocery list for the week","kind":"chat","updatedAt":\(ago(120))},
          {"id":"s6","title":"Sonarr episodes","agent":"coder","cwd":"/srv/media","updatedAt":\(ago(200))},
-         {"id":"s11","title":"Paper section 4 edits","kind":"chat","updatedAt":\(ago(260))}
+         {"id":"s11","title":"Paper section 4 edits","kind":"chat","updatedAt":\(ago(260))},
+         {"id":"s16","title":"Secure Coding homework 5 write-up","kind":"chat","updatedAt":\(ago(400))},
+         {"id":"s17","title":"Proxmox random reboot triage","agent":"coder","cwd":"/root","device":"d3","updatedAt":\(ago(500))},
+         {"id":"a1","title":"Assistant","agent":"assistant","device":"local","meta":{"home":true},"updatedAt":\(ago(0.5))},
+         {"id":"a2","title":"Plan the week around the FSE deadline","agent":"assistant","device":"local","updatedAt":\(ago(26))},
+         {"id":"a3","title":"Evening check-in","agent":"assistant","device":"local","routineId":"r1","updatedAt":\(ago(20))},
+         {"id":"h1","title":"macOS AudioToolbox fuzzing, crash triage of the gmalloc run","agent":"security","cwd":"/Users/kai/fuzz/audiotoolbox","device":"d1","status":"running","updatedAt":\(ago(2))},
+         {"id":"h2","title":"Variant hunt: path traversal in the files route","agent":"security","cwd":"/home/conclave/work/conclave","updatedAt":\(ago(40))}
         ]
         """
     }
 
     static var devices: String {
         """
-        [{"id":"local","name":"homelab","online":true,"info":{"hostname":"conclave","platform":"linux","arch":"x64"}},
-         {"id":"d1","name":"MacBook Pro","online":true,"lastSeenAt":\(ago(0)),"info":{"hostname":"sams-mbp","platform":"darwin","arch":"arm64"}},
+        [{"id":"local","name":"conclave","online":true,"info":{"hostname":"conclave","platform":"linux","arch":"x64"}},
+         {"id":"d1","name":"MacBook Pro","online":true,"lastSeenAt":\(ago(0)),"info":{"hostname":"kais-mbp","platform":"darwin","arch":"arm64"}},
          {"id":"d2","name":"Gaming PC","online":false,"lastSeenAt":\(ago(3)),"info":{"hostname":"desktop-7k","platform":"win32","arch":"x64"}},
          {"id":"d3","name":"NAS","online":false,"lastSeenAt":\(ago(52)),"info":{"hostname":"nas","platform":"linux","arch":"arm64"}}]
         """
@@ -201,6 +222,9 @@ enum MockHub {
     // a 16x16 purple PNG
     private static let png = "iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAIAAACQkWg2AAAAHUlEQVR4nGOs2vSAgRTARJLqUQ2jGkY1jGoYQhoAqpACKZMzvwUAAAAASUVORK5CYII="
 
+    /// A tool output as long as real ones: 80 lines of a listing, escaped for a JSON string.
+    private static let longListing = (1...80).map { "-rw-r--r--  1 conclave conclave  \(1000 + $0 * 37)  Nov 26 09:\(String(format: "%02d", $0 % 60))  App/Sources/File\($0).swift" }.joined(separator: "\\n")
+
     static var messages: String {
         let answer = """
         ## The plan\\n\\nPhase 2 reads chats. It uses **swift-markdown** and our own renderer, with `inline code` and [a link](https://example.com).\\n\\n1. Sidebar grouped by project\\n2. Transcript with older pages\\n3. Pictures decoded at display size\\n\\n- [x] Connect\\n- [ ] Composer\\n\\n```swift\\nlet page = try await client.messages(id, limit: TranscriptReducer.page, trim: true)\\ntranscript = TranscriptReducer.loaded(transcript, page, paged: true)\\n```\\n\\n| Phase | Scope | State |\\n|---|---|---|\\n| 1 | Kit, connect | done |\\n| 2 | Read chats | now |\\n\\n> Composer and approvals come in phase 3.
@@ -215,7 +239,7 @@ enum MockHub {
            {"type":"tool_use","id":"t3","name":"Grep","input":{"pattern":"TranscriptReducer","path":"packages/ios"}},
            {"type":"tool_use","id":"t9","name":"ShareFile","input":{"path":"ipad-plan.pdf"}},
            {"type":"text","text":"\(answer)"}]},
-         {"id":"m3","sessionId":"s1","seq":3,"role":"user","content":[{"type":"tool_result","toolUseId":"t1","content":"App\\nConclaveKit\\nproject.yml"},{"type":"tool_result","toolUseId":"t2","content":"620 lines"},{"type":"tool_result","toolUseId":"t3","content":"4 files"},
+         {"id":"m3","sessionId":"s1","seq":3,"role":"user","content":[{"type":"tool_result","toolUseId":"t1","content":"\(longListing)"},{"type":"tool_result","toolUseId":"t2","content":"620 lines"},{"type":"tool_result","toolUseId":"t3","content":"4 files"},
            {"type":"tool_result","toolUseId":"t9","content":"Shared ipad-plan.pdf","meta":{"file":{"toolUseId":"t9","name":"ipad-plan.pdf","title":"iPad plan","mediaType":"application/pdf","size":48210}}}]},
          {"id":"m4","sessionId":"s1","seq":4,"role":"user","content":[{"type":"text","text":"Here is the icon colour."},{"type":"image","mediaType":"image/png","data":"\(png)"}]}
         ]

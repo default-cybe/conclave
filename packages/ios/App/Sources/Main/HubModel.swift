@@ -22,6 +22,10 @@ final class HubModel {
     private(set) var deviceTick = 0
     /// The hub's model list, read when a picker first opens.
     private(set) var models: [ModelGroup] = []
+    /// Who signs in with this token (GET /api/me), the hub's ui.name and its info: the account row.
+    private(set) var me: Me?
+    private(set) var uiName: String?
+    private(set) var info: HubInfo?
 
     private let transport: any LiveTransport
     private var chats: [String: ChatModel] = [:]
@@ -50,11 +54,27 @@ final class HubModel {
             sessions = try await client.topLevelSessions(archived: false)
             error = nil
         } catch {
+            AppLogs.error("sessions.load", error)
             self.error = error.localizedDescription
         }
         loaded = true
         await loadAsks()
+        await loadAccount()
     }
+
+    /// The person, the hub's ui.name and version, for the account row and its menu.
+    func loadAccount() async {
+        async let m = try? client.me()
+        async let u = try? client.uiName()
+        async let i = try? client.info()
+        let (me, ui, info) = await (m, u, i)
+        if let me { self.me = me }
+        if let ui { uiName = ui }
+        if let info { self.info = info }
+    }
+
+    /// Settings > Defaults changed the person's own defaults.
+    func setMe(_ m: Me) { me = m }
 
     private func loadAsks() async {
         approvals = (try? await client.approvals()) ?? []
@@ -67,6 +87,7 @@ final class HubModel {
         for await e in client.live(presence: true, transport: transport) {
             switch e {
             case .status(let s):
+                if s != connection { ClientLogs.log(s == .closed ? "warn" : "info", "socket.\(s)") }
                 connection = s
                 // a reconnect: what came while the socket was down
                 if s == .open, opened { for c in chats.values { await c.catchUp() } }
@@ -77,6 +98,7 @@ final class HubModel {
             case .event(let env):
                 apply(env.event)
             case .rejected:
+                ClientLogs.log("warn", "socket.rejected")
                 connection = .closed
             case .hello, .notYourHub:
                 // not your hub reaches AppModel through the identity guard
@@ -143,14 +165,32 @@ final class HubModel {
         }
     }
 
-    /// A new chat; its id to open. Each window keeps its own selection.
-    func newChat() async -> String? {
+    /// A new conversation of `mode`; its id to open. Each window keeps its own selection. The hub
+    /// fills in the model: the person's default, else the agent's, else the hub's (engine createSession).
+    /// Chat: a plain chat. Assistant: the assistant agent on the hub. Code and Security: the coder or
+    /// security agent where the newest session of that mode ran, as the web's project group + and
+    /// sessionSetup on a phone (the last computer used, its folder unless it was a repo's worktree).
+    func newSession(_ mode: StartMode) async -> String? {
+        let input: CreateSessionInput
+        switch mode {
+        case .chat: input = CreateSessionInput(mode: .chat, kind: .chat)
+        case .assistant: input = CreateSessionInput(agent: StartMode.assistantAgent, device: "local")
+        case .code, .security:
+            let last = sessions.filter { StartMode.of($0) == mode && Panel.shown($0) }.max { $0.updatedAt < $1.updatedAt }
+            let devices = (try? await client.devices()) ?? []
+            let online = last.map { l in l.device == "local" || devices.contains { $0.id == l.device && $0.online } } ?? false
+            let repo = last?.meta?["repo"] != nil
+            let cwd = online && !repo && last?.cwd != "~" ? last?.cwd : nil
+            input = CreateSessionInput(agent: mode == .security ? StartMode.securityAgent : StartMode.codeAgent,
+                                       cwd: cwd?.isEmpty == false ? cwd : nil, device: online ? last?.device : "local")
+        }
         do {
-            let s = try await client.createSession(CreateSessionInput(mode: .chat, kind: .chat))
+            let s = try await client.createSession(input)
             if !sessions.contains(where: { $0.id == s.id }) { sessions.append(s) }
+            error = nil
             return s.id
         } catch {
-            self.error = error.localizedDescription
+            self.error = (error as? ConclaveAPIError)?.message ?? error.localizedDescription
             return nil
         }
     }

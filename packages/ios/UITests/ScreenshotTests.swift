@@ -74,6 +74,31 @@ final class ScreenshotTests: XCTestCase {
     @MainActor func testSettingsLight() throws { try page("settings", "light", ["-openPage", "settings"]) { $0.staticTexts["0.4.107"] } }
     @MainActor func testSettingsDark() throws { try page("settings", "dark", ["-openPage", "settings"]) { $0.staticTexts["0.4.107"] } }
 
+    /// The account row's menu: the person (Kai, Owner, conclave), Settings, Devices, Appearance, versions, Sign out.
+    @MainActor func testAccountLight() throws { try account("light") }
+    @MainActor func testAccountDark() throws { try account("dark") }
+    /// The Code and Assistant modes' own lists.
+    @MainActor func testCodeLight() throws { try mode("Code", "light") }
+    @MainActor func testAssistantLight() throws { try mode("Assistant", "light") }
+
+    @MainActor
+    private func account(_ appearance: String) throws {
+        try page("account", appearance, prefix == "ipad" ? ["-openChat", "s1"] : []) { app in
+            let row = app.buttons["account"]
+            if row.waitForExistence(timeout: 12) { sleep(1); row.tap() }
+            return app.buttons["Sign out"]
+        }
+    }
+
+    @MainActor
+    private func mode(_ name: String, _ appearance: String) throws {
+        guard prefix == "ipad" else { throw XCTSkip("iPad only") }
+        // the mode as a launch argument, not a tap: a tap would be saved and every later shot would open in it
+        try page(name.lowercased(), appearance, ["-openChat", name == "Code" ? "s2" : "a1", "-sideMode", name.lowercased()]) { app in
+            app.staticTexts[name == "Code" ? "Kener status page theme" : "History"]
+        }
+    }
+
     /// A screen of phase 4: iPad landscape in light and dark, iPhone portrait in light only.
     @MainActor
     private func page(_ name: String, _ appearance: String, _ args: [String], ready: (XCUIApplication) -> XCUIElement) throws {
