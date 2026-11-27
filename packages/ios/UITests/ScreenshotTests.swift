@@ -49,7 +49,8 @@ final class ScreenshotTests: XCTestCase {
     private func answer(_ appearance: String) throws {
         let dir = try folder()
         guard prefix == "ipad", list("SHOT_APPEARANCES", "light,dark").contains(appearance) else { throw XCTSkip("not asked for") }
-        try shoot(dir, "\(prefix)-answer-\(appearance)", "landscape", appearance, ["-mockHub", "-openChat", "s1", "-scrollTo", "m2"]) { app in
+        try shoot(dir, "\(prefix)-answer-\(appearance)", "landscape", appearance, ["-mockHub", "-openChat", "s1", "-scrollTo", "m4"]) { app in
+            // m4 (the message after the answer) at the bottom: m2's own end sat under the composer
             // the composer's chip is always there; the wait lets the scroll to the answer's end land
             let chip = app.buttons["Model"]
             if chip.waitForExistence(timeout: 12) { sleep(2) }
