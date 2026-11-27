@@ -88,8 +88,9 @@ struct Metrics {
 
     /// Phone sizes only on a phone: NavigationSplitView gives the iPad sidebar column a compact
     /// size class too, which drew it at phone sizes. A narrow iPad window keeps the web's desktop sizes.
-    init(_ sizeClass: UserInterfaceSizeClass?) {
-        compact = sizeClass == .compact && UIDevice.current.userInterfaceIdiom == .phone
+    @MainActor init(_ sizeClass: UserInterfaceSizeClass?) {
+        let phone = UIDevice.current.userInterfaceIdiom == .phone
+        compact = sizeClass == .compact && phone
     }
 
     var read: CGFloat { compact ? 16 : 15 }
