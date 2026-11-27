@@ -6,15 +6,19 @@ import UIKit
 /// mono chip, code in a sunk box, tables with rules between rows, quotes with a hairline on the left.
 struct MarkdownView: View {
     let blocks: [MDBlock]
+    /// The message id: its tables get scroll ids "<id>-table0", "<id>-table1", ...
+    var scrollId: String? = nil
     @Environment(\.horizontalSizeClass) private var sizeClass
 
-    init(_ text: String) { blocks = MarkdownBlocks.parse(text) }
+    init(_ text: String, scrollId: String? = nil) { blocks = MarkdownBlocks.parse(text); self.scrollId = scrollId }
     init(blocks: [MDBlock]) { self.blocks = blocks }
 
     var body: some View {
         let m = Metrics(sizeClass)
         VStack(alignment: .leading, spacing: m.read * 0.9) {
-            ForEach(Array(blocks.enumerated()), id: \.offset) { BlockView(block: $0.element, m: m) }
+            ForEach(Array(blocks.enumerated()), id: \.offset) { i, b in
+                BlockView(block: b, m: m, scrollId: scrollId.map { "\($0)-table\(blocks[..<i].filter(\.isTable).count)" })
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -44,9 +48,14 @@ func inlineStyled(_ a: AttributedString, size: CGFloat, weight: Font.Weight = .r
     return out
 }
 
+private extension MDBlock {
+    var isTable: Bool { if case .table = self { true } else { false } }
+}
+
 private struct BlockView: View {
     let block: MDBlock
     let m: Metrics
+    var scrollId: String? = nil
 
     var body: some View {
         switch block {
@@ -89,7 +98,11 @@ private struct BlockView: View {
                 .padding(.leading, 14)
                 .overlay(alignment: .leading) { Rectangle().fill(Tone.rule2).frame(width: 1) }
         case .table(let head, let rows):
-            TableView(head: head, rows: rows, size: m.read * 0.875)
+            if let scrollId {
+                TableView(head: head, rows: rows, size: m.read * 0.875).id(scrollId)
+            } else {
+                TableView(head: head, rows: rows, size: m.read * 0.875)
+            }
         case .rule:
             Rectangle().fill(Tone.rule).frame(height: 1).padding(.vertical, m.read * 0.8)
         }

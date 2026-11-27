@@ -15,6 +15,8 @@ struct ChatView: View {
     var body: some View {
         let t = chat.transcript
         let m = Metrics(sizeClass)
+        // the reader finds ids nested in a row (a table's), which ScrollPosition only finds on the rows
+        ScrollViewReader { proxy in
         ScrollView {
             LazyVStack(alignment: .leading, spacing: m.compact ? 20 : 24) {
               // each row centres itself: frames on the LazyVStack moved the stack, but its rows
@@ -96,13 +98,14 @@ struct ChatView: View {
                 try? await Task.sleep(for: .milliseconds(400))
                 position.scrollTo(edge: .top)
             }
-            // `-scrollTo <message id>`: that message's end at the bottom (the answer's code block and table)
+            // `-scrollTo <id>`: a message or a table ("m2-table0") in the middle, clear of the composer
             let args = ProcessInfo.processInfo.arguments
             if let i = args.firstIndex(of: "-scrollTo"), i + 1 < args.count {
                 try? await Task.sleep(for: .milliseconds(400))
-                position.scrollTo(id: args[i + 1], anchor: .bottom)
+                proxy.scrollTo(args[i + 1], anchor: .center)
             }
             #endif
+        }
         }
     }
 
@@ -135,7 +138,7 @@ private struct MessageView: View {
             VStack(alignment: .leading, spacing: 10) {
                 ForEach(Array(message.content.enumerated()), id: \.offset) { _, b in
                     switch b {
-                    case .text(let s) where !b.isReminder: MarkdownView(s)
+                    case .text(let s) where !b.isReminder: MarkdownView(s, scrollId: message.id)
                     case .thinking(let th): Fold(title: th.durationMs.map { "Thought for \(max(1, $0 / 1000))s" } ?? "Thinking") {
                         Text(th.thinking).font(.sans(13)).lineSpacing(4).foregroundStyle(Tone.fg2).textSelection(.enabled)
                     }

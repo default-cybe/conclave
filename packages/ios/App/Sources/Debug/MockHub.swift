@@ -135,7 +135,8 @@ enum MockHub {
     @MainActor
     static func fillComposer(_ chat: ChatModel) {
         guard chat.draft.isEmpty else { return }
-        chat.draft = "Here is the sidebar sketch, does the spacing match Android?"
+        // one short line: a longer draft wrapped and the taller composer hid the transcript's end
+        chat.draft = "Spacing like Android?"
         chat.files = [Attachment(mediaType: "image/png", data: png, name: "sidebar-sketch.png")]
     }
 
