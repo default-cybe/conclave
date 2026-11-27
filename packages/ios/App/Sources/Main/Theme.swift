@@ -81,13 +81,6 @@ extension Font {
     }
 }
 
-extension UIFont {
-    static func sans(_ size: CGFloat, style: UIFont.TextStyle = .body) -> UIFont {
-        let f = UIFont(name: "MonaSans-Regular", size: size) ?? .systemFont(ofSize: size)
-        return UIFontMetrics(forTextStyle: style).scaledFont(for: f)
-    }
-}
-
 /// Sizes that differ between a computer-wide window (the web's desktop) and a phone (the web's
 /// phone sizes and Android): reading 15/1.6 against 16/1.55, rows 13.5 against 15.
 struct Metrics {

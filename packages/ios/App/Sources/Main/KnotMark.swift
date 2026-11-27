@@ -44,7 +44,7 @@ struct KnotMark: View {
     }
 
     /// "M x y L x y ..." as the generator writes it.
-    private static func parse(_ s: String) -> Path {
+    private nonisolated static func parse(_ s: String) -> Path {
         var path = Path()
         let t = s.split(separator: " ")
         var i = 0
