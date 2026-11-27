@@ -15,8 +15,6 @@ struct ChatView: View {
     var body: some View {
         let t = chat.transcript
         let m = Metrics(sizeClass)
-        // the reader finds ids nested in a row (a table's), which ScrollPosition only finds on the rows
-        ScrollViewReader { proxy in
         ScrollView {
             LazyVStack(alignment: .leading, spacing: m.compact ? 20 : 24) {
               // each row centres itself: frames on the LazyVStack moved the stack, but its rows
@@ -53,7 +51,9 @@ struct ChatView: View {
         }
         .background(Tone.bg.ignoresSafeArea())
         .scrollPosition($position)
-        .defaultScrollAnchor(.bottom)
+        .defaultScrollAnchor(.bottom, for: .initialOffset)
+        // the bottom anchor on size changes kept pulling a scrollTo(id:) back to the end; off for `-scrollTo`
+        .defaultScrollAnchor(Self.pinned ? .bottom : nil, for: .sizeChanges)
         .scrollDismissesKeyboard(.interactively)
         .safeAreaInset(edge: .bottom) {
             ComposerView(chat: chat, hub: hub)
@@ -98,22 +98,26 @@ struct ChatView: View {
                 try? await Task.sleep(for: .milliseconds(400))
                 position.scrollTo(edge: .top)
             }
-            // `-scrollTo <id>`: a message or a table ("m2-table0") in the middle, clear of the composer
-            let args = ProcessInfo.processInfo.arguments
-            if let i = args.firstIndex(of: "-scrollTo"), i + 1 < args.count {
-                let id = args[i + 1]
-                // after the cards load; a table's row first, so the lazy stack draws it and the reader finds the table
+            // `-scrollTo <id>`: a message's end (m2: its code block, table and quote) above the composer.
+            // ScrollPosition finds only the scroll target layout's rows, so a message id, not a table's
+            if let id = Self.scrollTarget {
                 try? await Task.sleep(for: .seconds(1))
-                if let r = id.range(of: "-table") {
-                    proxy.scrollTo(String(id[..<r.lowerBound]), anchor: .top)
-                    try? await Task.sleep(for: .milliseconds(400))
-                }
-                proxy.scrollTo(id, anchor: .center)
+                position.scrollTo(id: id, anchor: .bottom)
             }
             #endif
         }
-        }
     }
+
+    #if DEBUG
+    private static var scrollTarget: String? {
+        let args = ProcessInfo.processInfo.arguments
+        guard let i = args.firstIndex(of: "-scrollTo"), i + 1 < args.count else { return nil }
+        return args[i + 1]
+    }
+    private static var pinned: Bool { scrollTarget == nil }
+    #else
+    private static let pinned = true
+    #endif
 
     private func older() async {
         let anchor = chat.transcript.messages.first?.id
