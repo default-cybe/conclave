@@ -18,9 +18,15 @@ struct MainSplitView: View {
                         ChatView(chat: hub.chat(id), hub: hub, title: hub.session(id).map(Panel.title) ?? "")
                             .id(id)
                     } else {
-                        ContentUnavailableView("Pick a chat", systemImage: "bubble.left.and.bubble.right")
+                        // the web's empty page: the knot and one quiet line, no system placeholder
+                        VStack(spacing: 14) {
+                            KnotMark(size: 40)
+                            Text("Pick a chat, or start a new one.").font(.sans(15)).foregroundStyle(Tone.fg3)
+                        }
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
                     }
                 }
+                .background(Tone.bg.ignoresSafeArea())
                 .toolbar {
                     Button {
                         showInspector.toggle()
@@ -40,6 +46,7 @@ struct MainSplitView: View {
                 if ProcessInfo.processInfo.arguments.contains("-mockHub"), let id = selection { MockHub.fillComposer(hub.chat(id)) }
             }
             #endif
+            .tint(Tone.signal)
             .onChange(of: hub.sessions.map(\.id)) { _, ids in
                 if let s = selection, !ids.contains(s) { selection = nil }
             }
