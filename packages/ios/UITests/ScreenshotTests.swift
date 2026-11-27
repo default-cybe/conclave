@@ -83,9 +83,11 @@ final class ScreenshotTests: XCTestCase {
     }
 
     /// The media viewer, opened by a tap on the picture at the chat's end.
+    /// `-scrollTo m4`: on a phone the approval and question cards push m4 (the picture) off screen,
+    /// and the lazy transcript never builds a row that far up, so there is nothing to tap.
     @MainActor
     private func viewer(_ appearance: String) throws {
-        try page("viewer", appearance, ["-openChat", "s1"]) { app in
+        try page("viewer", appearance, ["-openChat", "s1", "-scrollTo", "m4"]) { app in
             let pic = app.buttons.matching(identifier: "picture").firstMatch
             if pic.waitForExistence(timeout: 12) { sleep(1); pic.tap() }
             return app.buttons["Save to Photos"]
