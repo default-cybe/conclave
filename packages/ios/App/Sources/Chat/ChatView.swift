@@ -13,6 +13,9 @@ struct ChatView: View {
         let t = chat.transcript
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 16) {
+              // each row centres itself: frames on the LazyVStack moved the stack, but its rows
+              // still drew from x 0 (flush left on iPad, 32 pt gap on the right on iPhone)
+              Group {
                 if t.older {
                     ProgressView()
                         .frame(maxWidth: .infinity)
@@ -28,14 +31,16 @@ struct ChatView: View {
                 ForEach(t.questions) { q in
                     QuestionCard(request: q, viewing: chat.sessionId) { await chat.answer(q, $0) }
                 }
+              }
+              // a fixed column: a wide code line or table must not widen it past the margins.
+              // Plain frames, not containerRelativeFrame: that collapsed the ScrollView to 0 pt
+              // wide in the iPhone stack (blank transcript)
+              .frame(maxWidth: 820, alignment: .leading)
+              .padding(.horizontal, 16)
+              .frame(maxWidth: .infinity)
             }
             .scrollTargetLayout()
             .padding(.vertical)
-            // plain frames, not containerRelativeFrame: in the iPhone stack that collapsed the
-            // ScrollView to 0 pt wide (blank transcript), and on iPad it left the column flush left
-            .frame(maxWidth: 820)
-            .padding(.horizontal, 16)
-            .frame(maxWidth: .infinity)
         }
         .scrollPosition($position)
         .defaultScrollAnchor(.bottom)
