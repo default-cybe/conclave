@@ -17,8 +17,16 @@
  * are off, redirects are not followed, and only the configured scheme is
  * allowed.
  */
-import { posix } from 'node:path';
+import { posix, win32 } from 'node:path';
 import type { Machine } from '../machine/types';
+
+/** A Windows drive (D:\x, C:/x) or UNC (\\server\share) path. */
+export const WINDOWS_ABS = /^(?:[A-Za-z]:[\\/]|\\\\[^\\/])/;
+
+/** path.win32 for a device's Windows path (D:\x, D:/x, \\server\share), else path.posix. */
+export function pathFor(p: string): typeof posix {
+  return WINDOWS_ABS.test(p) ? win32 : posix;
+}
 
 export function shq(s: string): string {
   return `'${s.replace(/'/g, `'\\''`)}'`;
@@ -120,7 +128,7 @@ const TRANSPORT = [
 
 /** Clone into dest (which must not exist yet), without a checkout. */
 export function cloneScript(remote: Remote, dest: string): string {
-  return [...PRELUDE, `mkdir -p ${shq(posix.dirname(dest))} || exit 92`, `git ${secureConfig(remote)} clone -q --no-checkout --no-tags ${shq(remote.url)} ${shq(dest)}`].join('\n');
+  return [...PRELUDE, `mkdir -p ${shq(pathFor(dest).dirname(dest))} || exit 92`, `git ${secureConfig(remote)} clone -q --no-checkout --no-tags ${shq(remote.url)} ${shq(dest)}`].join('\n');
 }
 
 /**

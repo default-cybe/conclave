@@ -16,10 +16,9 @@
  * GitHub ones and "Run in a worktree" on any git folder: one way to make a
  * worktree and one way to merge it back.
  */
-import { posix } from 'node:path';
 import type { Machine } from '../machine/types';
 import type { WorktreeAction, WorktreeState } from '../client/workflows';
-import { git, shq, withCommittedBy } from '../github/git';
+import { git, pathFor, shq, withCommittedBy } from '../github/git';
 import { sha256 } from './store';
 
 export { shq };
@@ -53,11 +52,12 @@ export async function codeFingerprint(machine: Machine, cwd: string): Promise<st
 
 /** The first folder at or above path that holds a Syncthing .stfolder marker. */
 export async function syncthingMarkerAbove(machine: Machine, path: string): Promise<string | undefined> {
-  let dir = posix.normalize(path);
+  const P = pathFor(path);
+  let dir = P.normalize(path);
   for (let i = 0; i < 64; i++) {
-    const st = await machine.stat(posix.join(dir, '.stfolder')).catch(() => null);
+    const st = await machine.stat(P.join(dir, '.stfolder')).catch(() => null);
     if (st) return dir;
-    const up = posix.dirname(dir);
+    const up = P.dirname(dir);
     if (up === dir) return undefined;
     dir = up;
   }
@@ -87,7 +87,8 @@ export class WorktreeError extends Error {
  * place first (a workflow call's retry); otherwise a path that is there is refused.
  */
 export async function addWorktree(machine: Machine, opts: { root: string; path: string; branch: string; base: string; replace?: boolean }): Promise<void> {
-  const marker = await syncthingMarkerAbove(machine, posix.dirname(opts.path));
+  const parent = pathFor(opts.path).dirname(opts.path);
+  const marker = await syncthingMarkerAbove(machine, parent);
   if (marker) throw new WorktreeError(`${marker} is a Syncthing folder (.stfolder). A worktree there would sync to your other machines.`, 409);
   if (opts.replace) {
     await git(machine, opts.root, `worktree remove --force ${shq(opts.path)}`).catch(() => undefined);
@@ -95,7 +96,7 @@ export async function addWorktree(machine: Machine, opts: { root: string; path: 
   } else if (await machine.stat(opts.path).catch(() => null)) {
     throw new WorktreeError(`${opts.path} is already there.`, 409);
   }
-  await machine.mkdir(posix.dirname(opts.path)).catch(() => {});
+  await machine.mkdir(parent).catch(() => {});
   const r = await git(machine, opts.root, `worktree add --no-track -b ${shq(opts.branch)} ${shq(opts.path)} ${shq(opts.base)}`, 10 * 60_000);
   if (!r.ok) throw new WorktreeError(`git worktree add failed on ${machine.name}: ${r.err || r.out}`);
 }
@@ -138,7 +139,7 @@ export async function mergeBranch(
 }
 
 export function worktreePath(home: string, root: string, runId: string, seq: number): string {
-  return posix.join(home, '.conclave', 'worktrees', sha256(root).slice(0, 12), `${runId}-${seq}`);
+  return pathFor(home).join(home, '.conclave', 'worktrees', sha256(root).slice(0, 12), `${runId}-${seq}`);
 }
 
 export function worktreeBranch(runId: string, seq: number): string {
@@ -183,8 +184,9 @@ export async function branchCommit(machine: Machine, root: string, branch: strin
 
 /** Run a command in a temporary detached worktree at a commit (lib.runCheck with a worktree). */
 export async function withDetached<T>(machine: Machine, opts: { home: string; root: string; commit: string; tag: string }, fn: (path: string) => Promise<T>): Promise<T> {
-  const path = posix.join(opts.home, '.conclave', 'worktrees', sha256(opts.root).slice(0, 12), `check-${opts.tag}`);
-  const marker = await syncthingMarkerAbove(machine, posix.dirname(path));
+  const P = pathFor(opts.home);
+  const path = P.join(opts.home, '.conclave', 'worktrees', sha256(opts.root).slice(0, 12), `check-${opts.tag}`);
+  const marker = await syncthingMarkerAbove(machine, P.dirname(path));
   if (marker) throw new WorktreeError(`refusing to make a worktree under ${marker}: it is a Syncthing folder`);
   await git(machine, opts.root, `worktree remove --force ${shq(path)}`).catch(() => undefined);
   const r = await git(machine, opts.root, `worktree add --detach ${shq(path)} ${shq(opts.commit)}`, 120_000);

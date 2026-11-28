@@ -7,6 +7,12 @@ from the section of its version (`scripts/releases/notes.ts`); a release
 without one fails. At tag time, rename `[Unreleased]` to the version and date,
 like `## [0.4.16] - 2026-10-24`.
 
+## [Unreleased]
+
+### Fixed
+
+- GitHub repo sessions and Run in a worktree on a Windows device build Windows paths. The clone goes to C:\Users\you\repos\owner\name, worktrees and the session's folder to C:\Users\you\.conclave\worktrees\..., and the clone script makes the right parent folder. Before, they got mixed paths like C:\Users\you/repos/owner/name, and a second session on the same repository failed with "is there but is not a clone" because git for Windows prints C:/x. Clean up also matches git's C:/x worktree list to the stored path, and workflow worktrees use the device's path style.
+
 ## [0.4.114] - 2026-11-28
 
 ### Added
