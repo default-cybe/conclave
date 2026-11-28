@@ -62,7 +62,7 @@ export function MeetingsOff() {
       <PageHeader title="Meetings" />
       <EmptyState wave={false} action={{ label: 'Turn it on', onClick: () => void saveModes({ meetings: true }) }}>
         Meetings is off. Turn it on here or in{' '}
-        <Link href="/settings/appearance#modes" className="link">
+        <Link href="/settings/modes" className="link">
           Settings, Appearance
         </Link>
         .

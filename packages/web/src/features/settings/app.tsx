@@ -131,9 +131,13 @@ export function AppearanceSection() {
           </SettingRow>
         )}
       </Group>
-      <ModesGroup />
     </div>
   );
+}
+
+/** Settings > Modes: its own row under You, and More modes at the end of the mode switcher. */
+export function ModesSection() {
+  return <ModesGroup />;
 }
 
 /** Security, Canvas and Meetings shown or hidden, for this account on every device (features/home/modes.tsx). Chat, Assistant and Code are always there. */

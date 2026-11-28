@@ -50,6 +50,7 @@ const ApprovalsPage = lazy(() => import('./features/chat/ApprovalsPage'));
 const SharesPage = lazy(() => import('./features/friends/SharesPage'));
 // projects shared with friends: the list, and one project
 const SharedProjectsPage = lazy(() => import('./features/friends/SharedProjects'));
+const ReflectPage = lazy(() => import('./features/settings/ReflectPage'));
 const MapPage = lazy(() => import('./features/map/MapPage'));
 const TodayPage = lazy(() => import('./features/home/TodayPage'));
 const MeetingPage = lazy(() => import('./features/meeting/MeetingPage'));
@@ -236,6 +237,7 @@ export function App() {
                 </OwnerOnly>
               </Route>
               <Route path="/today" component={TodayPage} />
+              <Route path="/reflect" component={ReflectPage} />
               <Route path="/projects/:id?">
                 <OwnerOnly title="Shared projects">
                   <SharedProjectsPage />

@@ -9,7 +9,7 @@
  * Canvas are left out when the person turned them off (modes.tsx).
  */
 import { useLocation } from 'wouter';
-import { CalendarDays, Code, MessageCircle, ShieldCheck, Spline, type LucideIcon } from 'lucide-react';
+import { CalendarDays, Code, MessageCircle, Plus, ShieldCheck, Spline, type LucideIcon } from 'lucide-react';
 import { useHub } from '@/store/store';
 import { cn } from '@/lib/text';
 import { Tooltip } from '@/components/ui/Tooltip';
@@ -83,9 +83,21 @@ function CompactSwitch({ className, vertical }: { className?: string; vertical?:
           </Tooltip>
         );
       })}
+      {/* modes that are off are turned on in Settings, Modes: the switch says where */}
+      {modes.length < START_MODES.length && (
+        <Tooltip content="More modes. Turn on Security, Canvas or Meetings." side={vertical ? 'right' : 'bottom'}>
+          <button type="button" aria-label="More modes" onClick={() => navigate(MORE_MODES)} className="grid size-[26px] place-items-center rounded-[7px] text-fg-3 transition-colors duration-[var(--dur-1)] hov:text-fg focus-visible:outline-offset-1">
+            <Plus className="size-[14px]" strokeWidth={1.75} aria-hidden />
+          </button>
+        </Tooltip>
+      )}
     </div>
   );
 }
+
+/** Where More modes goes. */
+export const MORE_MODES = '/settings/modes';
+const MORE = '__more';
 
 export function ModeSwitch({ phone, compact, vertical, className }: { phone?: boolean; compact?: boolean; vertical?: boolean; className?: string }) {
   // the desktop sidebar keeps the icon switch (owner, 2026-11-07); the phone keeps the picker, where five pills were clipped
@@ -104,10 +116,13 @@ function ModePicker({ phone, className }: { phone?: boolean; className?: string 
       label="What to start"
       value={mode}
       width={phone ? 300 : 280}
-      options={modes.map((m) => ({ value: m.value, label: m.label, detail: m.detail }))}
+      options={[
+        ...modes.map((m) => ({ value: m.value as string, label: m.label, detail: m.detail })),
+        ...(modes.length < START_MODES.length ? [{ value: MORE, label: 'More modes', detail: 'Turn on Security, Canvas or Meetings.' }] : []),
+      ]}
       // a hunt or Canvas opened by a link while that mode is off still names it
       placeholder={START_MODES.find((m) => m.value === mode)?.label}
-      onChange={(v) => openNew(v, navigate)}
+      onChange={(v) => (v === MORE ? navigate(MORE_MODES) : openNew(v as StartMode, navigate))}
       className={cn('font-medium text-fg', phone ? 'h-11 px-2 text-[16px]' : 'text-[13px]', className)}
     />
   );

@@ -40,7 +40,6 @@ import { MemberDefaultsSection } from './member-defaults';
 import { MemberPermissionsSection, PermissionsSection } from './permissions';
 import { NotificationsSection } from './notifications';
 import { AssistantSection } from './assistant';
-import { ReflectSection } from './reflect';
 import { MapsSection } from './maps';
 import { WebSearchSection } from './websearch';
 import { CalMailSection } from './calmail';
@@ -50,7 +49,7 @@ import { GatewaySection } from './gateway';
 import { SecretsSection } from './secrets';
 import { AppsSection } from './apps';
 import { GithubSection } from './github';
-import { AboutSection, AppearanceSection, AuditSection } from './app';
+import { AboutSection, AppearanceSection, AuditSection, ModesSection } from './app';
 import { RemoteSection } from './remote';
 import { ComputerSection, showComputerSection } from './computer';
 import { SubscriptionsSection } from './subscriptions';
@@ -117,7 +116,7 @@ const ALL_SECTIONS: SectionDef[] = [
   },
   {
     id: 'accounts',
-    label: 'Accounts',
+    label: 'Plan order and limits',
     desc: 'Which plan or key takes each call, in your order, with each one\'s limits, reset times and budget.',
     C: AccountsSection,
     width: 900,
@@ -134,7 +133,7 @@ const ALL_SECTIONS: SectionDef[] = [
     member: { C: RefusalSection, desc: 'When a model refuses, the same messages go to the next model on your own list. Only models you can use.' },
   },
   {
-    id: 'usage',
+    id: 'limit-fallback',
     label: 'Limit fallback',
     desc: 'When a model is at its limit on every account, the next model here takes over, on its own account order.',
     C: UsageFallbackSection,
@@ -178,12 +177,7 @@ const ALL_SECTIONS: SectionDef[] = [
     desc: 'What the assistant brings up on its own, when, and the heartbeat and nightly reflection.',
     C: AssistantSection,
   },
-  {
-    id: 'reflect',
-    label: 'Reflect',
-    desc: 'Your own report for a week up to a year, and what the assistant learns each night about how you like to work.',
-    C: ReflectSection,
-  },
+
   {
     id: 'data',
     label: 'Import & export',
@@ -259,8 +253,14 @@ const ALL_SECTIONS: SectionDef[] = [
   {
     id: 'appearance',
     label: 'Appearance',
-    desc: 'How Conclave looks on this device, the name it greets you by, and which modes you see.',
+    desc: 'How Conclave looks on this device, and the name it greets you by.',
     C: AppearanceSection,
+  },
+  {
+    id: 'modes',
+    label: 'Modes',
+    desc: 'Turn Security, Canvas and Meetings on or off, on every device. Chat, Assistant and Code are always on.',
+    C: ModesSection,
   },
   {
     id: 'audit',

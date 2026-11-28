@@ -5,7 +5,7 @@
  * keeps its own connection, then what is worth a notification and the hold
  * while you are using Conclave. Same config keys as onboarding step 8.
  */
-import { useState, type ReactNode } from 'react';
+import { Fragment, useState, type ReactNode } from 'react';
 import { useHub, toast } from '@/store/store';
 import { useIsMobile } from '@/lib/hooks';
 import { deviceName, INSECURE_WORDS, isDesktopApp, removeNotifyDevice, useDeviceNotify, useNotifyDevices, type DeviceNotifyState } from '@/lib/notify';
@@ -13,7 +13,12 @@ import { shortDate } from '@/lib/format';
 import { Button } from '@/components/ui/Button';
 import { OnOff, Segmented } from '@/components/ui/Field';
 import { LiveStatus } from '@/components/motion';
-import { errText, Group, Outcome, save, SettingRow } from './parts';
+import { configAt, errText, Group, NumberSetting, Outcome, save, SettingRow } from './parts';
+
+/** "5 minutes", "1 minute"; 0 is off. */
+export function stuckWords(minutes: number): string {
+  return minutes === 1 ? '1 minute' : `${minutes} minutes`;
+}
 
 export type NotifyOn = {
   sessionDone: boolean;
@@ -32,7 +37,7 @@ export const NOTIFY_DEFAULTS: NotifyOn = { sessionDone: true, approvalNeeded: tr
 export const NOTIFY_EVENTS: Array<{ key: keyof NotifyOn; label: string; help: string }> = [
   { key: 'approvalNeeded', label: 'Approvals and questions', help: 'A session is waiting on you. Answer from the notification or the Inbox. In the desktop app the Dock icon bounces or the taskbar button flashes too.' },
   { key: 'errors', label: 'Failures', help: 'A session or a routine failed.' },
-  { key: 'stuck', label: 'Stuck sessions', help: 'A running session made no progress for 5 minutes, or one tool failed the same way 3 times. Stop it or keep waiting from the Inbox.' },
+  { key: 'stuck', label: 'Stuck sessions', help: 'A running session made no progress for {minutes}, or one tool failed the same way 3 times. Stop it or keep waiting from the Inbox.' },
   { key: 'fileConflict', label: 'File conflicts', help: 'Two chats edited the same file within 10 minutes. Both are linked from the Inbox.' },
   { key: 'limitReset', label: 'Limit resets', help: 'A plan you ran out of is usable again.' },
   { key: 'routineDone', label: 'Routine finished', help: 'Each routine run, with its summary. A routine can turn this off for itself.' },
@@ -72,6 +77,7 @@ export function NotificationsSection() {
   const config = useHub((s) => s.config);
   const n = (config?.notifications ?? {}) as NotifyCfg;
   const on: NotifyOn = { ...NOTIFY_DEFAULTS, ...n.on };
+  const stuckMinutes = typeof configAt(config, 'limits.stuck.minutes') === 'number' ? (configAt(config, 'limits.stuck.minutes') as number) : 5;
   const size = mobile ? 'touch' : 'sm';
   const me = useDeviceNotify();
   const { list, mine } = useNotifyDevices();
@@ -123,9 +129,13 @@ export function NotificationsSection() {
 
       <Group title="Notify me about" help="These apply to every device. Approvals and questions also wait in the Inbox.">
         {NOTIFY_EVENTS.map((e) => (
-          <SettingRow key={e.key} label={e.label} help={e.help}>
-            <OnOff label={e.label} checked={on[e.key]} onChange={(v) => void save({ notifications: { on: { [e.key]: v } } })} size={size} />
-          </SettingRow>
+          <Fragment key={e.key}>
+            <SettingRow label={e.label} help={e.help.replace('{minutes}', stuckWords(stuckMinutes))}>
+              <OnOff label={e.label} checked={on[e.key]} onChange={(v) => void save({ notifications: { on: { [e.key]: v } } })} size={size} />
+            </SettingRow>
+            {/* the threshold itself (limits.stuck.minutes), right under the switch it explains */}
+            {e.key === 'stuck' && <NumberSetting path="limits.stuck.minutes" label="Stuck after" unit="minutes" help="Minutes with no streamed text or tool call before a running turn counts as stuck. Slow or local models may want more." zero="turns the check off" />}
+          </Fragment>
         ))}
       </Group>
 

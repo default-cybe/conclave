@@ -365,7 +365,7 @@ function Now() {
         {owner && (
           <div className="flex items-baseline justify-between gap-3 py-3 text-[12px] text-fg-3 phone:text-[13px]">
             <p className="m-0 min-w-0">{fallback ? <>Hub default fallback: at its limit on every account, a model goes to {fallback}.</> : 'Hub default fallback: at its limit on every account, no other model takes over, since no fallback list is set.'}</p>
-            <TextAction label="Change" onClick={() => navigate('/settings/usage')} />
+            <TextAction label="Change" onClick={() => navigate('/settings/limit-fallback')} />
           </div>
         )}
         {/* the lines above read the hub defaults; core routing can differ per model, agent or task */}

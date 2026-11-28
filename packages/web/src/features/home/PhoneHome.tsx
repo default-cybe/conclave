@@ -92,7 +92,7 @@ export function homeLine(p: { waiting: number; proposals: number; next?: string;
   const asks = [p.waiting ? `${p.waiting} ${p.waiting === 1 ? 'needs' : 'need'} you` : '', p.proposals ? `${p.proposals} ${p.proposals === 1 ? 'proposal' : 'proposals'}` : ''].filter(Boolean);
   if (asks.length) return { text: asks.join(', ') + (p.waiting ? '' : ' to approve'), href: p.waiting ? '/approvals' : '/today', warn: true };
   if (p.next) return { text: p.next, href: '/today', warn: false };
-  if (p.learnings) return { text: `${p.learnings} ${learningsWaitWords(p.learnings)}`, href: '/settings/reflect', warn: false };
+  if (p.learnings) return { text: `${p.learnings} ${learningsWaitWords(p.learnings)}`, href: '/reflect', warn: false };
   if (p.later) return { text: `${p.later} ${p.later === 1 ? 'thing' : 'things'} to set up later`, href: '/settings/about#setup-later', warn: false };
   return undefined;
 }

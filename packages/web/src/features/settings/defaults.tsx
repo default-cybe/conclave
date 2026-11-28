@@ -19,7 +19,8 @@ import { Button } from '@/components/ui/Button';
 import { Input, OnOff, Segmented, Textarea } from '@/components/ui/Field';
 import { useConnectionList } from '@/features/memory/store';
 import { storeWords } from '@/features/memory/words';
-import { errText, Group, save, SettingRow } from './parts';
+import { CONFIG_NUMBERS } from '@conclave/core/config/schema';
+import { configAt, errText, Group, NumberSetting, numberValue, patchAt, save, SettingRow } from './parts';
 
 /** Kinds of work and the agent that carries each one (same as onboarding). */
 const KINDS: Array<{ kind: string; agent: string }> = [
@@ -96,35 +97,30 @@ export function DefaultsSection() {
   const mobile = useIsMobile();
   const config = useHub((s) => s.config);
   const agents = useHub((s) => s.agents);
-  const conns = useConnectionList();
   const defaultModel = (config?.defaultModel as string | undefined) ?? 'anthropic/claude-sonnet-5-5';
   const smallModel = config?.smallModel as string | undefined;
   const imageModel = (config?.imageModel as string | undefined) ?? DEFAULT_IMAGE_MODEL;
   const defaultAgent = config?.defaultAgent as string | undefined;
   const defaultDevice = config?.defaultDevice as string | undefined;
   const reviewer = (config?.modes as { reviewer?: string } | undefined)?.reviewer;
+  const models = (config?.models ?? {}) as { tiers?: Partial<Record<'fast' | 'smart' | 'deep', string | null>>; vision?: string | null; sameModel?: boolean; limitFallback?: { enabled?: boolean; models?: string[] } };
+  const tiers = Object.fromEntries(Object.entries(models.tiers ?? {}).filter(([, v]) => !!v)) as Partial<Record<'fast' | 'smart' | 'deep', string>>;
+  const vision = models.vision ?? undefined;
+  const sameModel = models.sameModel === true;
+  const limitChain = models.limitFallback?.enabled === true ? (models.limitFallback.models ?? []) : [];
+  const ttl = ((config?.cache as { ttl?: 'auto' | '5m' | '1h' } | undefined)?.ttl ?? 'auto') as 'auto' | '5m' | '1h';
   const hidden = (config?.models as { hidden?: string[] } | undefined)?.hidden ?? [];
   const limits = (config?.limits ?? {}) as {
     autoResume?: boolean;
     resumePrompt?: string;
     fallbacks?: Record<string, string[]>;
+    waitShortResets?: boolean;
   };
   const fallback = limits.fallbacks?.[defaultModel]?.[0];
-  const memory = (config?.memory ?? {}) as {
-    enabled?: boolean;
-    autoInject?: boolean;
-    autoExtract?: boolean;
-    injectLimit?: number;
-    recallEpisodes?: boolean;
-  };
   const kinds = KINDS.map((k) => ({
     ...k,
     def: agents.find((a) => a.name === k.agent),
   })).filter((k): k is { kind: string; agent: string; def: AgentDef } => !!k.def);
-  const memOn = memory.enabled !== false;
-  // the same line as under the Memory title: where notes go, by each connection's mode
-  const store = storeWords(conns.list);
-  const hasConns = !!conns.list?.length;
 
   return (
     <div className="space-y-9">
@@ -149,9 +145,23 @@ export function DefaultsSection() {
             <ImageModelSelect value={imageModel} />
           </div>
         </SettingRow>}
+        {isOwnerNow() && (
+          <SettingRow label="Model that reads images" help={<>Turns pictures and PDFs into text for a model that cannot see them, such as GLM. Empty: the first of the small and default models that can see. <ClearLink set={!!vision} onClear={() => void save({ models: { vision: null } })} /></>}>
+            <ModelPicker look="field" label="Model that reads images" value={vision} placeholder="Small or default model" onChange={(m) => void save({ models: { vision: m } })} harnesses={false} className="md:max-w-[300px]" />
+          </SettingRow>
+        )}
         <SettingRow label="Second opinions" help="The model that reviews an answer when you ask for one.">
           <ModelPicker look="field" label="Second opinion model" value={reviewer} onChange={(m) => void save({ modes: { reviewer: m } })} harnesses={false} className="md:max-w-[300px]" />
         </SettingRow>
+      </Group>
+
+      {/* models.tiers (core extensions/agent-model.ts): what a workflow step or subagent gets when it asks for fast, smart or deep */}
+      <Group title="Model tiers" id="tiers" help="Workflow steps, subagents and agents ask for a tier instead of a model. Empty: the hub picks as shown.">
+        {TIERS.map((t) => (
+          <SettingRow key={t.id} label={t.label} help={<>{t.help} <ClearLink set={!!tiers[t.id]} onClear={() => void save({ models: { tiers: { [t.id]: null } } })} /></>}>
+            <ModelPicker look="field" label={`${t.label} model`} value={tiers[t.id]} placeholder={t.id === 'fast' && smallModel ? modelName(smallModel) : t.empty} onChange={(m) => void save({ models: { tiers: { [t.id]: m } } })} harnesses={false} className="md:max-w-[300px]" />
+          </SettingRow>
+        ))}
       </Group>
 
       <Group title="Hidden models">
@@ -160,8 +170,9 @@ export function DefaultsSection() {
 
       {/* the model picker's old Settings drawer (design review #7): each switch is one conversation's, so it lives in that composer's Options */}
       <Group title="Per conversation" id="per-conversation">
-        <SettingRow label="Same model for all work" help="Delegate, Task and workflow agents run on the conversation's model. Turn it on in the composer's Options; it never carries over to the next conversation.">
-          <span className="text-[13px] text-fg-3">In Options</span>
+        {/* models.sameModel: the hub starts each new chat and session pinned; the picker's switch still turns it off for one */}
+        <SettingRow label="Same model for all work" help="New chats and sessions start with Delegate, Task and workflow agents on the conversation's model. Each one can still turn it off in the model picker.">
+          <OnOff label="Same model for all work" checked={sameModel} onChange={(v) => void save({ models: { sameModel: v } })} size={mobile ? 'touch' : 'sm'} />
         </SettingRow>
         <SettingRow label="Security" help="Turns a conversation into a scoped hunt. In the composer's Options while Security mode is on, and always shown on the Options chip once on.">
           <span className="text-[13px] text-fg-3">In Options</span>
@@ -209,6 +220,45 @@ export function DefaultsSection() {
           <OnOff label="Resume after the reset" checked={limits.autoResume !== false} onChange={(v) => void save({ limits: { autoResume: v } })} size={mobile ? 'touch' : 'sm'} />
         </SettingRow>
         {limits.autoResume !== false && <ResumePrompt value={limits.resumePrompt ?? ''} />}
+        {limits.autoResume !== false && (
+          <SettingRow label="Wait if the reset is under 5 minutes" help="A long chat waits for a reset that close instead of switching, since the new model would read the whole chat again with no cache.">
+            <OnOff label="Wait if the reset is under 5 minutes" checked={limits.waitShortResets !== false} onChange={(v) => void save({ limits: { waitShortResets: v } })} size={mobile ? 'touch' : 'sm'} />
+          </SettingRow>
+        )}
+        <NumberSetting path="context.switchBriefAt" label="Offer a handover over" unit="tokens" help="A model switch in a chat this long shows its price first and offers a short handover next to the full history." zero="never offers it" />
+        <SettingRow
+          label="Then"
+          help={
+            <>
+              {limitChain.length ? <>When the model above is at its limit too, the Limit fallback list takes over: {limitChain.map(modelName).join(', ')}.</> : <>When no model above is set or it is at its limit too, the Limit fallback list takes over. It is empty.</>} A model above always wins over the list.
+            </>
+          }
+        >
+          <Link href="/settings/limit-fallback" className="link text-[13px]">
+            {limitChain.length ? 'Edit the list' : 'Add models'}
+          </Link>
+        </SettingRow>
+      </Group>
+
+      {/* limits.session/routine/subagent (core session/limit-tree.ts): caps for each top-level run and all it starts */}
+      <Group title="Spend and time limits" id="limits" help="Each chat, routine run or subagent stops when it, and everything it starts, reaches one of these. Empty or 0: no limit. A routine's own limits in its editor win.">
+        <LimitsTable />
+      </Group>
+
+      <Group title="Prompt cache" id="cache">
+        <SettingRow label="Keep the cache for" help="Claude models only. A 5 minute write costs 1.25x and a 1 hour write 2x; a read costs a tenth. Auto: 1 hour while you chat, 5 minutes for subagents, routines and loops.">
+          <Segmented
+            label="Keep the cache for"
+            size={mobile ? 'touch' : 'sm'}
+            value={ttl}
+            onChange={(v) => void save({ cache: { ttl: v } })}
+            options={[
+              { value: 'auto', label: 'Auto' },
+              { value: '5m', label: '5 min' },
+              { value: '1h', label: '1 hour' },
+            ]}
+          />
+        </SettingRow>
       </Group>
 
       {kinds.length > 0 && (
@@ -254,51 +304,153 @@ export function DefaultsSection() {
         </Group>
       )}
 
-      <Group
-        id="memory"
-        title="Memory"
-        help={
-          <>
-            {store.text || "Notes are kept in the hub's own store."}
-            {store.problem && <span className="text-fault"> {store.problem}</span>} Profile notes always go to every session.{' '}
-            <Link href="/memory/connections" className="link">
-              {hasConns ? 'Connections' : 'Connect a store'}
-            </Link>
-          </>
-        }
-      >
-        <SettingRow label="Use memory" help="Off means sessions neither read nor write notes.">
-          <OnOff label="Use memory" checked={memOn} onChange={(v) => void save({ memory: { enabled: v } })} size={mobile ? 'touch' : 'sm'} />
+      <Group id="memory" title="Memory">
+        <SettingRow label="How sessions use memory" help="Use memory, notes per turn, saving what sessions learn and the daily digest are on the Memory page now.">
+          <Link href="/memory/settings" className="link text-[13px]">
+            Memory settings
+          </Link>
         </SettingRow>
-        <SettingRow label="Give relevant notes" help="Before each turn, the notes that match the message ride along.">
-          <OnOff label="Give relevant notes" disabled={!memOn} checked={memory.autoInject !== false} onChange={(v) => void save({ memory: { autoInject: v } })} size={mobile ? 'touch' : 'sm'} />
-        </SettingRow>
-        {memory.autoInject !== false && (
-          <SettingRow label="Notes per turn" help="More notes cost more tokens on every turn.">
-            <Segmented
-              label="Notes per turn"
-              disabled={!memOn}
-              size={mobile ? 'touch' : 'sm'}
-              value={String(memory.injectLimit ?? 6)}
-              onChange={(v) => void save({ memory: { injectLimit: Number(v) } })}
-              options={['3', '6', '10', '15'].map((v) => ({
-                value: v,
-                label: v,
-              }))}
-            />
-          </SettingRow>
-        )}
-        {memory.autoInject !== false && (
-          <SettingRow label="Past session summaries" help="Off: past sessions are searched only when a chat asks about them, which keeps every turn smaller.">
-            <OnOff label="Past session summaries" disabled={!memOn} checked={memory.recallEpisodes === true} onChange={(v) => void save({ memory: { recallEpisodes: v } })} size={mobile ? 'touch' : 'sm'} />
-          </SettingRow>
-        )}
-        <SettingRow label="Save what sessions learn" help="When a session ends, the small model writes down facts worth keeping.">
-          <OnOff label="Save what sessions learn" disabled={!memOn} checked={memory.autoExtract !== false} onChange={(v) => void save({ memory: { autoExtract: v } })} size={mobile ? 'touch' : 'sm'} />
-        </SettingRow>
-        <DigestRow memOn={memOn} mobile={mobile} />
       </Group>
     </div>
+  );
+}
+
+/**
+ * How sessions use memory (spec 11.7): the switches the Memory page's Settings
+ * tab shows. They save to the hub's config (the owner's).
+ */
+export function MemorySettings() {
+  const mobile = useIsMobile();
+  const config = useHub((s) => s.config);
+  const conns = useConnectionList();
+  const memory = (config?.memory ?? {}) as {
+    enabled?: boolean;
+    autoInject?: boolean;
+    autoExtract?: boolean;
+    injectLimit?: number;
+    recallEpisodes?: boolean;
+  };
+  const memOn = memory.enabled !== false;
+  // the same line as under the Memory title: where notes go, by each connection's mode
+  const store = storeWords(conns.list);
+  const hasConns = !!conns.list?.length;
+  return (
+    <Group
+      id="memory"
+      title="How sessions use memory"
+      help={
+        <>
+          {store.text || "Notes are kept in the hub's own store."}
+          {store.problem && <span className="text-fault"> {store.problem}</span>} Profile notes always go to every session.{' '}
+          <Link href="/memory/connections" className="link">
+            {hasConns ? 'Connections' : 'Connect a store'}
+          </Link>
+        </>
+      }
+    >
+      <SettingRow label="Use memory" help="Off means sessions neither read nor write notes.">
+        <OnOff label="Use memory" checked={memOn} onChange={(v) => void save({ memory: { enabled: v } })} size={mobile ? 'touch' : 'sm'} />
+      </SettingRow>
+      <SettingRow label="Give relevant notes" help="Before each turn, the notes that match the message ride along.">
+        <OnOff label="Give relevant notes" disabled={!memOn} checked={memory.autoInject !== false} onChange={(v) => void save({ memory: { autoInject: v } })} size={mobile ? 'touch' : 'sm'} />
+      </SettingRow>
+      {memory.autoInject !== false && (
+        <SettingRow label="Notes per turn" help="More notes cost more tokens on every turn.">
+          <Segmented
+            label="Notes per turn"
+            disabled={!memOn}
+            size={mobile ? 'touch' : 'sm'}
+            value={String(memory.injectLimit ?? 6)}
+            onChange={(v) => void save({ memory: { injectLimit: Number(v) } })}
+            options={['3', '6', '10', '15'].map((v) => ({
+              value: v,
+              label: v,
+            }))}
+          />
+        </SettingRow>
+      )}
+      {memory.autoInject !== false && (
+        <SettingRow label="Past session summaries" help="Off: past sessions are searched only when a chat asks about them, which keeps every turn smaller.">
+          <OnOff label="Past session summaries" disabled={!memOn} checked={memory.recallEpisodes === true} onChange={(v) => void save({ memory: { recallEpisodes: v } })} size={mobile ? 'touch' : 'sm'} />
+        </SettingRow>
+      )}
+      <SettingRow label="Save what sessions learn" help="When a session ends, the small model writes down facts worth keeping.">
+        <OnOff label="Save what sessions learn" disabled={!memOn} checked={memory.autoExtract !== false} onChange={(v) => void save({ memory: { autoExtract: v } })} size={mobile ? 'touch' : 'sm'} />
+      </SettingRow>
+      <DigestRow memOn={memOn} mobile={mobile} />
+    </Group>
+  );
+}
+
+/** "Clear" after a help line, only when a value is saved: back to the hub's own pick. */
+function ClearLink({ set, onClear }: { set: boolean; onClear: () => void }) {
+  if (!set) return null;
+  return (
+    <button type="button" className="link text-fg-3" onClick={onClear}>
+      Clear
+    </button>
+  );
+}
+
+const TIERS: Array<{ id: 'fast' | 'smart' | 'deep'; label: string; help: string; empty: string }> = [
+  { id: 'fast', label: 'Fast', help: 'Quick lookups and small jobs. Empty: the small model.', empty: 'Small model' },
+  { id: 'smart', label: 'Smart', help: "Most subagent work. Empty: the session's own model.", empty: "Session's model" },
+  { id: 'deep', label: 'Deep', help: 'Hard reasoning and reviews. Empty: the strongest model you have set up.', empty: 'Picked by the hub' },
+];
+
+export const LIMIT_KINDS: Array<{ id: 'session' | 'routine' | 'subagent'; label: string }> = [
+  { id: 'session', label: 'Each chat or session' },
+  { id: 'routine', label: 'Each routine run' },
+  { id: 'subagent', label: 'Each subagent' },
+];
+
+export const LIMIT_FIELDS: Array<{ id: 'tokens' | 'costUsd' | 'minutes'; label: string; unit: string }> = [
+  { id: 'tokens', label: 'Output tokens', unit: 'tokens' },
+  { id: 'costUsd', label: 'Cost', unit: 'USD' },
+  { id: 'minutes', label: 'Working time', unit: 'min' },
+];
+
+/** The three kinds of run against tokens, cost and minutes; each cell saves when it loses focus. */
+function LimitsTable() {
+  const mobile = useIsMobile();
+  return (
+    <div className="rows">
+      {LIMIT_KINDS.map((k) => (
+        <div key={k.id} className="grid gap-x-4 gap-y-2 py-3.5 md:grid-cols-[minmax(0,1fr)_repeat(3,minmax(0,120px))] md:items-end">
+          <span className="text-[13.5px] leading-[1.35] font-medium text-fg phone:text-[15px] md:pb-1.5">{k.label}</span>
+          <div className={cn('grid gap-2', mobile ? 'grid-cols-3' : 'contents')}>
+            {LIMIT_FIELDS.map((f) => (
+              <LimitCell key={f.id} path={`limits.${k.id}.${f.id}`} label={`${k.label}, ${f.label}`} short={f.label} unit={f.unit} />
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function LimitCell({ path, label, short, unit }: { path: string; label: string; short: string; unit: string }) {
+  const config = useHub((s) => s.config);
+  const raw = configAt(config, path);
+  const saved = typeof raw === 'number' ? raw : 0;
+  return <LimitInput key={`${path}:${saved}`} path={path} label={label} short={short} unit={unit} saved={saved} />;
+}
+
+function LimitInput({ path, label, short, unit, saved }: { path: string; label: string; short: string; unit: string; saved: number }) {
+  const r = CONFIG_NUMBERS[path];
+  const [text, setText] = useState(saved ? String(saved) : '');
+  const value = text.trim() === '' ? 0 : numberValue(text, r);
+  const commit = () => {
+    if (value === undefined || value === saved) return;
+    void save(patchAt(path, value)).then((ok) => ok && toast({ title: value ? `${label}: ${value.toLocaleString('en-US')} ${unit}.` : `${label}: no limit.` }));
+  };
+  return (
+    <label className="flex min-w-0 flex-col gap-1">
+      <span className="text-[12px] text-fg-3 phone:text-[13px]">
+        {short}, {unit}
+      </span>
+      <Input mono inputMode={r.fraction ? 'decimal' : 'numeric'} size="sm" value={text} placeholder="No limit" invalid={value === undefined} aria-label={label} onChange={(e) => setText(e.target.value)} onBlur={commit} onKeyDown={(e) => e.key === 'Enter' && commit()} />
+    </label>
   );
 }
 

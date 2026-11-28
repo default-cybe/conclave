@@ -174,7 +174,7 @@ export function LearningsBadge() {
   const n = useLearningsWaiting();
   if (!n) return null;
   return (
-    <Link href="/settings/reflect" className="inline-flex items-center gap-2 text-[13px] text-fg-2 hover:text-fg">
+    <Link href="/reflect" className="inline-flex items-center gap-2 text-[13px] text-fg-2 hover:text-fg">
       <span className="num text-[13px] font-[550] text-warn">{n}</span>
       {learningsWaitWords(n)}
     </Link>
