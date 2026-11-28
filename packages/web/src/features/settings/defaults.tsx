@@ -418,7 +418,7 @@ function LimitsTable() {
       {LIMIT_KINDS.map((k) => (
         <div key={k.id} className="grid gap-x-4 gap-y-2 py-3.5 md:grid-cols-[minmax(0,1fr)_repeat(3,minmax(0,120px))] md:items-end">
           <span className="text-[13.5px] leading-[1.35] font-medium text-fg phone:text-[15px] md:pb-1.5">{k.label}</span>
-          <div className={cn('grid gap-2', mobile ? 'grid-cols-3' : 'contents')}>
+          <div className={cn('grid gap-2', mobile ? 'grid-cols-3 items-end' : 'contents')}>
             {LIMIT_FIELDS.map((f) => (
               <LimitCell key={f.id} path={`limits.${k.id}.${f.id}`} label={`${k.label}, ${f.label}`} short={f.label} unit={f.unit} />
             ))}
@@ -447,7 +447,8 @@ function LimitInput({ path, label, short, unit, saved }: { path: string; label: 
   return (
     <label className="flex min-w-0 flex-col gap-1">
       <span className="text-[12px] text-fg-3 phone:text-[13px]">
-        {short}, {unit}
+        {/* "Output tokens", not "Output tokens, tokens" */}
+        {short.toLowerCase().endsWith(unit) ? short : `${short}, ${unit}`}
       </span>
       <Input mono inputMode={r.fraction ? 'decimal' : 'numeric'} size="sm" value={text} placeholder="No limit" invalid={value === undefined} aria-label={label} onChange={(e) => setText(e.target.value)} onBlur={commit} onKeyDown={(e) => e.key === 'Enter' && commit()} />
     </label>
