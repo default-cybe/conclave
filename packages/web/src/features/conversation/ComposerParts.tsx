@@ -367,7 +367,7 @@ function ContextDetails({ anchor, open, onClose, session, model }: { anchor: Ref
       </dl>
       <div className="flex items-center gap-4 border-t border-rule px-3 py-2 text-[12px] phone:text-[13px]">
         {/* /compact where the context shows: older messages become a summary, the chat stays */}
-        {session && u.used > 0 && (
+        {session && session.stats.messages > 0 && (
           <button
             type="button"
             title="Summarize older messages to free context"
