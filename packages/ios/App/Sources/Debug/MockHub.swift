@@ -86,6 +86,11 @@ enum MockHub {
             return (200, #"{"ok":true,"detail":"Found 12 models","latencyMs":184}"#)
         }
         if path == "/api/secrets" { return (200, #"{"ok":true}"#) }
+        if path == "/api/clients" {
+            let now = Int64(Date().timeIntervalSince1970 * 1000)
+            return (200, #"[{"id":"cl-ipad","name":"Kai's iPad","platform":"ios","createdAt":1,"online":true,"revoked":false},{"id":"cl-pixel","name":"Pixel 8","platform":"android","createdAt":1,"lastSeenAt":\#(now - 3 * 3_600_000),"revoked":false},{"id":"cl-cli","name":"madx","platform":"linux","createdAt":1,"lastSeenAt":\#(now - 2 * 86_400_000),"revoked":false}]"#)
+        }
+        if path.hasPrefix("/api/clients/") { return (200, #"{"ok":true}"#) }
         if path == "/api/subscriptions" {
             return (200, #"{"mode":"builtin","state":"on","version":"6.9.3","management":true,"providers":[{"id":"claude","name":"Claude","plan":"Claude Pro or Max","accounts":1},{"id":"codex","name":"ChatGPT","plan":"ChatGPT Plus or Pro","accounts":0},{"id":"gemini","name":"Gemini","plan":"Gemini with a Google account","flow":"redirect","accounts":0},{"id":"qwen","name":"Qwen","plan":"Qwen Code","flow":"device","more":true}],"accounts":[{"name":"claude-kai.json","provider":"claude","providerName":"Claude","label":"kai@dymnitguys.com","state":"active","canRefresh":true},{"name":"claude-work.json","provider":"claude","providerName":"Claude","label":"work account","state":"unavailable","detail":"Weekly limit, resets Monday"}]}"#)
         }

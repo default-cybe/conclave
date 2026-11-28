@@ -35,6 +35,7 @@ struct SettingsView: View {
                     modelMenu
                 }
             }
+            SignedInSection(hub: hub)
             if me?.isMember == false {
                 CardSection(title: "Models and plans") {
                     link("Providers", "API keys for Anthropic, OpenAI, Z.ai and others", .providers)

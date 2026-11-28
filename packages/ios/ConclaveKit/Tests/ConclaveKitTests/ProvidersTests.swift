@@ -44,6 +44,15 @@ struct ProvidersTests {
         #expect(!Providers.needsPaste(SignInStart(state: "x", url: "u", flow: "device")))
     }
 
+    @Test func signedInLines() throws {
+        let now: Int64 = 10_000_000_000
+        let list = try JSONDecoder().decode([SignedInApp].self, from: Data(#"[{"id":"a","name":"Pixel","platform":"android","createdAt":1,"online":true},{"id":"b","platform":"linux","createdAt":1,"lastSeenAt":9989200000},{"id":"c","platform":"zz","createdAt":1}]"#.utf8))
+        #expect(list[0].line(now: now) == "Android, online")
+        #expect(list[1].line(now: now) == "Terminal on Linux, last seen 3h ago")
+        #expect(list[2].line(now: now) == "App, not seen yet")
+        #expect(SignedInApp(id: "d", lastSeenAt: now - 5_000).line(now: now) == "App, last seen just now")
+    }
+
     @Test func routes() async throws {
         let hub = MockHub()
         let c = hub.client()
