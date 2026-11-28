@@ -16,6 +16,12 @@ enum MockHub {
     struct Store: PairingStore {
         func load() -> SavedPairing? { SavedPairing(addresses: ["https://conclave.tail4e2c.ts.net"], token: "mock", hubName: "conclave", publicKey: nil, clientId: "cli_mock") }
         func save(_ p: SavedPairing?) {}
+        // two accounts, for the account menu's Switch account
+        func loadAccounts() -> SavedAccounts {
+            let sam = try? JSONDecoder().decode(AccountRef.self, from: Data(#"{"id":"sam","name":"sam","role":"member"}"#.utf8))
+            return SavedAccounts(list: [load()!, SavedPairing(addresses: ["https://work.example.com"], token: "mock2", hubName: "work", account: sam)], active: 0)
+        }
+        func saveAccounts(_ a: SavedAccounts) {}
     }
 
     struct Socket: LiveTransport, LiveConnection {
@@ -40,6 +46,10 @@ enum MockHub {
         let path = url.path
         let query = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
         let p = path.split(separator: "/").map(String.init) // ["api", "sessions", id, ...]
+        // each page's own routes (MockHub+*.swift) before the shared ones
+        for r in [actionsReply, devicesReply, searchReply, memoryReply, boardReply] {
+            if let hit = r(method, url, body) { return hit }
+        }
         if p.count >= 3, p[0] == "api", p[1] == "sessions" {
             let id = p[2]
             if p.count == 4, p[3] == "files" { return (200, files) }

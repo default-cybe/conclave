@@ -1,3 +1,4 @@
+import ConclaveKit
 import Foundation
 import Security
 
@@ -9,35 +10,75 @@ struct SavedPairing: Codable, Equatable, Sendable {
     var publicKey: String?
     /// This app's row on the hub (DELETE /api/clients/:id signs it out). Missing on pairings from before 0.11.
     var clientId: String?
+    /// Whose token this is, from the pairing or login reply. Missing on pairings from before several accounts.
+    var account: AccountRef?
+
+    /// Same hub and same person (Accounts.same).
+    var signIn: SignInKey { SignInKey(addresses: addresses, publicKey: publicKey, account: account?.id, token: token) }
+}
+
+/// Every paired hub or account, and the index of the one in use.
+struct SavedAccounts: Codable, Equatable, Sendable {
+    var list: [SavedPairing]
+    var active: Int
 }
 
 protocol PairingStore: Sendable {
     func load() -> SavedPairing?
     func save(_ p: SavedPairing?)
+    func loadAccounts() -> SavedAccounts
+    func saveAccounts(_ a: SavedAccounts)
 }
 
-/// One generic password item, readable only while the device is unlocked and never synced.
+/// A store that keeps one pairing (previews, the mock hub, tests) keeps the account in use only.
+extension PairingStore {
+    func loadAccounts() -> SavedAccounts { SavedAccounts(list: load().map { [$0] } ?? [], active: 0) }
+    func saveAccounts(_ a: SavedAccounts) { save(a.list.indices.contains(a.active) ? a.list[a.active] : nil) }
+}
+
+/// Generic password items, readable only while the device is unlocked and never synced: "pairing" (the
+/// account in use, what builds before several accounts read) and "accounts" (every account).
 struct KeychainStore: PairingStore {
-    private var query: [String: Any] { [
+    private func query(_ account: String) -> [String: Any] { [
         kSecClass as String: kSecClassGenericPassword,
         kSecAttrService as String: "dev.conclave.app",
-        kSecAttrAccount as String: "pairing",
+        kSecAttrAccount as String: account,
     ] }
 
-    func load() -> SavedPairing? {
-        var q = query
+    private func read(_ account: String) -> Data? {
+        var q = query(account)
         q[kSecReturnData as String] = true
         var out: AnyObject?
-        guard SecItemCopyMatching(q as CFDictionary, &out) == errSecSuccess, let data = out as? Data else { return nil }
-        return try? JSONDecoder().decode(SavedPairing.self, from: data)
+        guard SecItemCopyMatching(q as CFDictionary, &out) == errSecSuccess else { return nil }
+        return out as? Data
     }
 
-    func save(_ p: SavedPairing?) {
-        SecItemDelete(query as CFDictionary)
-        guard let p, let data = try? JSONEncoder().encode(p) else { return }
-        var q = query
+    private func write(_ account: String, _ data: Data?) {
+        SecItemDelete(query(account) as CFDictionary)
+        guard let data else { return }
+        var q = query(account)
         q[kSecValueData as String] = data
         q[kSecAttrAccessible as String] = kSecAttrAccessibleWhenUnlockedThisDeviceOnly
         SecItemAdd(q as CFDictionary, nil)
+    }
+
+    func load() -> SavedPairing? {
+        read("pairing").flatMap { try? JSONDecoder().decode(SavedPairing.self, from: $0) }
+    }
+
+    func save(_ p: SavedPairing?) {
+        write("pairing", p.flatMap { try? JSONEncoder().encode($0) })
+    }
+
+    func loadAccounts() -> SavedAccounts {
+        if let data = read("accounts"), let a = try? JSONDecoder().decode(SavedAccounts.self, from: data), !a.list.isEmpty { return a }
+        // a pairing from before several accounts (or an unreadable list): it becomes the only account
+        return SavedAccounts(list: load().map { [$0] } ?? [], active: 0)
+    }
+
+    func saveAccounts(_ a: SavedAccounts) {
+        write("accounts", a.list.isEmpty ? nil : (try? JSONEncoder().encode(a)))
+        // the one in use stays in "pairing" too, so an older build after a downgrade still finds it
+        save(a.list.indices.contains(a.active) ? a.list[a.active] : nil)
     }
 }

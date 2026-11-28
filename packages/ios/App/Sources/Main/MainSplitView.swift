@@ -2,7 +2,7 @@ import ConclaveKit
 import SwiftUI
 
 /// The pages the sidebar opens besides chats.
-enum SidePage: String { case inbox, devices, settings }
+enum SidePage: String { case inbox, devices, settings, search, memory, usage, tasks, workflows }
 
 /// The iPad layout: sidebar, transcript and an inspector. On iPhone and in a narrow window it
 /// collapses to a stack. Each window keeps its own selection.
@@ -28,9 +28,14 @@ struct MainSplitView: View {
                         case .inbox: InboxView(hub: hub) { open($0) }
                         case .devices: DevicesView(hub: hub)
                         case .settings: SettingsView(hub: hub)
+                        case .search: SearchView(hub: hub) { open($0) }
+                        case .memory: MemoryView(hub: hub)
+                        case .usage: UsageView(hub: hub)
+                        case .tasks: TasksView(hub: hub) { open($0) }
+                        case .workflows: WorkflowsView(hub: hub) { open($0) }
                         }
                     } else if let id = selection {
-                        ChatView(chat: hub.chat(id), hub: hub, title: hub.session(id).map(Panel.title) ?? "")
+                        ChatView(chat: hub.chat(id), hub: hub, title: hub.session(id).map(Panel.title) ?? "") { selection = $0 }
                             .id(id)
                     } else {
                         // the web's empty page: the knot and one quiet line, no system placeholder

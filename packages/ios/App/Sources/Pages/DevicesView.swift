@@ -4,12 +4,20 @@ import SwiftUI
 
 /// The hub's computers (Android DevicesScreen, web DevicesPage): the hub's own row first, then
 /// online, then by name. Each row: the name ("hub" after the hub's), "hostname, platform arch",
-/// and online in ok or "seen 3h ago" in fg-3. "Pair a device" opens the pairing code.
+/// and online in ok or "seen 3h ago" in fg-3. "Pair a device" opens the pairing code. Each row's
+/// "…" (and a long press) renames it or removes it; the hub's own row can only be renamed.
 struct DevicesView: View {
     let hub: HubModel
     @State private var devices: [Device]?
     @State private var error: String?
     @State private var pairing = false
+    @State private var renaming: Device?
+    @State private var renameShown = false
+    @State private var newName = ""
+    @State private var removing: Device?
+    @State private var removeShown = false
+    /// A rename or a remove the hub refused.
+    @State private var failed: String?
 
     var body: some View {
         Page(title: "Devices", sub: devices.map(DeviceWords.summary)) {
@@ -18,22 +26,61 @@ struct DevicesView: View {
                 .accessibilityIdentifier("pair-device")
         } content: {
             if let devices {
+                if let failed { Text(failed).font(.sans(13)).foregroundStyle(Tone.fault) }
                 VStack(spacing: 0) {
                     ForEach(Array(DeviceWords.sorted(devices).enumerated()), id: \.element.id) { i, d in
                         if i > 0 { Rectangle().fill(Tone.rule).frame(height: 1) }
-                        DeviceRow(device: d)
+                        HStack(spacing: 0) {
+                            DeviceRow(device: d)
+                            Menu { actions(d) } label: {
+                                Image(systemName: "ellipsis").font(.system(size: 15)).foregroundStyle(Tone.fg3)
+                                    .frame(width: 44, height: 44).contentShape(Rectangle())
+                            }
+                            .accessibilityLabel("More for \(DeviceWords.title(d))")
+                            .accessibilityIdentifier("device-more-\(d.id)")
+                            .padding(.trailing, 4)
+                        }
+                        .contentShape(Rectangle())
+                        .contextMenu { actions(d) }
                     }
                 }
                 .panel(Tone.raise, radius: Radius.r3, border: Tone.rule)
             } else if let error {
-                Text(error).font(.sans(13)).foregroundStyle(Tone.fault)
+                ErrorBox(message: error) { Task { await load() } }
             } else {
-                ProgressView().frame(maxWidth: .infinity).padding(.top, 20)
+                LoadingLine()
             }
         }
         .refreshable { await load() }
         .task(id: hub.deviceTick) { await load() }
         .sheet(isPresented: $pairing, onDismiss: { Task { await load() } }) { PairSheet(client: hub.client) }
+        .alert("Rename device", isPresented: $renameShown, presenting: renaming) { d in
+            TextField("Name", text: $newName)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+            Button("Cancel", role: .cancel) {}
+            Button("Rename") { Task { await rename(d) } }
+        }
+        .confirmationDialog("Remove \(removing.map(DeviceWords.title) ?? "this device")?", isPresented: $removeShown, titleVisibility: .visible, presenting: removing) { d in
+            Button("Remove", role: .destructive) { Task { await remove(d) } }
+        } message: { _ in
+            Text("The hub forgets this computer. Pair it again to use it.")
+        }
+    }
+
+    @ViewBuilder private func actions(_ d: Device) -> some View {
+        Button("Rename", systemImage: "pencil") {
+            newName = d.name
+            renaming = d
+            renameShown = true
+        }
+        // the hub refuses to remove its own row
+        if d.id != "local" {
+            Button("Remove", systemImage: "trash", role: .destructive) {
+                removing = d
+                removeShown = true
+            }
+        }
     }
 
     private func load() async {
@@ -42,6 +89,28 @@ struct DevicesView: View {
             error = nil
         } catch {
             self.error = error.localizedDescription
+        }
+    }
+
+    private func rename(_ d: Device) async {
+        let name = newName.trimmingCharacters(in: .whitespaces)
+        guard !name.isEmpty, name != d.name else { return }
+        do {
+            let saved = try await hub.client.updateDevice(d.id, name: name)
+            if let i = devices?.firstIndex(where: { $0.id == saved.id }) { devices?[i] = saved }
+            failed = nil
+        } catch {
+            failed = (error as? ConclaveAPIError)?.message ?? error.localizedDescription
+        }
+    }
+
+    private func remove(_ d: Device) async {
+        do {
+            try await hub.client.deleteDevice(d.id)
+            devices?.removeAll { $0.id == d.id }
+            failed = nil
+        } catch {
+            failed = (error as? ConclaveAPIError)?.message ?? error.localizedDescription
         }
     }
 }

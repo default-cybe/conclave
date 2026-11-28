@@ -81,6 +81,57 @@ final class ScreenshotTests: XCTestCase {
     @MainActor func testCodeLight() throws { try mode("Code", "light") }
     @MainActor func testAssistantLight() throws { try mode("Assistant", "light") }
 
+    // parity batch 1: iPad landscape light and dark, iPhone portrait light
+    @MainActor func testSearchLight() throws { try search("light") }
+    @MainActor func testSearchDark() throws { try search("dark") }
+    @MainActor func testNewSessionLight() throws { try newSession("light") }
+    @MainActor func testNewSessionDark() throws { try newSession("dark") }
+    @MainActor func testMemoryLight() throws { try page("memory", "light", ["-openPage", "memory"]) { Self.text($0, "The owner prefers pnpm") } }
+    @MainActor func testMemoryDark() throws { try page("memory", "dark", ["-openPage", "memory"]) { Self.text($0, "The owner prefers pnpm") } }
+    @MainActor func testUsageLight() throws { try page("usage", "light", ["-openPage", "usage"]) { Self.text($0, "Claude Max 20x") } }
+    @MainActor func testUsageDark() throws { try page("usage", "dark", ["-openPage", "usage"]) { Self.text($0, "Claude Max 20x") } }
+    @MainActor func testBoardLight() throws { try page("board", "light", ["-openPage", "tasks"]) { Self.text($0, "Ship iPad search") } }
+    @MainActor func testBoardDark() throws { try page("board", "dark", ["-openPage", "tasks"]) { Self.text($0, "Ship iPad search") } }
+    @MainActor func testRunLight() throws { try page("run", "light", ["-openPage", "workflows", "-openRun", "wfr_parity"]) { Self.text($0, "Porting 2 pages in parallel.") } }
+    @MainActor func testRunDark() throws { try page("run", "dark", ["-openPage", "workflows", "-openRun", "wfr_parity"]) { Self.text($0, "Porting 2 pages in parallel.") } }
+    @MainActor func testSessionMenuLight() throws { try sessionMenu("light") }
+    @MainActor func testSessionMenuDark() throws { try sessionMenu("dark") }
+
+    /// Any element whose label holds `s`: a row's title may be a Button's label, not a StaticText.
+    @MainActor private static func text(_ app: XCUIApplication, _ s: String) -> XCUIElement {
+        app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", s)).firstMatch
+    }
+
+    /// Search with "passkey": the title hit, then the message hits.
+    @MainActor
+    private func search(_ appearance: String) throws {
+        try page("search", appearance, ["-openPage", "search"]) { app in
+            let field = app.textFields["search-field"]
+            if field.waitForExistence(timeout: 12) { field.tap(); field.typeText("passkey") }
+            return Self.text(app, "Move auth middleware to jose")
+        }
+    }
+
+    /// New session in Code: computer, Recent folders, agent.
+    @MainActor
+    private func newSession(_ appearance: String) throws {
+        try page("newsession", appearance, ["-sideMode", "code"]) { app in
+            let b = app.buttons["nav-new"]
+            if b.waitForExistence(timeout: 12) { sleep(1); b.tap() }
+            return app.staticTexts["Recent"]
+        }
+    }
+
+    /// The chat's "…" menu: Rename, Pin, Fork, Model, Archive, Delete.
+    @MainActor
+    private func sessionMenu(_ appearance: String) throws {
+        try page("sessionmenu", appearance, ["-openChat", "s1"]) { app in
+            let b = app.buttons["session-menu"]
+            if b.waitForExistence(timeout: 12) { sleep(1); b.tap() }
+            return app.buttons["Fork"]
+        }
+    }
+
     @MainActor
     private func account(_ appearance: String) throws {
         try page("account", appearance, prefix == "ipad" ? ["-openChat", "s1"] : []) { app in

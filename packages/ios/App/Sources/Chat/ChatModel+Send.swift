@@ -65,6 +65,64 @@ extension ChatModel {
         do { try await client.abort(sessionId) } catch { sendError = error.localizedDescription }
     }
 
+    /// Retry: the hub drops `user` and what came after it, and its words and files go again (Android retryFrom).
+    func retry(_ user: Message, busy: Bool) async {
+        if let why = SessionActions.retryRefusal(transcript.messages) { sendError = why; return }
+        let text = user.content.visibleText
+        // before the rewind: a file a trimmed page left out is read from the message the rewind drops
+        let files = await attachments(of: user)
+        guard await rewind(before: user, busy: busy) else { return }
+        outgoing = Outgoing(text: text, files: files, known: Set(transcript.messages.map(\.id)))
+        do {
+            let r = try await client.send(sessionId, SendInput(text: text, attachments: files.isEmpty ? nil : files))
+            if r.queued { outgoing = nil }
+        } catch {
+            outgoing = nil
+            // the old turn is gone on the hub: keep the words
+            restore(text, files, ((error as? ConclaveAPIError)?.message ?? error.localizedDescription) + " Your message is back in the box.")
+        }
+    }
+
+    /// Edit: the hub drops `user` and what came after it, and its words and files come back to the composer (the web's Turn.tsx edit).
+    func edit(_ user: Message, busy: Bool) async {
+        let text = user.content.visibleText
+        let files = await attachments(of: user)
+        guard await rewind(before: user, busy: busy) else { return }
+        draft = draft.isEmpty ? text : text + "\n" + draft
+        self.files = files + self.files
+    }
+
+    /// Stops a running turn, rewinds to just before `user` and reads the transcript again. False when the hub refused.
+    private func rewind(before user: Message, busy: Bool) async -> Bool {
+        sendError = nil
+        do {
+            if busy { try await client.abort(sessionId) }
+            _ = try await client.rewind(sessionId, seq: SessionActions.rewindSeq(user))
+        } catch {
+            sendError = (error as? ConclaveAPIError)?.message ?? error.localizedDescription
+            return false
+        }
+        await reload()
+        return true
+    }
+
+    /// The pictures and documents of a message as attachments to send again; a trimmed one is read from its block.
+    private func attachments(of m: Message) async -> [Attachment] {
+        var out: [Attachment] = []
+        for b in m.content {
+            let media: MediaBlock, name: String
+            switch b {
+            case .image(let x): media = x; name = "image"
+            case .document(let x): media = x; name = x.title ?? "document"
+            default: continue
+            }
+            let data: String?
+            if let d = media.data { data = d } else if let ref = BlockRef.of(media.url) { data = try? await client.blockData(ref) } else { data = nil }
+            if let data { out.append(Attachment(mediaType: media.mediaType, data: data, name: name)) }
+        }
+        return out
+    }
+
     /// Takes a waiting message off; [edit] puts its words back in the composer.
     func unqueue(_ item: QueuedMessage, edit: Bool) async {
         transcript = TranscriptReducer.removed(transcript, item.id)

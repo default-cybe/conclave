@@ -47,7 +47,8 @@ struct RootView: View {
             } else if model.pairing == nil {
                 ConnectView()
             } else {
-                MainSplitView()
+                // a switched account starts with a fresh selection and pages, not the last hub's
+                MainSplitView().id(model.pairing?.token)
             }
         }
         .sheet(isPresented: Binding(get: { model.newSignIn != nil }, set: { if !$0 { model.newSignIn = nil } })) {

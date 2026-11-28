@@ -1,3 +1,4 @@
+import AVKit
 import ConclaveKit
 import Photos
 import SwiftUI
@@ -71,13 +72,18 @@ enum MediaBytes {
 
 /// Full screen pictures, as Android's MediaViewer and the web's ImageViewer: black ground, swipe
 /// between the chat's pictures, pinch or double tap to zoom; the bar on top has close, "2 of 5",
-/// a small download icon (save to Photos) and share. A tap on the picture hides the bar.
+/// a small download icon (save to Photos) and share. A tap on the picture hides the bar. A video
+/// (video/*) plays with the system's controls under the bar, as Android's VideoPage.
 struct MediaViewer: View {
     let set: MediaSet
     let client: ConclaveClient
     @State private var index: Int
     @State private var chrome = true
     @State private var images: [Int: UIImage] = [:]
+    /// Videos, as files in the caches folder (AVPlayer plays a file, not bytes) and their players.
+    @State private var videos: [Int: URL] = [:]
+    @State private var players: [Int: AVPlayer] = [:]
+    @State private var failed: Set<Int> = []
     @State private var note: String?
     @State private var shareItem: URL?
     @Environment(\.dismiss) private var dismiss
@@ -95,8 +101,13 @@ struct MediaViewer: View {
             TabView(selection: $index) {
                 ForEach(Array(set.items.enumerated()), id: \.offset) { i, m in
                     Group {
-                        if let img = images[i] {
+                        if let player = players[i] {
+                            VideoPlayer(player: player).padding(.top, 56)
+                        } else if let img = images[i] {
                             ZoomableImage(image: img) { withAnimation(Motion.of(Motion.ease(Motion.dur2), reduce: reduce)) { chrome.toggle() } }
+                        } else if failed.contains(i) {
+                            Text("This video cannot be played here. Use Share to open it in another app.")
+                                .font(.sans(14)).foregroundStyle(.white.opacity(0.7)).multilineTextAlignment(.center).padding(32)
                         } else {
                             ProgressView().tint(.white)
                         }
@@ -118,6 +129,9 @@ struct MediaViewer: View {
             }
         }
         .statusBarHidden(!chrome)
+        // a video stops when swiped away from or closed
+        .onChange(of: index) { _, now in for (i, p) in players where i != now { p.pause() } }
+        .onDisappear { for p in players.values { p.pause() } }
         .sheet(item: $shareItem) { ShareSheet(items: [$0]) }
         .accessibilityIdentifier("media-viewer")
     }
@@ -127,7 +141,7 @@ struct MediaViewer: View {
             icon("xmark", "Close") { dismiss() }
             Spacer(minLength: 0)
             VStack(spacing: 1) {
-                Text("Picture").font(.sans(14, .medium)).foregroundStyle(.white.opacity(0.9))
+                Text(Self.isVideo(set.items[index]) ? "Video" : "Picture").font(.sans(14, .medium)).foregroundStyle(.white.opacity(0.9))
                 if set.items.count > 1 {
                     Text("\(index + 1) of \(set.items.count)").font(.sans(12)).monospacedDigit().foregroundStyle(.white.opacity(0.45))
                 }
@@ -151,7 +165,20 @@ struct MediaViewer: View {
         .accessibilityLabel(label)
     }
 
+    static func isVideo(_ m: MediaBlock) -> Bool { m.mediaType.lowercased().hasPrefix("video/") }
+
     private func load(_ i: Int, _ m: MediaBlock) async {
+        if Self.isVideo(m) {
+            guard players[i] == nil else { return }
+            guard let data = await MediaBytes.load(m, client),
+                  let url = MediaBytes.file(data, name: m.title ?? "conclave-video", mediaType: m.mediaType) else {
+                failed.insert(i)
+                return
+            }
+            videos[i] = url
+            players[i] = AVPlayer(url: url)
+            return
+        }
         guard images[i] == nil, let data = await MediaBytes.load(m, client) else { return }
         // decoded at a size that still zooms sharp, never whole: a phone screenshot is far over this
         let px = max(UIScreen.main.bounds.width, UIScreen.main.bounds.height) * UIScreen.main.scale * 2
@@ -161,11 +188,18 @@ struct MediaViewer: View {
     }
 
     private func save() {
-        guard let img = images[index] else { return }
+        let img = images[index]
+        let video = videos[index]
+        guard img != nil || video != nil else { return }
         Task {
             let status = await PHPhotoLibrary.requestAuthorization(for: .addOnly)
             guard status == .authorized || status == .limited else { return flash("Allow Conclave to add photos in Settings") }
-            UIImageWriteToSavedPhotosAlbum(img, nil, nil, nil)
+            if let video {
+                guard UIVideoAtPathIsCompatibleWithSavedPhotosAlbum(video.path) else { return flash("Photos cannot keep this video. Use Share.") }
+                UISaveVideoAtPathToSavedPhotosAlbum(video.path, nil, nil, nil)
+            } else if let img {
+                UIImageWriteToSavedPhotosAlbum(img, nil, nil, nil)
+            }
             flash("Saved to Photos")
         }
     }
@@ -174,7 +208,7 @@ struct MediaViewer: View {
         Task {
             let m = set.items[index]
             guard let data = await MediaBytes.load(m, client) else { return }
-            shareItem = MediaBytes.file(data, name: "conclave-image", mediaType: m.mediaType)
+            shareItem = MediaBytes.file(data, name: m.title ?? (Self.isVideo(m) ? "conclave-video" : "conclave-image"), mediaType: m.mediaType)
         }
     }
 

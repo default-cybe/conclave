@@ -48,15 +48,27 @@ struct FileCard: View {
     }
 }
 
-/// Loads a file's bytes once, then shows it in Quick Look or the share sheet.
+/// Loads a file's bytes once, then shows it in Quick Look or the share sheet. A video opens in the
+/// media viewer, which plays it with AVKit.
 @MainActor @Observable
 final class FileOpener {
     var busy = false
     var preview: URL?
     var share: URL?
+    var video: MediaSet?
+    @ObservationIgnored private(set) var videoClient: ConclaveClient?
     private var cached: URL?
 
-    func open(_ media: MediaBlock, name: String, client: ConclaveClient) async { preview = await file(media, name, client) }
+    func open(_ media: MediaBlock, name: String, client: ConclaveClient) async {
+        if MediaViewer.isVideo(media) {
+            videoClient = client
+            var m = media
+            if m.title == nil { m.title = name }
+            video = MediaSet(items: [m], index: 0)
+            return
+        }
+        preview = await file(media, name, client)
+    }
     func download(_ media: MediaBlock, name: String, client: ConclaveClient) async { share = await file(media, name, client) }
 
     private func file(_ media: MediaBlock, _ name: String, _ client: ConclaveClient) async -> URL? {
@@ -73,6 +85,9 @@ extension View {
     func fileOpener(_ o: FileOpener) -> some View {
         @Bindable var o = o
         return quickLookPreview($o.preview).sheet(item: $o.share) { ShareSheet(items: [$0]) }
+            .fullScreenCover(item: $o.video) { s in
+                if let c = o.videoClient { MediaViewer(set: s, client: c) }
+            }
     }
 }
 

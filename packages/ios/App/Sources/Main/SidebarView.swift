@@ -17,6 +17,9 @@ struct SidebarView: View {
     @State private var query = ""
     @State private var searching = false
     @State private var creating = false
+    /// Code and Security: the folder, computer and agent sheet before a new session (web NewSession).
+    @State private var picking = false
+    @State private var sheets = SessionSheets()
     @FocusState private var searchFocus: Bool
 
     private var m: Metrics { Metrics(sizeClass) }
@@ -55,6 +58,13 @@ struct SidebarView: View {
                             SideRow(item: item, on: page == nil && selection == item.id, m: m) {
                                 withAnimation(Motion.of(Motion.ease(Motion.dur2), reduce: reduce)) { selection = item.id }
                             }
+                            .contextMenu {
+                                if let s = hub.session(item.id) {
+                                    SessionMenu(hub: hub, session: s, sheets: sheets) { id in
+                                        if let id { selection = id } else if selection == item.id { selection = nil }
+                                    }
+                                }
+                            }
                         }
                     }
                 }
@@ -62,6 +72,7 @@ struct SidebarView: View {
             }
             .scrollIndicators(.hidden)
             .refreshable { await hub.load() }
+            .sessionActionSheets(hub: hub, sheets: sheets)
             ConnectionLine(state: hub.connection, error: hub.error) { Task { await hub.load() } }
             AccountRow(hub: hub, m: m, page: $page).padding(.horizontal, 8).padding(.top, 4).padding(.bottom, 8)
         }
@@ -70,6 +81,13 @@ struct SidebarView: View {
         // the web's sidebar is 264 px; the system default (320) made it read wide on iPad
         .navigationSplitViewColumnWidth(min: 240, ideal: 272, max: 340)
         .toolbar(.hidden, for: .navigationBar)
+        .sheet(isPresented: $picking) {
+            NewCodeSessionSheet(hub: hub, mode: start) { id in
+                picking = false
+                selection = id
+                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            }
+        }
     }
 
     private var header: some View {
@@ -100,11 +118,10 @@ struct SidebarView: View {
                 .panel(Tone.sideActive, radius: Radius.row)
                 .transition(.opacity)
             } else {
-                NavRow(icon: "magnifyingglass", label: "Search", m: m, hint: m.compact ? nil : "⌘K") {
-                    searching = true
-                    searchFocus = true
-                }
-                .keyboardShortcut("k", modifiers: .command)
+                // web: Search opens the search page (titles and every message); filtering the list is ⌘F
+                NavRow(icon: "magnifyingglass", label: "Search", m: m, hint: m.compact ? nil : "⌘K", on: page == .search) { page = .search }
+                    .keyboardShortcut("k", modifiers: .command)
+                    .accessibilityIdentifier("nav-search")
             }
             NavRow(icon: "square.and.pencil", label: creating ? "Starting…" : start.newWords, m: m) { newSession() }
                 .keyboardShortcut("n", modifiers: .command)
@@ -114,6 +131,11 @@ struct SidebarView: View {
                 .accessibilityIdentifier("nav-inbox")
             // web: More holds the pages; Devices is one of them, Group by sits by the list (Code and Security)
             Menu {
+                Button("Filter this list", systemImage: "line.3.horizontal.decrease") { searching = true; searchFocus = true }
+                Button("Tasks", systemImage: "checklist") { page = .tasks }
+                Button("Workflows", systemImage: "point.3.connected.trianglepath.dotted") { page = .workflows }
+                Button("Memory", systemImage: "brain") { page = .memory }
+                Button("Usage", systemImage: "chart.bar") { page = .usage }
                 Button("Devices", systemImage: "desktopcomputer") { page = .devices }
                 if start.inFolders {
                     Picker("Group by", selection: $groupWire) {
@@ -134,6 +156,7 @@ struct SidebarView: View {
     /// New in the open mode, with the person's defaults (HubModel.newSession); the haptic says it started.
     private func newSession() {
         guard !creating else { return }
+        if start.inFolders { picking = true; return }
         creating = true
         Task {
             if let id = await hub.newSession(start) {
@@ -153,6 +176,7 @@ struct SidebarView: View {
             Button("Previous chat") { step(ids, -1) }.keyboardShortcut("[", modifiers: .command)
             Button("Next chat") { step(ids, 1) }.keyboardShortcut("]", modifiers: .command)
             Button("Settings") { page = .settings }.keyboardShortcut(",", modifiers: .command)
+            Button("Filter") { searching = true; searchFocus = true }.keyboardShortcut("f", modifiers: .command)
             Button("Close") {
                 if searching { query = ""; searching = false } else if page != nil { page = nil }
             }
@@ -202,6 +226,7 @@ private struct AccountRow: View {
                 Link(destination: URL(string: "https://conclave.dymnitguys.com/details.html")!) { Label("Get help", systemImage: "questionmark.circle") }
                 Link(destination: URL(string: "https://github.com/default-cybe/conclave/releases")!) { Label("What's new", systemImage: "sparkles") }
             }
+            AccountsMenuSection()
             Section("Hub \(hub.info?.version ?? "…") · App \(AppLogs.version)") {
                 Button("Sign out", systemImage: "rectangle.portrait.and.arrow.right", role: .destructive) { confirmSignOut = true }
             }
@@ -237,6 +262,7 @@ private struct AccountRow: View {
         } message: {
             Text("This iPad's token stops working on the hub. Pair again or sign in with your password to come back.")
         }
+        .addAccountSheet()
     }
 }
 

@@ -1,5 +1,6 @@
 import ConclaveKit
 import SwiftUI
+import UIKit
 
 /// The transcript and its composer. Opens at the newest message; scrolling to the top reads the page
 /// before it and keeps the message you were on in place. Approvals and questions show at the end.
@@ -7,7 +8,13 @@ struct ChatView: View {
     let chat: ChatModel
     let hub: HubModel
     let title: String
+    /// After the session menu's Fork (the new id) or Archive and Delete (nil). Nil: Archive and Delete go back.
+    var opened: ((String?) -> Void)? = nil
     @State private var position = ScrollPosition(edge: .bottom)
+    /// Rename and Delete of the session menu, and why an action failed.
+    @State private var sheets = SessionSheets()
+    /// Edit asks first: the message and what follows it leave the chat.
+    @State private var editing: Message?
     /// The media viewer, open on a picture with every picture of the chat to swipe through.
     @State private var media = MediaPresenter()
     @Environment(\.horizontalSizeClass) private var sizeClass
@@ -17,6 +24,11 @@ struct ChatView: View {
     var body: some View {
         let t = chat.transcript
         let m = Metrics(sizeClass)
+        let session = hub.session(chat.sessionId)
+        let busy = chat.busy(session)
+        let ends = SessionActions.turnEnds(t.messages)
+        let lastEnd = t.messages.last { ends.contains($0.id) }?.id
+        let lastUser = SessionActions.lastUser(t.messages)?.id
         ScrollView {
             LazyVStack(alignment: .leading, spacing: m.compact ? 20 : 24) {
               // each row centres itself: frames on the LazyVStack moved the stack, but its rows
@@ -28,7 +40,8 @@ struct ChatView: View {
                         .onAppear { Task { await older() } }
                 }
                 ForEach(t.messages) { msg in
-                    MessageView(message: msg, transcript: t, client: chat.client)
+                    MessageView(message: msg, transcript: t, client: chat.client,
+                                actions: actions(msg, ends: ends, lastEnd: lastEnd, lastUser: lastUser, busy: busy))
                 }
                 // a sent message rises from the composer (the web's send motion), a fade with Reduce Motion
                 if let o = chat.outgoing { OutgoingBubble(outgoing: o).transition(reduce ? .opacity : .move(edge: .bottom).combined(with: .opacity)) }
@@ -93,6 +106,25 @@ struct ChatView: View {
             ToolbarItem(placement: .principal) {
                 Text(title).font(.sans(m.compact ? 17 : 14, .semibold)).foregroundStyle(Tone.fg).lineLimit(1)
             }
+            if let session {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Menu {
+                        SessionMenu(hub: hub, session: session, sheets: sheets, opened: opened ?? { _ in dismiss() })
+                    } label: {
+                        Image(systemName: "ellipsis").font(.system(size: m.compact ? 18 : 15)).foregroundStyle(Tone.fg)
+                            .frame(width: 44, height: 44).contentShape(Rectangle())
+                    }
+                    .accessibilityLabel("Session actions")
+                    .accessibilityIdentifier("session-menu")
+                }
+            }
+        }
+        .sessionActionSheets(hub: hub, sheets: sheets)
+        .confirmationDialog("Edit this message?", isPresented: Binding(get: { editing != nil }, set: { if !$0 { editing = nil } }), titleVisibility: .visible, presenting: editing) { msg in
+            Button("Edit") { Task { await chat.edit(msg, busy: chat.busy(hub.session(chat.sessionId))) } }
+            Button("Cancel", role: .cancel) {}
+        } message: { _ in
+            Text("It and everything after it leave the chat. Its words come back to the box.")
         }
         .task {
             await chat.loadIfNeeded()
@@ -128,16 +160,54 @@ struct ChatView: View {
     private static let pinned = true
     #endif
 
+    /// Copy, Edit, Retry and Fork for one message. Retry re-runs the last turn only, and not while it runs.
+    private func actions(_ msg: Message, ends: Set<String>, lastEnd: String?, lastUser: String?, busy: Bool) -> MessageActions {
+        var a = MessageActions()
+        func retry(_ user: Message) -> () -> Void {
+            return { [chat] in _ = Task { await chat.retry(user, busy: false) } }
+        }
+        if SessionActions.isOwn(msg) {
+            a.edit = { editing = msg }
+            if !busy, msg.id == lastUser { a.retry = retry(msg) }
+        } else if msg.role == .assistant, msg.kind == .normal {
+            a.row = ends.contains(msg.id) && !(busy && msg.id == lastEnd)
+            a.turnText = { [chat] in SessionActions.turnText(chat.transcript.messages, end: msg) }
+            if !busy, msg.id == lastEnd, let user = SessionActions.asker(chat.transcript.messages, before: msg.seq), user.id == lastUser { a.retry = retry(user) }
+            a.fork = { [chat, hub, sheets, opened] in
+                _ = Task { if let id = await sheets.fork(chat.sessionId, hub: hub, fromSeq: msg.seq) { opened?(id) } }
+            }
+        }
+        return a
+    }
+
     private func older() async {
         let anchor = chat.transcript.messages.first?.id
         if await chat.loadOlder(), let anchor { position.scrollTo(id: anchor, anchor: .top) }
     }
 }
 
+/// What a message offers on long-press and under a finished turn (ChatView.actions).
+struct MessageActions {
+    /// Copy (and Retry) under this reply: it ends a turn that is done.
+    var row = false
+    /// The turn's words, for the row's Copy.
+    var turnText: () -> String = { "" }
+    var retry: (() -> Void)?
+    var edit: (() -> Void)?
+    var fork: (() -> Void)?
+}
+
+private func copy(_ text: String) {
+    UIPasteboard.general.string = text
+    UIImpactFeedbackGenerator(style: .light).impactOccurred()
+}
+
 private struct MessageView: View {
     let message: Message
     let transcript: Transcript
     let client: ConclaveClient
+    var actions = MessageActions()
+    @Environment(\.horizontalSizeClass) private var sizeClass
 
     var body: some View {
         if message.kind == .notice {
@@ -154,6 +224,11 @@ private struct MessageView: View {
                 }
                 .frame(maxWidth: .infinity, alignment: .trailing)
                 .padding(.leading, 60)
+                .contextMenu {
+                    if !text.isEmpty { Button("Copy", systemImage: "doc.on.doc") { copy(text) } }
+                    if let edit = actions.edit { Button("Edit", systemImage: "pencil", action: edit) }
+                    if let retry = actions.retry { Button("Retry", systemImage: "arrow.clockwise", action: retry) }
+                }
             }
         } else {
             VStack(alignment: .leading, spacing: 10) {
@@ -175,8 +250,37 @@ private struct MessageView: View {
                     default: EmptyView()
                     }
                 }
+                if actions.row { turnRow }
+            }
+            .contextMenu {
+                let text = SessionActions.copyText(message)
+                if !text.isEmpty { Button("Copy", systemImage: "doc.on.doc") { copy(text) } }
+                if let fork = actions.fork { Button("Fork", systemImage: "arrow.triangle.branch", action: fork) }
+                if let retry = actions.retry { Button("Retry", systemImage: "arrow.clockwise", action: retry) }
             }
         }
+    }
+
+    /// Under a finished turn, as Android's icon row: Copy the turn's words, Retry the last one.
+    private var turnRow: some View {
+        let side: CGFloat = Metrics(sizeClass).compact ? 44 : 28
+        return HStack(spacing: 2) {
+            Button { copy(actions.turnText()) } label: {
+                Image(systemName: "doc.on.doc").frame(width: side, height: side).contentShape(Rectangle())
+            }
+            .accessibilityLabel("Copy")
+            .accessibilityIdentifier("turn-copy")
+            if let retry = actions.retry {
+                Button(action: retry) {
+                    Image(systemName: "arrow.clockwise").frame(width: side, height: side).contentShape(Rectangle())
+                }
+                .accessibilityLabel("Retry")
+                .accessibilityIdentifier("turn-retry")
+            }
+        }
+        .buttonStyle(QuietPress(radius: Radius.r1))
+        .font(.system(size: 13))
+        .foregroundStyle(Tone.fg3)
     }
 }
 

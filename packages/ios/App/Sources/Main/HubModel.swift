@@ -76,7 +76,7 @@ final class HubModel {
     /// Settings > Defaults changed the person's own defaults.
     func setMe(_ m: Me) { me = m }
 
-    private func loadAsks() async {
+    func loadAsks() async {
         approvals = (try? await client.approvals()) ?? []
         questions = (try? await client.questions()) ?? []
         waiting = Set(approvals.map { Asks.home($0) } + questions.map { Asks.home($0) })

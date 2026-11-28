@@ -13,7 +13,9 @@ struct InboxView: View {
         let approvals = hub.approvals.sorted { $0.createdAt > $1.createdAt }
         let count = questions.count + approvals.count
         Page(title: "Inbox", sub: count == 0 ? nil : "\(count) waiting on you") {
-            if count == 0 {
+            if !hub.loaded {
+                LoadingLine()
+            } else if count == 0 {
                 EmptyLine(text: InboxWords.empty)
             }
             ForEach(questions) { q in
@@ -28,6 +30,7 @@ struct InboxView: View {
                 }
             }
         }
+        .refreshable { await hub.loadAsks() }
     }
 
     /// The chat's title and what it wants, the time, "Open chat", then the card.
