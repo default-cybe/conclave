@@ -160,20 +160,12 @@ function Body({ s, onChange }: { s: AssistantSettingsDto; onChange: (s: Assistan
         <RunRow r={s.heartbeat} label="Last check" />
       </Group>
 
-      <Group title="Nightly reflection" help="At 02:40 it reads the day's chats for what worked and what bothered you, and keeps at most 3 notes on how to work with you, retiring the ones they replace. It never takes a note from an email, a web page or a tool result. Skipped on days without chats.">
-        <SettingRow
-          label="Nightly reflection"
-          help={
-            <>
-              Notes go to memory for the assistant only. Read, edit or delete them, set the time and model, or reflect now in{' '}
-              <Link href="/settings/reflect" className="underline decoration-rule-2 underline-offset-[3px] hover:text-fg">
-                Reflect
-              </Link>
-              .
-            </>
-          }
-        >
-          <OnOff label="Nightly reflection" size={size} checked={s.reflection.enabled} disabled={busy === 'rf'} onChange={(v) => void call('rf', () => api().setReflection({ enabled: v }))} />
+      {/* the one Nightly reflection switch is on the Reflect page (sidebar More, Reflect) */}
+      <Group title="Nightly reflection">
+        <SettingRow label="Nightly reflection" help={`${s.reflection.enabled ? 'On.' : 'Off.'} At 02:40 it keeps at most 3 notes on how to work with you. Turn it on or off, read the notes, set the time and model on the Reflect page.`}>
+          <Link href="/reflect" className="link text-[13px]">
+            Open Reflect
+          </Link>
         </SettingRow>
         <RunRow r={s.reflection} label="Last run" />
       </Group>

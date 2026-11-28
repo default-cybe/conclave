@@ -13,7 +13,7 @@ import { toast } from '@/store/store';
 import { Button } from '@/components/ui/Button';
 import { OnOff, Segmented } from '@/components/ui/Field';
 import { LoadingRows } from '@/components/ui/EmptyState';
-import { Group, Outcome, SettingRow, errText } from './parts';
+import { Group, NumberSetting, Outcome, SettingRow, errText } from './parts';
 import { saveFile } from '@/lib/saveFile';
 
 type Days = '1' | '7' | '28';
@@ -77,11 +77,8 @@ export function LogsSection() {
         <SettingRow label="Size">
           <span className="num text-[14px] text-fg md:text-right">{filesWords(s)}</span>
         </SettingRow>
-        <SettingRow label="Kept" help="logs.keepDays and logs.maxMB in the config change it. The oldest days go first.">
-          <span className="text-[14px] text-fg md:text-right">
-            {plural(s.keepDays, 'day')}, at most {int(s.maxMB)} MB
-          </span>
-        </SettingRow>
+        <NumberSetting path="logs.keepDays" label="Keep for" unit="days" help="Daily files older than this are deleted." />
+        <NumberSetting path="logs.maxMB" label="Keep at most" unit="MB" help="All files together stay under this. The oldest days go first." />
         <SettingRow label="Folder" help="On the hub.">
           <span className="font-mono text-[13px] break-all text-fg md:text-right">{s.dir}</span>
         </SettingRow>

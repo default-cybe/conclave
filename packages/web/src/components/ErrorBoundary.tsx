@@ -8,6 +8,7 @@
 import { Component, Suspense, type ErrorInfo, type ReactNode } from 'react';
 import { useLocation } from 'wouter';
 import { clientLog } from '@/lib/clientLog';
+import { isOwnerNow } from '@/lib/people';
 import { Button } from './ui/Button';
 
 /** "SettingsPage < SectionBody < DesktopSettings": the first components of a React component stack. */
@@ -55,7 +56,19 @@ export class ErrorBoundary extends Component<Props, State> {
       <div role="alert" className={full ? 'grid h-full place-items-center bg-bg px-6 text-fg' : 'px-6 py-10'}>
         <div className="max-w-[46ch]">
           <h1 className="m-0 text-[17px] font-medium text-fg">Something went wrong on this screen.</h1>
-          <p className="mt-2 mb-0 text-[14px] leading-[1.45] text-fg-2">It goes in the hub's logs. Try again, or reload the app.</p>
+          <p className="mt-2 mb-0 text-[14px] leading-[1.45] text-fg-2">
+            It goes in the hub's logs. Try again, or reload the app.
+            {/* the hub's logs are the owner's (Settings > Logs) */}
+            {isOwnerNow() && (
+              <>
+                {' '}
+                <a href="/settings/logs" className="link">
+                  Report a problem
+                </a>{' '}
+                downloads them for a bug report.
+              </>
+            )}
+          </p>
           <div className="mt-5 flex gap-2">
             <Button variant="solid" onClick={() => location.reload()}>
               Reload

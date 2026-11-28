@@ -78,7 +78,7 @@ export function ModesNote({ className }: { className?: string }) {
   return (
     <Notice className={className} action={{ label: 'Got it', onClick: () => void saveModes({}) }}>
       Security, Canvas and Meetings can be turned off in{' '}
-      <Link href="/settings/appearance#modes" className="link" onClick={() => void saveModes({})}>
+      <Link href="/settings/modes" className="link" onClick={() => void saveModes({})}>
         Settings, Appearance
       </Link>
       , if you do not use them.

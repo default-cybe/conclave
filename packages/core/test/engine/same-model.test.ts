@@ -185,3 +185,19 @@ return 'ok'`;
     await expect(t.engine.createSession({ kind: 'chat', model: PIN, chat: { sameModel: true } }, alice.id, { byPerson: true })).rejects.toThrow('Same model for all work needs a model your account may use');
   });
 });
+
+describe('Same model for all work as a default (Settings > Defaults, models.sameModel)', () => {
+  test("the owner's new chats and sessions from an app start pinned; an explicit off, a subagent and work the hub starts do not", async () => {
+    t = await startTestEngine({ script: [[{ text: 'ok' }]], ...setup, overrides: { models: { tiers: { fast: FAST, deep: DEEP }, sameModel: true } } as never });
+    const chat = await t.engine.createSession({ kind: 'chat', model: PIN }, undefined, { byPerson: true });
+    expect(chat.chat?.sameModel).toBe(true);
+    const code = await t.engine.createSession({ cwd: t.cwd, model: PIN }, undefined, { byPerson: true });
+    expect(code.chat?.sameModel).toBe(true);
+    const off = await t.engine.createSession({ kind: 'chat', model: PIN, chat: { sameModel: false } }, undefined, { byPerson: true });
+    expect(off.chat?.sameModel).toBeUndefined();
+    const hub = await t.engine.createSession({ cwd: t.cwd, model: PIN });
+    expect(hub.chat?.sameModel).toBeUndefined();
+    const child = await t.engine.createSession({ cwd: t.cwd, model: PIN, parentId: hub.id }, undefined, { byPerson: true });
+    expect(child.chat?.sameModel).toBeUndefined();
+  });
+});

@@ -6,6 +6,7 @@
  * allow, Always ask and Deny. "Test a call" runs the same permission check a
  * session runs, without running the tool.
  */
+import { Group, NumberSetting, TextSetting } from '@/features/settings/parts';
 import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { Link, useSearch } from 'wouter';
 import type { ToolCheckResult, ToolDetail } from '@conclave/core/client';
@@ -207,6 +208,14 @@ export function ToolsTab() {
         <SectionHeading id="test-h">Test a call</SectionHeading>
         <TestForm tools={list} tool={testTool} onTool={setTestTool} cwd={cwd} />
       </section>
+
+      {/* mcp.deferAbove (core engine.ts) and documents.docling.url (core tools/docling.ts), read at each request */}
+      <div className="mt-10">
+        <Group title="How tools load">
+          <NumberSetting path="mcp.deferAbove" label="Load MCP tools on demand above" unit="tools" help="Past this many MCP tools, a request carries their names only and the model loads the ones it needs. Fewer tokens per turn." zero="always loads them on demand" />
+          <TextSetting path="documents.docling.url" label="Document reader" placeholder="http://192.168.1.50:5001" help="A docling-serve address. Read sends it scanned PDFs, tables and Office files from your sessions, and falls back to the built-in readers when it fails. Empty: the built-in readers only." />
+        </Group>
+      </div>
     </div>
   );
 }

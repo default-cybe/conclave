@@ -12,10 +12,10 @@ describe('Usage fallback in Settings', () => {
   test('it sits under Advanced after Refusal fallback as Limit fallback, and "usage limit" still finds it', () => {
     const sections = [
       { id: 'refusal', label: 'Refusal fallback', desc: 'When a model refuses, the same messages go to the next model on your list.' },
-      { id: 'usage', label: 'Limit fallback', desc: 'When a model is at its limit on every account, the next model here takes over, on its own account order.' },
+      { id: 'limit-fallback', label: 'Limit fallback', desc: 'When a model is at its limit on every account, the next model here takes over, on its own account order.' },
     ];
-    expect(groupSections(sections).find((g) => g.label === 'Advanced')!.items.map((s) => s.id)).toEqual(['refusal', 'usage']);
-    expect(searchSections(sections, 'usage limit').map((s) => s.id)).toEqual(['usage']);
+    expect(groupSections(sections).find((g) => g.label === 'Advanced')!.items.map((s) => s.id)).toEqual(['refusal', 'limit-fallback']);
+    expect(searchSections(sections, 'usage limit').map((s) => s.id)).toEqual(['limit-fallback']);
   });
 
   test('up and down move one step; off either end changes nothing', () => {

@@ -101,7 +101,7 @@ function Body({ r, onChange }: { r: ReflectDto; onChange: (r: ReflectDto) => voi
   return (
     <div className="space-y-9">
       <Group title="Nightly reflection" help={REFLECT_LINE}>
-        <SettingRow label="Reflect each night" help="Never takes a note from an email, a web page or a tool result. Chats with agents that read those are left out. The same switch as in Settings, Assistant.">
+        <SettingRow label="Reflect each night" help="Never takes a note from an email, a web page or a tool result. Chats with agents that read those are left out. The only switch for it.">
           <OnOff label="Reflect each night" size={size} checked={r.enabled} disabled={busy === 'on'} onChange={(v) => void call('on', () => api().setReflect({ enabled: v }))} />
         </SettingRow>
         <SettingRow label="Time" help={timeWords(r)} top>

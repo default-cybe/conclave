@@ -104,6 +104,8 @@ export function useAccountMenu(): MenuItem[] {
     { separator: true, label: '' },
     { label: 'Get help', detail: 'How Conclave works', onSelect: () => open(HELP_URL) },
     { label: "What's new", onSelect: () => open(RELEASES_URL) },
+    // the hub's logs are the owner's: Settings > Logs has the error summary and Download logs
+    ...(owner ? [{ label: 'Report a problem', detail: 'Download the hub logs', onSelect: () => navigate('/settings/logs') }] : []),
     ...(several || others.length
       ? [
           { separator: true, label: '' },

@@ -5,6 +5,7 @@
  * agents preload it and which other CLIs can see it. Skills agents wrote
  * carry the word Learned and their session (skills/Learned.tsx).
  */
+import { Group, NumberSetting } from '@/features/settings/parts';
 import { useMemo, useState } from 'react';
 import { Link, useLocation, useSearch } from 'wouter';
 import type { InventoryItemDto, LearnedSkillDto } from '@conclave/core/client';
@@ -142,6 +143,12 @@ export function SkillsTab() {
             {needle ? `No skill matches "${q.trim()}".` : filter === 'learned' ? 'No learned skills yet. Agents write one after a long task or a tricky fix.' : 'No skills from this source.'}
           </p>
         )}
+      </div>
+      {/* agents.skillTokens (core engine.ts): the skill list in each system prompt */}
+      <div className="mt-10">
+        <Group title="Skill list in each prompt">
+          <NumberSetting path="agents.skillTokens" label="Room for the skill list" unit="tokens" help="Skills past this are left out of the list, the least used first. The model still loads any skill by name." zero="leaves the list out" />
+        </Group>
       </div>
       <SkillSheet
         g={current}

@@ -79,8 +79,8 @@ describe('Security start mode', () => {
   });
 
   test('Settings > Security is under Advanced and found by its words', () => {
-    const sections = [{ id: 'usage', label: 'Limit fallback', desc: '' }, { id: 'security', label: 'Security', desc: 'Roles' }, { id: 'defaults', label: 'Defaults', desc: '' }];
-    expect(groupSections(sections).find((x) => x.label === 'Advanced')?.items.map((s) => s.id)).toEqual(['usage', 'security']);
+    const sections = [{ id: 'limit-fallback', label: 'Limit fallback', desc: '' }, { id: 'security', label: 'Security', desc: 'Roles' }, { id: 'defaults', label: 'Defaults', desc: '' }];
+    expect(groupSections(sections).find((x) => x.label === 'Advanced')?.items.map((s) => s.id)).toEqual(['limit-fallback', 'security']);
     expect(searchSections(sections, 'hunter').map((s) => s.id)).toEqual(['security']);
   });
 });

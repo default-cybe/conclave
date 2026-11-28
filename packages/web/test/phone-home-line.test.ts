@@ -16,14 +16,14 @@ describe('phone Home line', () => {
 
   test('else the next event, else the learnings, quiet; else nothing', () => {
     expect(homeLine({ waiting: 0, proposals: 0, next: 'Now: standup', learnings: 3 })).toEqual({ text: 'Now: standup', href: '/today', warn: false });
-    expect(homeLine({ waiting: 0, proposals: 0, learnings: 3 })).toEqual({ text: '3 learnings wait for review in Reflect', href: '/settings/reflect', warn: false });
+    expect(homeLine({ waiting: 0, proposals: 0, learnings: 3 })).toEqual({ text: '3 learnings wait for review in Reflect', href: '/reflect', warn: false });
     expect(homeLine({ waiting: 0, proposals: 0, learnings: 0 })).toBeUndefined();
   });
 
   test('what setup left for later comes last, quiet, to Settings, About', () => {
     expect(homeLine({ waiting: 0, proposals: 0, learnings: 0, later: 3 })).toEqual({ text: '3 things to set up later', href: '/settings/about#setup-later', warn: false });
     expect(homeLine({ waiting: 0, proposals: 0, learnings: 0, later: 1 })?.text).toBe('1 thing to set up later');
-    expect(homeLine({ waiting: 0, proposals: 0, learnings: 2, later: 3 })?.href).toBe('/settings/reflect');
+    expect(homeLine({ waiting: 0, proposals: 0, learnings: 2, later: 3 })?.href).toBe('/reflect');
     expect(homeLine({ waiting: 0, proposals: 0, learnings: 0, later: 0 })).toBeUndefined();
   });
 });

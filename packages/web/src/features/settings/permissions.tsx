@@ -197,6 +197,19 @@ export function PermissionsSection() {
             <Segmented label="Default permission mode" value={mode} onChange={(m) => void save({ permissions: { mode: m } })} options={MODES.map((m) => ({ value: m.value, label: m.label }))} />
           )}
         </SettingRow>
+        {/* permissions.onFileConflict (core alerts/service.ts): Notifications only mutes the alert, this changes what the write does */}
+        <SettingRow label="A file another chat just edited" help="When a chat writes a file another live chat wrote in the last 10 minutes. Warn: the write goes ahead and the Inbox shows both chats. Ask: that write waits for you.">
+          <Segmented
+            label="A file another chat just edited"
+            size={mobile ? 'touch' : 'sm'}
+            value={(p as { onFileConflict?: 'warn' | 'ask' }).onFileConflict ?? 'warn'}
+            onChange={(v) => void save({ permissions: { onFileConflict: v } })}
+            options={[
+              { value: 'warn', label: 'Warn' },
+              { value: 'ask', label: 'Ask' },
+            ]}
+          />
+        </SettingRow>
       </Group>
 
       <Group title="Rules" count={rules.length} help={

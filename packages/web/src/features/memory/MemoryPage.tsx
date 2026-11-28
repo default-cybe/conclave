@@ -3,7 +3,8 @@
  * all memory, MemoryMap.tsx), Connections (other
  * memory stores), Import and export (a link to Settings, Import & export,
  * where it moved), and Share (Conclave memory for Claude Code, Codex, OpenCode and
- * Gemini CLI over MCP). /memory/connections#share lands on Share.
+ * Gemini CLI over MCP), and Settings (how sessions use memory: the switches
+ * that were in Settings, Defaults). /memory/connections#share lands on Share.
  */
 import { useEffect, useState } from 'react';
 import { Link, useLocation, useParams } from 'wouter';
@@ -20,8 +21,11 @@ import { ShareTab } from './Share';
 import { MemoryMapTab } from './MemoryMap';
 import { useConnectionList } from './store';
 import { storeWords } from './words';
+import { MemorySettings } from '@/features/settings/defaults';
+import { MemberMemorySettings } from '@/features/settings/member-defaults';
+import { useIsOwner } from '@/lib/people';
 
-type TabId = 'notes' | 'map' | 'connections' | 'import' | 'share';
+type TabId = 'notes' | 'map' | 'connections' | 'import' | 'share' | 'settings';
 
 const TABS: Array<{ id: TabId; label: string; href: string }> = [
   { id: 'notes', label: 'Notes', href: '/memory' },
@@ -29,6 +33,7 @@ const TABS: Array<{ id: TabId; label: string; href: string }> = [
   { id: 'connections', label: 'Connections', href: '/memory/connections' },
   { id: 'import', label: 'Import and export', href: '/memory/import' },
   { id: 'share', label: 'Share', href: '/memory/share' },
+  { id: 'settings', label: 'Settings', href: '/memory/settings' },
 ];
 
 const WEEK = 7 * 86_400_000;
@@ -42,6 +47,7 @@ export default function MemoryPage() {
   const conns = useConnectionList();
   const [adding, setAdding] = useState<MemoryKind | null>(null);
   const [addConn, setAddConn] = useState(false);
+  const owner = useIsOwner();
   const current: TabId = (TABS.find((t) => t.id === tab)?.id ?? 'notes') as TabId;
 
   // old links point at /memory/connections#share
@@ -97,6 +103,8 @@ export default function MemoryPage() {
         </p>
       )}
       {current === 'share' && <ShareTab />}
+      {/* the owner's switches are the hub's config; a member's are their own (PATCH /api/me) */}
+      {current === 'settings' && <div className="max-w-[760px]">{owner ? <MemorySettings /> : <MemberMemorySettings />}</div>}
     </Page>
   );
 }

@@ -82,11 +82,18 @@ const SETTINGS_SECTIONS: Array<[string, string, string]> = [
   ['remote', 'Remote access', 'phone away from home anywhere tunnel cloudflare tailscale address url network wifi'],
   ['friends', 'Friends', 'friend invite link qr code safety code verify notes other hubs people share'],
   ['about', 'About', 'version hub client connection'],
-  ['workflows', 'Workflows and subagents', 'subagents agents parallel concurrency limit per provider workflow max queue hub at once'],
+  ['workflows', 'Workflows and subagents', 'subagents agents parallel concurrency limit per provider workflow max queue hub at once ultra steps upload'],
+  ['modes', 'Modes', 'modes security canvas meetings turn on hide show'],
+  ['accounts', 'Plan order and limits', 'accounts plan order priority limits reset budget try now prefix window'],
+  ['secrets', 'Secrets', 'secret token api key mcp env header password value'],
+  ['refusal', 'Refusal fallback', 'refuse refused declined safety fallback next model'],
+  ['limit-fallback', 'Limit fallback', 'usage limit quota fallback chain next model'],
+  ['security', 'Security roles', 'roles routing sec hunter validator refuter reporter recon exploit hunt lane'],
+  ['logs', 'Logs', 'logs debug download errors report a problem bug retention'],
 ];
 
 /** The settings a member has (docs/design/ACCOUNTS.md 10); the rest are the hub owner's. */
-const MEMBER_SETTINGS = new Set(['account', 'providers', 'notifications', 'assistant', 'appearance', 'audit', 'about']);
+const MEMBER_SETTINGS = new Set(['account', 'providers', 'notifications', 'assistant', 'appearance', 'audit', 'about', 'modes', 'accounts', 'secrets', 'refusal', 'limit-fallback']);
 
 const ORDER: Group[] = ['Recent', 'Actions', 'Chats', 'Sessions', 'Pages', 'Agents', 'Models', 'Memory', 'Messages', 'Style', 'Run routine', 'Run workflow'];
 
@@ -264,6 +271,12 @@ function Palette() {
     action('split', 'Sessions side by side', go('/sessions/split'));
     // Today has no G key: an Assistant row now, so Search reaches it from every mode
     action('today', 'Open Today, the day plan', go('/today'));
+    action('reflect', 'Open Reflect, your report and nightly learnings', go('/reflect'));
+    if (owner) {
+      action('shares', 'Open Shares', go('/shares'));
+      action('projects', 'Open Shared projects', go('/projects'));
+      action('logs', 'Report a problem: download the hub logs', go('/settings/logs'));
+    }
     action('shortcuts', 'Keyboard shortcuts', () => openShortcuts(), <Kbd>?</Kbd>);
     // extensions
     if (owner) {

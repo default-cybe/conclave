@@ -343,7 +343,7 @@ function UsageAside({ all, mem, store }: { all: MemoryEntry[]; mem: { autoInject
   const extract = mem.autoExtract !== false;
   return (
     <div className="space-y-7">
-      <Aside title="How sessions use it" action={{ label: 'Change', href: '/settings/defaults#memory' }}>
+      <Aside title="How sessions use it" action={{ label: 'Change', href: '/memory/settings' }}>
         <KV k="Profile">Every session</KV>
         <KV k="Other notes">{inject ? `Up to ${mem.injectLimit ?? 6} per turn, when relevant` : 'Only when a session searches'}</KV>
         <KV k="Learning">{extract ? 'Saves what it learns after a session' : 'Off'}</KV>

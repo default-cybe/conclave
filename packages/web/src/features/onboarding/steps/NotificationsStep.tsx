@@ -88,7 +88,7 @@ export function NotificationsStep() {
         <SectionHeading>Notify me about</SectionHeading>
         <div className="grid gap-x-8 gap-y-1 pt-3 md:grid-cols-2">
           {NOTIFY_EVENTS.map((e) => (
-            <Checkbox key={e.key} checked={on[e.key]} onChange={(v) => void save({ notifications: { on: { [e.key]: v } } })} label={e.label} description={e.help} className="py-1.5" />
+            <Checkbox key={e.key} checked={on[e.key]} onChange={(v) => void save({ notifications: { on: { [e.key]: v } } })} label={e.label} description={e.help.replace('{minutes}', '5 minutes')} className="py-1.5" />
           ))}
         </div>
         <p className="m-0 mt-4 text-[12px] text-fg-3 phone:text-[13px]">

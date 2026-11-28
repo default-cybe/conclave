@@ -61,9 +61,13 @@ export const sidePages = (mode: SideMode, meetings: boolean): string[] => ['/app
 export const MORE_PAGES: Array<{ to: string; label: string; key?: string }> = [
   { to: '/workflows', label: 'Workflows', key: 'w' },
   { to: '/memory', label: 'Memory', key: 'm' },
+  { to: '/reflect', label: 'Reflect' },
   { to: '/extensions', label: 'Extensions', key: 'e' },
   { to: '/usage', label: 'Usage', key: 'u' },
   { to: '/devices', label: 'Devices', key: 'd' },
+  // the owner's (OWNER_PAGES): a member's More leaves them out
+  { to: '/shares', label: 'Shares' },
+  { to: '/projects', label: 'Shared projects' },
 ];
 
 /** The More menu's Advanced fold: expert pages, shut until opened (or while one of them is open). */
@@ -87,6 +91,7 @@ export const PHONE_PAGES: Array<{ to: string; label: string }> = [
   { to: '/sessions', label: 'All conversations' },
   { to: '/workflows', label: 'Workflows' },
   { to: '/memory', label: 'Memory' },
+  { to: '/reflect', label: 'Reflect' },
   { to: '/extensions', label: 'Extensions' },
   { to: '/usage', label: 'Usage' },
   { to: '/devices', label: 'Devices' },

@@ -22,7 +22,7 @@ import type { AgentDef } from '@conclave/core/extensions/types.ts';
 import { builtinCommands } from '@conclave/core/extensions/builtin-commands.ts';
 import { rolesProblem } from '@conclave/core/security/roles.ts';
 import type { MemoryInput } from '@conclave/core/memory/types.ts';
-import { deepMerge, SECRET_NAME, workflowsProblem } from '@conclave/core/config/index.ts';
+import { deepMerge, SECRET_NAME, workflowsProblem, configPatchProblem } from '@conclave/core/config/index.ts';
 import { browserConfigProblems } from '@conclave/core/browser/engine.ts';
 import { buildBundle } from '@conclave/core/session/share.ts';
 import { trimMessage } from '@conclave/core/session/trim.ts';
@@ -1267,6 +1267,9 @@ export function registerRoutes(app: Hono<HonoEnv>, ctx: ServerContext): void {
     // Settings > Advanced > Workflows and subagents, and `conclave config set workflows.*`
     const badWorkflows = workflowsProblem(patch.workflows);
     if (badWorkflows) throw badRequest(badWorkflows);
+    // every number, choice and model ref the apps' Settings write (core config/schema.ts CONFIG_NUMBERS)
+    const badSetting = configPatchProblem(patch);
+    if (badSetting) throw badRequest(badSetting);
     const badProvider = providerPatchProblem(patch.providers, engine.config.get().providers, (s) => engine.config.expand(s));
     if (badProvider) throw badRequest(badProvider);
     const removed = removedProviders(patch.providers);

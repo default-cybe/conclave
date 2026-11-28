@@ -622,7 +622,9 @@ export class Engine implements EngineApi {
     // incognito (session/incognito.ts): asked for, or under an incognito parent; a meeting never is
     const incognito = input.kind !== 'meeting' && (input.incognito === true || (!!input.parentId && !!this.repos.sessions.get(input.parentId)?.incognito));
     // an incognito session reads memory and saves nothing unless the request says otherwise ("Use only")
-    const chatInput = incognito && (input.chat as Record<string, unknown> | undefined)?.memorySave === undefined ? { ...(input.chat ?? {}), memorySave: false } : input.chat;
+    let chatInput = incognito && (input.chat as Record<string, unknown> | undefined)?.memorySave === undefined ? { ...(input.chat ?? {}), memorySave: false } : input.chat;
+    // Settings > Defaults, Same model for all work: the owner's new top-level chats and sessions start pinned unless the start says otherwise
+    if (opts.byPerson && !isMember(acct) && !input.parentId && cfg.models?.sameModel === true && (chatInput as Record<string, unknown> | undefined)?.sameModel === undefined) chatInput = { ...(chatInput ?? {}), sameModel: true };
     let chat;
     try {
       // an agent session may carry chat.thinking (its effort switch) and chat.memory (off leaves no trace); web search is a chat switch

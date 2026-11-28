@@ -676,6 +676,12 @@ export interface ConclaveConfig {
      * smallModel and defaultModel. A member's sessions use only models the member may use.
      */
     vision?: string;
+    /**
+     * Same model for all work, as the default for chats and sessions the owner
+     * starts from an app (Settings > Defaults): each new one starts with
+     * chat.sameModel on unless its start says otherwise. Off unless set.
+     */
+    sameModel?: boolean;
     /** Models hidden hub-wide (config/hidden.ts): refs or globs with `*` ("cliproxy/glm-*"). Pickers leave them out and nothing runs on them. Empty unless set. */
     hidden?: string[];
     /** Sign in to Claude, ChatGPT, Google and other subscriptions through CLIProxyAPI. Off unless set. */
@@ -959,7 +965,99 @@ export const WORKFLOW_LIMITS = {
   perProvider: { default: WF.perProvider, max: 32 },
   hubMax: { default: WF.hubMax, max: 64 },
   maxAgents: { default: WF.maxAgents, max: 10_000 },
+  autoApproveTokens: { default: WF.autoApproveTokens, max: 100_000_000 },
 } as const;
+
+/**
+ * Number settings the apps edit (Settings > Defaults, Notifications, GitHub,
+ * Logs, Workflows and subagents, Extensions), by config path, with their
+ * defaults and ranges. PATCH /api/config refuses a value outside its range.
+ * `fraction`: not only whole numbers (dollars).
+ */
+export const CONFIG_NUMBERS: Record<string, { default: number; min: number; max: number; fraction?: boolean }> = {
+  'limits.maxSteps': { default: 250, min: 1, max: 2000 },
+  'limits.subagentMaxSteps': { default: 100, min: 1, max: 2000 },
+  'limits.stuck.minutes': { default: 5, min: 0, max: 1440 },
+  'context.switchBriefAt': { default: 50_000, min: 0, max: 2_000_000 },
+  'agents.skillTokens': { default: 6000, min: 0, max: 200_000 },
+  'mcp.deferAbove': { default: 30, min: 0, max: 10_000 },
+  'github.pollSeconds': { default: 120, min: 0, max: 86_400 },
+  'logs.keepDays': { default: 28, min: 1, max: 3650 },
+  'logs.maxMB': { default: 500, min: 10, max: 100_000 },
+  'server.heavyCommands': { default: 1, min: 0, max: 32 },
+  'server.uploadMaxMb': { default: 500, min: 1, max: 20_480 },
+  ...Object.fromEntries(
+    (['session', 'routine', 'subagent'] as const).flatMap((k) => [
+      [`limits.${k}.tokens`, { default: k === 'routine' ? 1_000_000 : 0, min: 0, max: 10_000_000_000 }],
+      [`limits.${k}.costUsd`, { default: 0, min: 0, max: 100_000, fraction: true }],
+      [`limits.${k}.turns`, { default: 0, min: 0, max: 1_000_000 }],
+      [`limits.${k}.minutes`, { default: k === 'routine' ? 120 : 0, min: 0, max: 100_000 }],
+    ]),
+  ),
+};
+
+/** Choice settings the apps edit, by config path. */
+const CONFIG_CHOICES: Record<string, readonly unknown[]> = {
+  'cache.ttl': ['auto', '5m', '1h'],
+  'permissions.onFileConflict': ['warn', 'ask'],
+  'limits.waitShortResets': [true, false],
+  'models.sameModel': [true, false],
+};
+
+/** Model refs the apps edit: "provider/model", or null to unset. */
+const CONFIG_MODELS = ['models.tiers.fast', 'models.tiers.smart', 'models.tiers.deep', 'models.vision'];
+
+function atPath(o: unknown, path: string): unknown {
+  let v = o;
+  for (const k of path.split('.')) {
+    if (v === null || typeof v !== 'object' || Array.isArray(v)) return undefined;
+    v = (v as Record<string, unknown>)[k];
+  }
+  return v;
+}
+
+/**
+ * What is wrong with a config patch's app-edited settings (CONFIG_NUMBERS,
+ * the choices, model refs, the clone folder and the document reader URL), or
+ * undefined. null always passes: it unsets the value. PATCH /api/config
+ * refuses a patch with one, so `conclave config set` is checked too.
+ */
+export function configPatchProblem(patch: unknown): string | undefined {
+  if (patch === null || typeof patch !== 'object') return undefined;
+  for (const [path, r] of Object.entries(CONFIG_NUMBERS)) {
+    const v = atPath(patch, path);
+    if (v === undefined || v === null) continue;
+    const ok = typeof v === 'number' && Number.isFinite(v) && (r.fraction || Number.isInteger(v)) && v >= r.min && v <= r.max;
+    if (!ok) return `${path} must be a ${r.fraction ? 'number' : 'whole number'} from ${r.min} to ${r.max}.`;
+  }
+  for (const [path, allowed] of Object.entries(CONFIG_CHOICES)) {
+    const v = atPath(patch, path);
+    if (v === undefined || v === null) continue;
+    if (!allowed.includes(v)) return `${path} must be one of ${allowed.map(String).join(', ')}.`;
+  }
+  for (const path of CONFIG_MODELS) {
+    const v = atPath(patch, path);
+    if (v === undefined || v === null) continue;
+    if (typeof v !== 'string' || !/^[^/\s]+\/\S+$/.test(v) || v.length > 200) return `${path} must be a model as provider/model.`;
+  }
+  const root = atPath(patch, 'github.reposRoot');
+  if (root !== undefined && root !== null && (typeof root !== 'string' || !root.trim() || root.length > 1024 || root.includes('\0'))) return 'github.reposRoot must be a folder path.';
+  const url = atPath(patch, 'documents.docling.url');
+  if (url !== undefined && url !== null && url !== '') {
+    let parsed: URL | undefined;
+    try {
+      parsed = typeof url === 'string' ? new URL(url) : undefined;
+    } catch {
+      parsed = undefined;
+    }
+    if (!parsed || !['http:', 'https:'].includes(parsed.protocol)) return 'documents.docling.url must be an http or https address.';
+  }
+  for (const key of ['executablePath', 'profileDir']) {
+    const v = atPath(patch, `browser.${key}`);
+    if (v !== undefined && v !== null && (typeof v !== 'string' || v.length > 1024 || v.includes('\0'))) return `browser.${key} must be a path.`;
+  }
+  return undefined;
+}
 
 /**
  * What is wrong with a config patch's `workflows` part, or undefined. Each
