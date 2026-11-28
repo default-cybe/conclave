@@ -161,12 +161,17 @@ try {
     }
     Save-Shot $h "home-$theme.png"
 
-    # Sessions in the top bar, then "Fix login redirect" in the list (places that fit the web app at 1180 wide)
+    # "Fix login redirect" through Search (Ctrl K): the title, then Enter opens the best match. The web app's
+    # layout moves between releases, so no fixed click spots (a click in the page first gives it the keys)
     try {
-      Click $h 305 24
-      Start-Sleep -Seconds 3
-      Click $h 134 360
-      Start-Sleep -Seconds 3
+      Click $h 720 120
+      Start-Sleep -Seconds 1
+      [System.Windows.Forms.SendKeys]::SendWait('^k')
+      Start-Sleep -Seconds 2
+      [System.Windows.Forms.SendKeys]::SendWait('Fix login redirect')
+      Start-Sleep -Seconds 2
+      [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
+      Start-Sleep -Seconds 4
       Save-Shot $h "session-$theme.png"
     } catch {
       Write-Host "no session shot: $($_.Exception.Message)"

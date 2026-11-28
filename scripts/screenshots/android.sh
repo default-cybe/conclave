@@ -270,8 +270,11 @@ for t in light dark; do
   shot "home-$t.png"
   await_text Menu 15 tap && sleep 2 && await_text "Group by" 10 && shot "panel-$t.png"
   await_text Chats 10 tap && sleep 3 && shot "chats-$t.png"
+  # a mode tap keeps the panel open over the top bar and its Menu button
+  close_panel
   panel Code && sleep 3 && shot "code-$t.png"
-  panel Inbox && sleep 3 && shot "inbox-$t.png"
+  # the Inbox is the top bar's button ("Inbox, 8 waiting"), not a panel row
+  await_text "Inbox, *" 15 tap && sleep 3 && shot "inbox-$t.png"
   # Settings opens from the account row at the panel's foot (the demo owner is Sam), not from a panel row
   panel Sam && sleep 3 && shot "settings-$t.png"
   # Settings' AI connections and Defaults, below the Hub rows; each page, then Back to Settings
@@ -281,7 +284,8 @@ for t in light dark; do
   done
   # the finished session: its tool calls as one line, then the line open
   open_link "conclave://session/$fix" && shot "session-$t.png"
-  await_text "Read redirect.ts*" 15 tap && sleep 2 && shot "session-open-$t.png"
+  # the line's verb and file are two texts in the UI dump
+  await_text redirect.ts 15 tap && sleep 2 && shot "session-open-$t.png"
   open_link "conclave://session/$push" && await_text "Allow once" 20 && shot "approval-$t.png"
   open_link "conclave://session/$routes" && await_text "Keep the old API route?" 20 && shot "question-$t.png"
   open_link "conclave://chat/$chat" && shot "chat-$t.png"

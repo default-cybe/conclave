@@ -160,6 +160,12 @@ jobs:
         shell: bash
         run: bun scripts/build-sidecar.ts --target x86_64-pc-windows-msvc --impl rust
 
+      # ort-sys copy-dylibs panics (os error 3) on a clean target without these folders, as in ci.yml and release.yml
+      - name: Target folders for ort-sys
+        shell: bash
+        working-directory: packages/desktop/src-tauri
+        run: mkdir -p target/debug/examples target/debug/deps target/debug/build/examples target/debug/build/deps
+
       - name: Build the desktop app (debug)
         working-directory: packages/desktop
         run: bun run tauri build --debug --no-bundle

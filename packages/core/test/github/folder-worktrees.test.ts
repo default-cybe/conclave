@@ -8,11 +8,10 @@ import { afterEach, describe, expect, test } from 'bun:test';
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join, win32 } from 'node:path';
 import { startTestEngine, type Step, type TestEngine } from '../engine/harness';
-import { attach, HomeMachine, sh, twoDevices, type TwoDevices } from '../projects/machines';
+import { sh, twoDevices, winDevice, type TwoDevices } from '../projects/machines';
 import { githubOf } from '../../src/github';
 import { githubName, isAbsoluteFolder, type GithubService } from '../../src/github/service';
-import type { ExecOptions, ExecResult, SpawnOptions } from '../../src/machine/types';
-import type { MachineInfo } from '../../src/types';
+import type { ExecOptions } from '../../src/machine/types';
 import { projectsOf } from '../../src/projects/registry';
 import { FakeGithub } from './fake-github';
 
@@ -53,41 +52,6 @@ async function setup() {
   writeFileSync(join(repo, 'README.md'), 'hello\n');
   sh(`git init -q -b main && ${GIT} add -A && ${GIT} commit -qm first`, repo);
   return { t, d, fake, svc, repo };
-}
-
-/**
- * A win32 device (BINARY-101, home C:\Users\nihir) over the local disk: each
- * Windows prefix maps to a real folder, in paths, cwds and command text, and
- * real folders come back in output as git for Windows prints them (C:/x).
- */
-function winDevice(t: TestEngine, base: string, map: Array<[win: string, real: string]>) {
-  // each part escaped for a RegExp, either separator between them
-  const esc = (s: string) => s.split(/[\\/]/).map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('[\\\\/]');
-  const toReal = (text: string) => map.reduce((s, [w, r]) => s.replace(new RegExp(`${esc(w)}((?:[\\\\/][^'"\\s]*)?)`, 'gi'), (_m, rest: string) => r + rest.replace(/\\/g, '/')), text);
-  const toWin = (text: string) => map.reduce((s, [w, r]) => s.split(r).join(w.replace(/\\/g, '/')), text);
-  class WinMachine extends HomeMachine {
-    override infoNow(): MachineInfo {
-      return { ...super.infoNow(), platform: 'win32', home: 'C:\\Users\\nihir' };
-    }
-    override async stat(path: string) {
-      return super.stat(toReal(path));
-    }
-    override async mkdir(path: string) {
-      return super.mkdir(toReal(path));
-    }
-    override async exec(command: string, opts: ExecOptions): Promise<ExecResult> {
-      this.execs.push(command);
-      const r = await super.exec(toReal(command), { ...opts, cwd: toReal(opts.cwd) });
-      return { ...r, stdout: toWin(r.stdout) };
-    }
-    override spawn(command: string, args: string[], opts: SpawnOptions) {
-      return super.spawn(command, args.map(toReal), { ...opts, cwd: toReal(opts.cwd) });
-    }
-  }
-  const win = new WinMachine('win', 'BINARY-101', base);
-  t.engine.repos.devices.insert({ id: win.id, name: win.name, tokenHash: 'test', roots: [] });
-  attach(t.engine, win);
-  return { win, toReal };
 }
 
 /** The scripted model writes a file in its worktree and commits it. */

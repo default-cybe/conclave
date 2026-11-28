@@ -148,14 +148,17 @@ fun TopBar(
         val loose = constraints.copy(minWidth = 0, minHeight = 0)
         val start = measurables[0].measure(loose)
         val end = measurables[2].measure(loose)
-        // the title gets the middle, as wide as the wider side allows on both
+        // the title gets the middle, centred on the bar as wide as the wider side allows on both; title content
+        // that does not fit there (Home's mode switch beside Incognito and the Inbox) gets all the room between the sides
         val side = maxOf(start.width, end.width)
-        val titleWidth = (constraints.maxWidth - 2 * side).coerceAtLeast(0)
-        val middle = measurables[1].measure(loose.copy(maxWidth = titleWidth))
+        val between = (constraints.maxWidth - start.width - end.width).coerceAtLeast(0)
+        val middle = measurables[1].measure(loose.copy(maxWidth = if (titleContent != null) between else (constraints.maxWidth - 2 * side).coerceAtLeast(0)))
+        val centred = middle.width <= constraints.maxWidth - 2 * side
+        val x = if (centred) (constraints.maxWidth - middle.width) / 2 else start.width + (between - middle.width) / 2
         val height = constraints.maxHeight
         layout(constraints.maxWidth, height) {
             start.placeRelative(0, (height - start.height) / 2)
-            middle.placeRelative((constraints.maxWidth - middle.width) / 2, (height - middle.height) / 2)
+            middle.placeRelative(x, (height - middle.height) / 2)
             end.placeRelative(constraints.maxWidth - end.width, (height - end.height) / 2)
         }
     }

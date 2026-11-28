@@ -12,7 +12,8 @@
  * worktree call runs live, later ones run live too, and a kept branch is
  * checked before its answer is replayed.
  */
-import { posix } from 'node:path';
+import { win32 } from 'node:path';
+import { pathFor } from '../github/git';
 import type { Engine } from '../engine/engine';
 import type { Session } from '../types';
 import type { Tool } from '../tools/types';
@@ -43,6 +44,19 @@ import { outputsDir } from '../files/share';
 import { ledgerFence, ledgerId, mergeLedger } from './ledger';
 
 const log = logger('workflow-run');
+
+/** path is root or under it, in the device's path module; git for Windows prints C:/x for C:\x, and another drive is never under root. */
+function within(root: string, path: string): boolean {
+  const P = pathFor(root);
+  const rel = P.relative(root, path);
+  return !rel.startsWith('..') && !P.isAbsolute(rel);
+}
+
+/** cwd's place in a checkout at path of the repository at root; the checkout itself when cwd is outside root. */
+function inCheckout(root: string, cwd: string, path: string): string {
+  const rel = pathFor(root).relative(root, cwd);
+  return rel && within(root, cwd) ? pathFor(path).join(path, rel) : path;
+}
 
 export interface RunStartOptions {
   /** Answers from an earlier attempt, by key#occurrence. */
@@ -418,7 +432,10 @@ export class LiveRun {
     const spec = readAgentSpec(prompt, rawOpts);
     if (this.agentCount >= this.maxAgents) throw new Error(`Workflow agent() call cap reached (${this.maxAgents} agents in this run)`);
     // a relative or ~ folder is the run's, on its device
-    if (spec.conclave?.cwd) spec.conclave.cwd = posix.normalize(this.machineFor(spec).resolve(spec.conclave.cwd, this.row.cwd));
+    if (spec.conclave?.cwd) {
+      const abs = this.machineFor(spec).resolve(spec.conclave.cwd, this.row.cwd);
+      spec.conclave.cwd = pathFor(abs).normalize(abs);
+    }
     if (this.row.scoped && spec.conclave) await this.scopeOf(spec.conclave);
     if (this.overBudget()) {
       this.budgetHit = true;
@@ -526,13 +543,13 @@ export class LiveRun {
     const repo = await repoInfo(machine, this.row.cwd);
     if (!repo) throw new Error(`${this.row.cwd} is not a git repository`);
     const home = (await this.engine.machineHome(machine)) ?? '/tmp';
-    const path = posix.join(posix.dirname(worktreePath(home, repo.root, this.id, seq)), `${this.id}-view-${seq}`);
-    if (await syncthingMarkerAbove(machine, posix.dirname(path))) throw new Error('refusing to check out under a Syncthing folder');
+    const P = pathFor(home);
+    const path = P.join(P.dirname(worktreePath(home, repo.root, this.id, seq)), `${this.id}-view-${seq}`);
+    if (await syncthingMarkerAbove(machine, P.dirname(path))) throw new Error('refusing to check out under a Syncthing folder');
     await machine.exec(`git worktree remove --force ${shq(path)} 2>/dev/null; git worktree add --detach ${shq(path)} ${shq(call.worktreeCommit)}`, { cwd: repo.root, timeoutMs: 120_000 });
     if (!(await machine.stat(path))) throw new Error(`could not check out ${call.worktreeCommit}`);
     this.views.set(seq, path);
-    const rel = posix.relative(repo.root, this.row.cwd);
-    return rel && !rel.startsWith('..') ? posix.join(path, rel) : path;
+    return inCheckout(repo.root, this.row.cwd, path);
   }
 
   private async diffOf(seq: number): Promise<string> {
@@ -616,8 +633,7 @@ export class LiveRun {
           else this.log(`worktreeFrom ${from}: that call kept no commit; starting from HEAD`);
         }
         worktree = await createWorktree(machine, { home, root: repo.root, base, runId: this.id, seq: c.seq });
-        const rel = posix.relative(repo.root, cwd);
-        cwd = rel && !rel.startsWith('..') ? posix.join(worktree.path, rel) : worktree.path;
+        cwd = inCheckout(repo.root, cwd, worktree.path);
         this.saveCall({ ...this.calls.get(c.seq)!, worktreePath: worktree.path, worktreeBranch: worktree.branch, worktreeBase: base, worktreeState: 'live' });
         const fromScript = spec.conclave?.worktreeSetup;
         const setup = fromScript ?? (await this.svc.worktreeSetup(machine, repo.root));
@@ -802,8 +818,9 @@ export class LiveRun {
       } else {
         // a finding cites a file of the project: inside the repository (or the run folder outside git), at most 5 MB
         const root = repo?.root ?? this.row.cwd;
-        const candidates = file.startsWith('/') ? [posix.normalize(file)] : [...new Set([posix.join(this.row.cwd, file), posix.join(root, file)])];
-        const inside = candidates.filter((c) => c === root || c.startsWith(root.endsWith('/') ? root : `${root}/`));
+        const P = pathFor(root);
+        const candidates = P.isAbsolute(file) ? [P.normalize(file)] : [...new Set([P.join(this.row.cwd, file), P.join(root, file)])];
+        const inside = candidates.filter((c) => within(root, c));
         if (!inside.length) return { ok: false, reason: `the file is outside ${root}` };
         let found: string | undefined;
         for (const c of inside) {
@@ -897,13 +914,11 @@ export class LiveRun {
       const repo = await repoInfo(machine, this.row.cwd);
       if (!repo) throw new Error('not a git repository');
       const home = (await this.engine.machineHome(machine)) ?? '/tmp';
-      return withDetached(machine, { home, root: repo.root, commit: call.worktreeCommit, tag: `${this.id}-${opts.worktree}-${sha256(command).slice(0, 8)}` }, (path) => {
-        const rel = posix.relative(repo.root, this.row.cwd);
-        return run(rel && !rel.startsWith('..') ? posix.join(path, rel) : path);
-      });
+      return withDetached(machine, { home, root: repo.root, commit: call.worktreeCommit, tag: `${this.id}-${opts.worktree}-${sha256(command).slice(0, 8)}` }, (path) => run(inCheckout(repo.root, this.row.cwd, path)));
     }
     // through machine.resolve, as agent cwds are: ~ expands, relative paths join the run's folder
-    const cwd = opts.cwd ? posix.normalize(machine.resolve(opts.cwd, this.row.cwd)) : this.row.cwd;
+    const abs = opts.cwd ? machine.resolve(opts.cwd, this.row.cwd) : undefined;
+    const cwd = abs ? pathFor(abs).normalize(abs) : this.row.cwd;
     return run(cwd);
   }
 
@@ -987,11 +1002,13 @@ export class LiveRun {
   /** lib.ledger's folder: absolute on the run's device, the run folder by default; a scoped run stays in its repository. */
   private async ledgerFolder(project: unknown): Promise<string> {
     const machine = this.machineFor();
-    const resolved = posix.normalize(machine.resolve(typeof project === 'string' && project.trim() ? project : '.', this.row.cwd));
-    const folder = resolved.length > 1 ? resolved.replace(/\/+$/, '') : resolved;
+    const abs = machine.resolve(typeof project === 'string' && project.trim() ? project : '.', this.row.cwd);
+    const P = pathFor(abs);
+    const resolved = P.normalize(abs);
+    const folder = resolved.length > P.parse(resolved).root.length ? resolved.replace(P === win32 ? /[\\/]+$/ : /\/+$/, '') : resolved;
     if (this.row.scoped) {
       const root = (await repoInfo(machine, this.row.cwd).catch(() => undefined))?.root ?? this.row.cwd;
-      if (folder !== root && !folder.startsWith(root.endsWith('/') ? root : `${root}/`)) throw new Error(`this workflow came from an agent or a repository, so its ledger stays in ${root}; ${folder} is outside it`);
+      if (!within(root, folder)) throw new Error(`this workflow came from an agent or a repository, so its ledger stays in ${root}; ${folder} is outside it`);
     }
     return folder;
   }
@@ -1039,7 +1056,8 @@ export class LiveRun {
    */
   private async readScope(file: string, hosts: string[]): Promise<{ ok: true; file: string; scope: ReturnType<typeof parseScope>; expired: boolean; hosts: Record<string, string> } | { ok: false; file: string; error: string }> {
     const machine = this.machineFor();
-    const path = posix.normalize(machine.resolve(file, this.row.cwd));
+    const abs = machine.resolve(file, this.row.cwd);
+    const path = pathFor(abs).normalize(abs);
     let text: string;
     try {
       if (!(await machine.stat(path))) return { ok: false, file: path, error: `${path} does not exist` };

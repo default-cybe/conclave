@@ -887,6 +887,10 @@ async function runHub(root: string): Promise<void> {
         models: { tiers: { fast: 'anthropic/claude-haiku-5-5', smart: 'anthropic/claude-sonnet-5-5', deep: 'anthropic/claude-opus-5-5' } },
         permissions: { mode: 'default', allow: ['Bash(bun test:*)', 'Bash(git log:*)', 'Bash(git status:*)', 'Bash(perl -pi:*)', 'Bash(git commit:*)'], deny: [], ask: [], additionalDirectories: [] },
         github: { apiUrl: github.apiUrl, gitUrl: github.httpGitUrl, pollSeconds: 0 },
+        // the workflow run's last agent waits on purpose (a held reply); the stuck watchdog would stop it after 5 minutes
+        limits: { stuck: { minutes: 0 } },
+        // no look at GitHub's newest release: its "is ready" notice would cover the screenshots
+        updates: { auto: false, check: false },
         server: { token, remote: { lan: true } },
         ui: { theme: 'system', onboarded: true, name: 'Sam' },
       },
@@ -931,7 +935,8 @@ async function runHub(root: string): Promise<void> {
   const mac = reg.deviceId;
   await api.setPassword(password);
   // the owner's name on the hub, which the apps show and the login asks for once Riley is added
-  await api.updateMe({ name: 'sam' });
+  // Canvas on: a fresh hub's owner starts with it off (NEW_ACCOUNT_MODES), and the demo shows it
+  await api.updateMe({ name: 'sam', modes: { canvas: true } });
   await waitFor(
     'MacBook to come online',
     async () => (await api.devices()).find((d) => d.id === mac)?.online,
