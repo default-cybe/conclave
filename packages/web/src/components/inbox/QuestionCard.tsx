@@ -17,8 +17,7 @@
 import { useState } from 'react';
 import { ArrowUp } from 'lucide-react';
 import type { QuestionRequest } from '@conclave/core/types';
-import { api } from '@/lib/api';
-import { attempt, removeKey, useHub, useOnPage } from '@/store/store';
+import { answerQuestion, useHub, useOnPage } from '@/store/store';
 import { cn } from '@/lib/text';
 import { relTime } from '@/lib/format';
 import { useIsMobile } from '@/lib/hooks';
@@ -71,9 +70,9 @@ export function QuestionCard({
       return;
     }
     setBusy(true);
-    const ok = await attempt(() => api().answerQuestion(req.id, next));
+    // one the hub no longer holds leaves with a quiet note (answerQuestion)
+    await answerQuestion(req.id, next);
     setBusy(false);
-    if (ok) removeKey('questions', req.id);
   };
 
   if (mobile)

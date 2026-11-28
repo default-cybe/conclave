@@ -7,6 +7,13 @@ from the section of its version (`scripts/releases/notes.ts`); a release
 without one fails. At tag time, rename `[Unreleased]` to the version and date,
 like `## [0.4.16] - 2026-10-24`.
 
+## [Unreleased]
+
+### Fixed
+
+- A question card no longer stays on screen after its turn was stopped or interrupted by a new message: the hub now closes the question for every app, and the web app refetches open questions when a turn ends or after a reconnect. Answering a question the hub no longer holds (after a stop or a restart) removes the card with a quiet "This request expired" in the web app and on Android, instead of the "question is not pending" error.
+- Forget site in a browser profile also clears what a site on its own port stored (such as `localhost:3000`) while a tab on it is open; newer Chrome matches stored data by port.
+
 ## [0.4.108] - 2026-11-27
 
 ### Fixed

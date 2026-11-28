@@ -403,8 +403,9 @@ class ChatThreadViewModel(
     }
 
     fun answer(questionId: String, answers: Map<String, String>) = action {
-        hub.api { it.answerQuestion(questionId, answers) }
+        val taken = hub.answerQuestion(questionId, answers)
         transcript.update { t -> t.copy(questions = t.questions.filterNot { it.id == questionId }) }
+        if (!taken) say(EXPIRED)
     }
 
     private fun knownIds(): Set<String> = transcript.value.messages.map { it.id }.toSet()

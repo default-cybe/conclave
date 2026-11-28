@@ -189,4 +189,26 @@ describe('pause and resume a session', () => {
       await t.close();
     }
   });
+
+  test('stopping a turn while a question waits closes the question with question.answered', async () => {
+    const t = await startTestEngine({ script: [[{ tool: 'AskUserQuestion', input: { questions: [{ question: 'Where should the website be hosted?', header: 'Host', options: [{ label: 'Vercel' }, { label: 'Netlify' }] }] } }], [{ text: 'stopped' }]] });
+    const answered: string[] = [];
+    const off = t.engine.bus.on((e) => {
+      if (e.type === 'question.answered') answered.push(e.id);
+    });
+    try {
+      const s = await t.engine.createSession({ title: 'asks', cwd: t.cwd });
+      await t.engine.send(s.id, { text: 'build a site' });
+      expect(await until(() => t.engine.pendingQuestions().length === 1, 10_000)).toBe(true);
+      const id = t.engine.pendingQuestions()[0].id;
+      t.engine.abort(s.id);
+      // every client drops the card, and answering it later finds nothing
+      expect(await until(() => answered.includes(id), 10_000)).toBe(true);
+      expect(t.engine.pendingQuestions()).toEqual([]);
+      expect(t.engine.answerQuestion(id, { 'Where should the website be hosted?': 'Vercel' })).toBe(false);
+    } finally {
+      off();
+      await t.close();
+    }
+  });
 });

@@ -1072,6 +1072,43 @@ export async function answerApproval(id: string, r: ApprovalResponse): Promise<b
   }
 }
 
+/** Ids answered while a syncQuestions fetch is on its way, one set per fetch. */
+const syncingQuestions = new Set<Set<string>>();
+
+/** Refetch the open questions: the hub's list wins, a card it no longer holds goes. */
+export async function syncQuestions(): Promise<void> {
+  const before = new Set(Object.keys(get().questions));
+  const gone = new Set<string>();
+  syncingQuestions.add(gone);
+  const list = await settle(api().questions(), undefined).finally(() => syncingQuestions.delete(gone));
+  if (!list) return;
+  // one asked while the list was on its way stays, one answered meanwhile stays gone
+  const keep = Object.values(get().questions).filter((q) => !before.has(q.id));
+  set({ questions: byId([...list.filter((q) => !gone.has(q.id)), ...keep], (q) => q.id) });
+}
+
+/**
+ * Answer a question. True when the hub took the answer. One the hub no longer
+ * holds (its turn was stopped or interrupted, or the hub restarted) leaves the
+ * screen with a quiet note, and the open ones are refetched.
+ */
+export async function answerQuestion(id: string, answers: Record<string, string>): Promise<boolean> {
+  try {
+    await api().answerQuestion(id, answers);
+    removeKey('questions', id);
+    return true;
+  } catch (e) {
+    if (e instanceof ApiError && (e.status === 404 || e.status === 409 || /not pending/i.test(e.message))) {
+      removeKey('questions', id);
+      toast({ title: 'This request expired', level: 'info' });
+      void syncQuestions();
+      return false;
+    }
+    toast({ title: e instanceof Error ? e.message : String(e), level: 'error' });
+    return false;
+  }
+}
+
 export function removeKey<K extends 'sessions' | 'tasks' | 'routines' | 'memories' | 'devices' | 'apps' | 'approvals' | 'questions' | 'alerts'>(k: K, id: string) {
   if (k === 'sessions') {
     void dropDraft(id);
@@ -1160,6 +1197,7 @@ export function applyEvent(e: EngineEventEnvelope) {
       if (!LIVE_STATUSES.has(e.session.status)) {
         settleTools(e.session.id);
         if (Object.values(s.approvals).some((a) => a.sessionId === e.session.id && !heldApprovals.has(a.id))) void syncApprovals();
+        if (Object.values(s.questions).some((q) => q.sessionId === e.session.id)) void syncQuestions();
       }
       break;
     }
@@ -1270,6 +1308,7 @@ export function applyEvent(e: EngineEventEnvelope) {
       set({ questions: { ...s.questions, [e.question.id]: e.question } });
       break;
     case 'question.answered':
+      for (const gone of syncingQuestions) gone.add(e.id);
       removeKey('questions', e.id);
       break;
     case 'alert.raised':

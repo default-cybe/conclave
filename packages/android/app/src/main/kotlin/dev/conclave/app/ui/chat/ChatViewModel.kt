@@ -346,8 +346,9 @@ class ChatViewModel(hub: HubRepository, val sessionId: String, drafts: DraftStor
     }
 
     fun answer(questionId: String, answers: Map<String, String>) = action {
-        hub.api { it.answerQuestion(questionId, answers) }
+        val taken = hub.answerQuestion(questionId, answers)
         transcript.update { t -> t.copy(questions = t.questions.filterNot { it.id == questionId }) }
+        if (!taken) say(EXPIRED)
     }
 
     fun secondOpinion(message: Message, reviewer: String) = action("Asked ${reviewer.substringAfter('/')}") {
