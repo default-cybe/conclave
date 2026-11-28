@@ -931,7 +931,8 @@ async function runHub(root: string): Promise<void> {
   const mac = reg.deviceId;
   await api.setPassword(password);
   // the owner's name on the hub, which the apps show and the login asks for once Riley is added
-  await api.updateMe({ name: 'sam' });
+  // Canvas on: a fresh hub's owner starts with it off (NEW_ACCOUNT_MODES), and the demo shows it
+  await api.updateMe({ name: 'sam', modes: { canvas: true } });
   await waitFor(
     'MacBook to come online',
     async () => (await api.devices()).find((d) => d.id === mac)?.online,

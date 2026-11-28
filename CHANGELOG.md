@@ -7,6 +7,15 @@ from the section of its version (`scripts/releases/notes.ts`); a release
 without one fails. At tag time, rename `[Unreleased]` to the version and date,
 like `## [0.4.16] - 2026-10-24`.
 
+## [Unreleased]
+
+### Fixed
+
+- Workflows on a Windows device use Windows paths. An agent with `isolation: 'worktree'` starts in the same subfolder of its worktree as the run (before, it lost the subfolder), `lib.checkout` makes its folder as C:\Users\you\.conclave\worktrees\...\run-view-1, `lib.checkCitation` accepts files inside the repository (before, every D:\ file was "outside" it), and `lib.exec` cwd, `lib.ledger` and `lib.scope` folders resolve as Windows paths.
+- The demo hub turns Canvas on for its owner, since a fresh hub starts with it off, so the Canvas screenshots show it again.
+- The Windows screenshots job builds again: it makes the target folders ort-sys needs, as CI and the release already do.
+- The Android screenshots script follows the current app: it closes the panel after picking a mode, opens the Inbox from the top bar, and finds a tool line by its file name.
+
 ## [0.4.115] - 2026-11-28
 
 ### Fixed

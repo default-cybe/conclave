@@ -9,7 +9,7 @@
  * folder status is whatever the test sets.
  */
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, win32 } from 'node:path';
 import { tmpdir } from 'node:os';
 import { LocalMachine } from '../../src/machine/local';
 import { syncthingFolders, type SyncthingFolder, type SyncthingStatus } from '../../src/machine/syncthing';
@@ -182,4 +182,48 @@ export function attach(engine: Engine, m: HomeMachine): void {
 
 export function detach(engine: Engine, id: string): void {
   engine.devices.detach(id);
+}
+
+/**
+ * A win32 device (BINARY-101, home C:\Users\nihir) over the local disk: each
+ * Windows prefix maps to a real folder, in paths, cwds and command text, and
+ * real folders come back in output as git for Windows prints them (C:/x).
+ */
+export function winDevice(t: { engine: Engine }, base: string, map: Array<[win: string, real: string]>) {
+  // each part escaped for a RegExp, either separator between them
+  const esc = (s: string) => s.split(/[\\/]/).map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('[\\\\/]');
+  const toReal = (text: string) => map.reduce((s, [w, r]) => s.replace(new RegExp(`${esc(w)}((?:[\\\\/][^'"\\s]*)?)`, 'gi'), (_m, rest: string) => r + rest.replace(/\\/g, '/')), text);
+  const toWin = (text: string) => map.reduce((s, [w, r]) => s.split(r).join(w.replace(/\\/g, '/')), text);
+  class WinMachine extends HomeMachine {
+    override infoNow(): MachineInfo {
+      return { ...super.infoNow(), platform: 'win32', home: 'C:\\Users\\nihir' };
+    }
+    override async stat(path: string) {
+      return super.stat(toReal(path));
+    }
+    override async mkdir(path: string) {
+      return super.mkdir(toReal(path));
+    }
+    override async readText(path: string) {
+      return super.readText(toReal(path));
+    }
+    // as a Windows daemon resolves: ~ is the home, a relative path joins cwd, separators become \ (real POSIX paths, which exec resolves, stay)
+    override resolve(path: string, cwd: string): string {
+      if (path.startsWith('/') || (cwd.startsWith('/') && !/^[A-Za-z]:[\\/]/.test(path))) return super.resolve(path, cwd);
+      const p = path === '~' ? 'C:\\Users\\nihir' : path.startsWith('~/') || path.startsWith('~\\') ? win32.join('C:\\Users\\nihir', path.slice(2)) : path;
+      return win32.isAbsolute(p) ? win32.normalize(p) : win32.resolve(cwd, p);
+    }
+    override async exec(command: string, opts: ExecOptions): Promise<ExecResult> {
+      this.execs.push(command);
+      const r = await super.exec(toReal(command), { ...opts, cwd: toReal(opts.cwd) });
+      return { ...r, stdout: toWin(r.stdout) };
+    }
+    override spawn(command: string, args: string[], opts: SpawnOptions) {
+      return super.spawn(command, args.map(toReal), { ...opts, cwd: toReal(opts.cwd) });
+    }
+  }
+  const win = new WinMachine('win', 'BINARY-101', base);
+  t.engine.repos.devices.insert({ id: win.id, name: win.name, tokenHash: 'test', roots: [] });
+  attach(t.engine, win);
+  return { win, toReal };
 }
