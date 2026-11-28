@@ -78,8 +78,10 @@ struct MoveToCodeSheet: View {
     }
 
     private func pick(_ label: String, _ value: String, @ViewBuilder _ items: () -> some View) -> some View {
-        CardRow(label: label) {
-            Menu { items() } label: {
+        // built here: Menu's content closure escapes, a @ViewBuilder parameter cannot
+        let content = items()
+        return CardRow(label: label) {
+            Menu { content } label: {
                 HStack(spacing: 6) {
                     Text(value).font(.sans(13, .medium)).foregroundStyle(Tone.fg).lineLimit(1)
                     Image(systemName: "chevron.up.chevron.down").font(.system(size: 10, weight: .semibold)).foregroundStyle(Tone.fg3)
