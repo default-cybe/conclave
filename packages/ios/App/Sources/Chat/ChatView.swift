@@ -51,6 +51,8 @@ struct ChatView: View {
                 ForEach(t.questions) { q in
                     QuestionCard(request: q, viewing: chat.sessionId) { await chat.answer(q, $0) }.rise(delay: 0.04)
                 }
+                // what the session does now (Android SessionLiveLine); a chat has no tools, so it is for sessions
+                if session.map({ !$0.isChat }) ?? false { LiveLine(session: session, transcript: t).id("live-line") }
               }
               // a fixed column: a wide code line or table must not widen it past the margins.
               // Plain frames, not containerRelativeFrame: that collapsed the ScrollView to 0 pt
@@ -73,7 +75,11 @@ struct ChatView: View {
         .defaultScrollAnchor(Self.pinned ? .bottom : nil, for: .sizeChanges)
         .scrollDismissesKeyboard(.interactively)
         .safeAreaInset(edge: .bottom) {
-            ComposerView(chat: chat, hub: hub)
+            VStack(spacing: 8) {
+                // a repo session's push, pull request and clean up; nothing for any other session
+                if session.map({ !$0.isChat }) ?? false { RepoBar(hub: hub, sessionId: chat.sessionId, title: session?.title ?? "") }
+                ComposerView(chat: chat, hub: hub)
+            }
                 .frame(maxWidth: 720)
                 // the transcript's margins, so the composer lines up with the cards
                 .padding(.horizontal, m.compact ? 12 : m.gutter)

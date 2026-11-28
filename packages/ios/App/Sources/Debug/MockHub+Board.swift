@@ -56,6 +56,12 @@ extension MockHub {
             }
         }
         if p.count == 6, p[0] == "api", p[1] == "sessions", p[3] == "checkpoints", p[5] == "restore" { return (200, #"{"ok":true}"#) }
+        // s2 is a repo session with an open pull request whose checks run; other sessions are not (404)
+        if p.count >= 4, p[0] == "api", p[1] == "sessions", p[3] == "repo" {
+            guard p[2] == "s2" else { return (404, #"{"error":"not a repo session"}"#) }
+            if p.count == 5, p[4] == "pr-draft" { return (200, #"{"title":"Fix login redirect after passkey","body":"The redirect now waits for the hub.","base":"main","head":"conclave/fix-login-ab12"}"#) }
+            return (200, #"{"sessionId":"s2","repo":"default-cybe/conclave","branch":"conclave/fix-login-ab12","base":"main","pr":{"number":412,"url":"https://github.com/default-cybe/conclave/pull/412","state":"open"},"ci":"pending","deviceName":"madx","commits":3,"dirty":1,"pushed":"current","online":true,"line":"Pull request #412 is open. Checks are running."}"#)
+        }
         if p.count == 2, p[0] == "api", p[1] == "workflows", method == "GET" { return (200, boardJSON(library())) }
         if p.count >= 4, p[0] == "api", p[1] == "workflows", p[2] != "runs", p[3] == "presets" {
             switch method {
