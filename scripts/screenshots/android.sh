@@ -166,6 +166,16 @@ panel() {
   return $ok
 }
 
+# scroll down until $1 shows (at most 6 swipes), then tap it
+scroll_tap() {
+  local i
+  for i in 1 2 3 4 5 6; do
+    if dump && find_text "$1" >/dev/null; then await_text "$1" 5 tap; return; fi
+    adb shell input swipe 600 2000 600 900 300 && sleep 1
+  done
+  await_text "$1" 5 tap
+}
+
 # Back closes the side panel when it is open ("Group by" shows only there); deep links leave it open,
 # so a panel left open would cover every shot after it
 close_panel() {
@@ -263,6 +273,11 @@ for t in light dark; do
   panel Code && sleep 3 && shot "code-$t.png"
   panel Inbox && sleep 3 && shot "inbox-$t.png"
   panel Settings && sleep 3 && shot "settings-$t.png"
+  # Settings' AI connections and Defaults, below the Hub rows; each page, then Back to Settings
+  for page in Providers Subscriptions Defaults; do
+    scroll_tap "$page" && sleep 3 && shot "$(printf '%s' "$page" | tr 'A-Z' 'a-z')-$t.png"
+    adb shell input keyevent KEYCODE_BACK && sleep 2
+  done
   # the finished session: its tool calls as one line, then the line open
   open_link "conclave://session/$fix" && shot "session-$t.png"
   await_text "Read redirect.ts*" 15 tap && sleep 2 && shot "session-open-$t.png"
