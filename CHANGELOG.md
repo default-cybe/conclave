@@ -13,7 +13,7 @@ like `## [0.4.16] - 2026-10-24`.
 
 - Workflows on a Windows device use Windows paths. An agent with `isolation: 'worktree'` starts in the same subfolder of its worktree as the run (before, it lost the subfolder), `lib.checkout` makes its folder as C:\Users\you\.conclave\worktrees\...\run-view-1, `lib.checkCitation` accepts files inside the repository (before, every D:\ file was "outside" it), and `lib.exec` cwd, `lib.ledger` and `lib.scope` folders resolve as Windows paths.
 - Cloning a GitHub repository on a Windows device works. git for Windows starts the credential helper without the token's file descriptor, so every clone failed with "f get: line 1: 3: Bad file descriptor". On Windows the helper now reads the token from its environment.
-- The demo hub turns Canvas on for its owner, since a fresh hub starts with it off, so the Canvas screenshots show it again.
+- The demo hub turns Canvas on for its owner, since a fresh hub starts with it off, so the Canvas screenshots show it again. It also turns off the stuck watchdog, so its workflow run keeps one agent working instead of showing it stopped after 5 minutes.
 - The Windows screenshots job builds again: it makes the target folders ort-sys needs, as CI and the release already do.
 - The Android screenshots script follows the current app: it closes the panel after picking a mode, opens the Inbox from the top bar, and finds a tool line by its file name.
 

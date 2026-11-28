@@ -887,6 +887,8 @@ async function runHub(root: string): Promise<void> {
         models: { tiers: { fast: 'anthropic/claude-haiku-5-5', smart: 'anthropic/claude-sonnet-5-5', deep: 'anthropic/claude-opus-5-5' } },
         permissions: { mode: 'default', allow: ['Bash(bun test:*)', 'Bash(git log:*)', 'Bash(git status:*)', 'Bash(perl -pi:*)', 'Bash(git commit:*)'], deny: [], ask: [], additionalDirectories: [] },
         github: { apiUrl: github.apiUrl, gitUrl: github.httpGitUrl, pollSeconds: 0 },
+        // the workflow run's last agent waits on purpose (a held reply); the stuck watchdog would stop it after 5 minutes
+        limits: { stuck: { minutes: 0 } },
         server: { token, remote: { lan: true } },
         ui: { theme: 'system', onboarded: true, name: 'Sam' },
       },
