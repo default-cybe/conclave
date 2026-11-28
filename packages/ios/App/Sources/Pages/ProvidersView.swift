@@ -69,13 +69,12 @@ struct ProvidersView: View {
             let keys = Providers.withKeys(try await hub.client.configSecrets())
             withKeys = keys
             error = nil
-            await withTaskGroup(of: (String, (String, Bool)).self) { g in
-                for id in Providers.keyedRows(keys) {
-                    g.addTask {
-                        do { return (id, Providers.testWords(try await hub.client.testProvider(id))) } catch { return (id, ("Could not check", false)) }
-                    }
+            // one check at a time, each row filled as it answers
+            for id in Providers.keyedRows(keys) where tests[id] == nil {
+                do { tests[id] = Providers.testWords(try await hub.client.testProvider(id)) } catch {
+                    if error is CancellationError { return }
+                    tests[id] = ("Could not check", false)
                 }
-                for await (id, w) in g { tests[id] = w }
             }
         } catch {
             if error is CancellationError { return }
@@ -182,7 +181,7 @@ struct SubscriptionsView: View {
                             let w = Providers.accountWord(a.state)
                             CardRow(label: Providers.accountLabel(a), detail: ([a.providerName, a.detail].compactMap { $0 }).joined(separator: ". ")) {
                                 HStack(spacing: 10) {
-                                    Text(w.0).font(.sans(13)).foregroundStyle(w.1.color)
+                                    Text(w.0).font(.sans(13)).foregroundStyle(toneColor(w.1))
                                     Menu {
                                         if a.canRefresh { Button("Refresh", systemImage: "arrow.clockwise") { Task { await refresh(a) } } }
                                         Button("Sign out", systemImage: "rectangle.portrait.and.arrow.right", role: .destructive) { signingOut = a }
@@ -302,14 +301,13 @@ struct SettingsBack: View {
     }
 }
 
-private extension Providers.Tone {
-    var color: Color {
-        switch self {
-        case .ok: Tone.ok
-        case .live: Tone.signal
-        case .dim: Tone.fg3
-        case .warn: Tone.warn
-        case .fault: Tone.fault
-        }
+/// A free function, not an extension: inside an extension of Providers.Tone, `Tone` would mean that enum.
+private func toneColor(_ t: Providers.Tone) -> Color {
+    switch t {
+    case .ok: Tone.ok
+    case .live: Tone.signal
+    case .dim: Tone.fg3
+    case .warn: Tone.warn
+    case .fault: Tone.fault
     }
 }
