@@ -1,7 +1,7 @@
 import type { ContentBlock, StopReason, Usage } from '../types';
 import type { ChatRequest, ModelInfo, ProviderMessage } from '../providers/types';
 import { ProviderError, parseModelRef } from '../providers/types';
-import { SHORT_LIMIT_MS, modelRefusal } from '../providers/errors';
+import { SHORT_LIMIT_MS, modelRefusal, statedOutputLimit } from '../providers/errors';
 import type { Engine } from '../engine/engine';
 import { accountsOf } from '../accounts/attached';
 import { sleep } from '../util/text';
@@ -332,6 +332,8 @@ async function streamCall(
   /** A per-minute limit on this route: when the first hit came, and the retries since. */
   let shortSince = 0;
   let shortTries = 0;
+  /** The output limit a 400 stated for this route ("max_tokens is too large"): asked for once more at this size. */
+  let statedCap: { route: string; tokens: number } | undefined;
   // last line before the wire: ends with a user turn, every tool_use paired with its result
   const guarded = guardTranscript(req.messages);
   if (guarded.repairs.length) {
@@ -341,7 +343,7 @@ async function streamCall(
 
   for (;;) {
     const inputTokens = estimateInput(req);
-    const maxTokens = outputCap(resolved.info, req.maxTokens, inputTokens);
+    const maxTokens = Math.min(outputCap(resolved.info, req.maxTokens, inputTokens), statedCap?.route === `${resolved.provider}/${resolved.model}` ? statedCap.tokens : Infinity);
     if (!Number.isSafeInteger(maxTokens) || maxTokens <= 0) throw new ProviderError('bad_request', 'Output token limit must be a positive integer.');
     const liveSession = target.sessionId ? engine.getSession(target.sessionId) : session;
     const check = checkFallback(engine, liveSession, resolved, inputTokens, maxTokens);
@@ -464,6 +466,13 @@ async function streamCall(
       }
       if (req.signal?.aborted || e.kind === 'aborted') throw new ProviderError('aborted', 'aborted');
       e.provider ??= resolved.provider;
+      // asked for more output than this model takes (a catalog maxOutput above the provider's real one): once more at the limit the error names, else the old 32K
+      const stated = statedCap?.route !== `${resolved.provider}/${resolved.model}` && !begun && e.status === 400 ? statedOutputLimit(`${e.message} ${e.body ?? ''}`) : undefined;
+      if (stated !== undefined && stated < maxTokens) {
+        statedCap = { route: `${resolved.provider}/${resolved.model}`, tokens: stated };
+        log.warn(`${fullRef}: max_tokens ${maxTokens} refused; retrying once with ${stated}`);
+        continue;
+      }
       // a per-minute limit (providers/errors.ts): retried here for about three minutes, never parked for the plan's window
       let shortWait: number | undefined;
       const shortAcct = e.code === 'short_limit' && accounts && paidBy === 'hub' ? ((target.pin?.provider === resolved.provider ? target.pin.account : undefined) ?? accounts.accountFor(resolved.provider, resolved.model, target.sessionId)) : undefined;

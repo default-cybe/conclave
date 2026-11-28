@@ -597,6 +597,34 @@ export function isSignInMissingText(text: string): boolean {
   return SIGN_IN_MISSING_RE.test(text);
 }
 
+/** A 400 that says the asked output (max_tokens and its names) is above the model's maximum. */
+const OUTPUT_FIELD_RE = /max_tokens|max_output_tokens|max_completion_tokens|maxOutputTokens|output tokens|completion tokens/i;
+const TOO_LARGE_RE = /too large|exceed|maximum|at most|valid range|supported range|> ?\d/i;
+/** Input plus output over the context window: compaction's job, not a smaller output cap. */
+const CONTEXT_LIMIT_RE = /context (limit|length|window)|prompt is too long/i;
+/** Where each vendor states the limit, most specific first. Gemini's "(exclusive)" bound is one past it. */
+const LIMIT_RES: Array<[RegExp, number]> = [
+  [/> ?(\d+), which is the maximum/i, 0], // Anthropic: "max_tokens: 128000 > 64000, which is the maximum allowed number of output tokens"
+  [/supports at most (\d+)/i, 0], // OpenAI: "This model supports at most 32768 completion tokens"
+  [/to (\d+) \(exclusive\)/i, -1], // Gemini: "the supported range is from 1 (inclusive) to 65537 (exclusive)"
+  [/\[\s*1\s*,\s*(\d+)\s*\]/, 0], // DeepSeek: "the valid range of max_tokens is [1, 8192]"
+  [/(?:maximum|at most|up to|less than or equal to|<=|≤)\D{0,40}?(\d{4,})/i, 0],
+];
+
+/**
+ * The output limit a 400 states when the request asked for more than the
+ * model allows: the number it names, else the old fixed 32K. Undefined when the
+ * error is about something else.
+ */
+export function statedOutputLimit(text: string): number | undefined {
+  if (!OUTPUT_FIELD_RE.test(text) || !TOO_LARGE_RE.test(text) || CONTEXT_LIMIT_RE.test(text)) return undefined;
+  for (const [re, shift] of LIMIT_RES) {
+    const n = Number(text.match(re)?.[1]) + shift;
+    if (Number.isSafeInteger(n) && n > 0) return n;
+  }
+  return 32_000;
+}
+
 /**
  * Anthropic's "Could not process image" (and "Image does not match the provided media type"), OpenAI's "Invalid image" and image_parse_error.
  * Also Anthropic's "image dimensions exceed max allowed size: 8000 pixels" and "... for many-image requests: 3000 pixels" (direct or through
