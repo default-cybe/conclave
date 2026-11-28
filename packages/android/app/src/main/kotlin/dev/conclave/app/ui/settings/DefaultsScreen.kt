@@ -63,7 +63,8 @@ fun DefaultsScreen(onBack: () -> Unit, memoryOnly: Boolean = false) {
     val scope = rememberCoroutineScope()
     val snackbar = rememberToasts()
     val c = Conclave.colors
-    val isOwner = me?.isOwner != false
+    // owner rows only once the hub says so (Settings does the same); the hub refuses a member's PATCH /api/config anyway
+    val isOwner = me?.isOwner == true
     var cfg by remember { mutableStateOf<JsonObject?>(null) }
     // which model is being picked: a config path for the owner, a MePatch field for a member
     var picking by remember { mutableStateOf<String?>(null) }
@@ -108,7 +109,7 @@ fun DefaultsScreen(onBack: () -> Unit, memoryOnly: Boolean = false) {
     Scaffold(topBar = { TopBar(if (memoryOnly) "Memory settings" else "Defaults", onBack = onBack) }, snackbarHost = { ToastHost(snackbar) }, containerColor = c.bg) { padding ->
         Column(Modifier.padding(padding).fillMaxSize().verticalScroll(rememberScrollState()).padding(bottom = 32.dp)) {
             val k = cfg
-            if (isOwner && k == null) {
+            if (me == null || (isOwner && k == null)) {
                 Note("Loading.")
                 return@Column
             }

@@ -211,7 +211,7 @@ fun FriendsScreen(
                     scanning = true
                 })
                 // adding by address and the requests-by-address switch are the hub's (POST /api/friends/add is admin only)
-                if (me?.isOwner != false) AddByAddressBlock(vm)
+                if (me?.isOwner == true) AddByAddressBlock(vm)
             }
         }
     }

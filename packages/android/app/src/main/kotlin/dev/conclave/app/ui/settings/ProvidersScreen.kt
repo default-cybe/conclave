@@ -75,7 +75,7 @@ fun ProvidersScreen(onBack: () -> Unit, onOpenSubscriptions: () -> Unit) {
     val scope = rememberCoroutineScope()
     val snackbar = rememberToasts()
     val c = Conclave.colors
-    val isOwner = me?.isOwner != false
+    val isOwner = me?.isOwner == true
     var withKeys by remember { mutableStateOf<Set<String>>(emptySet()) }
     var configured by remember { mutableStateOf<Set<String>>(emptySet()) }
     var added by remember { mutableStateOf<List<String>>(emptyList()) }
