@@ -7,7 +7,7 @@ from the section of its version (`scripts/releases/notes.ts`); a release
 without one fails. At tag time, rename `[Unreleased]` to the version and date,
 like `## [0.4.16] - 2026-10-24`.
 
-## [0.4.111] - 2026-11-28
+## [Unreleased]
 
 ### Added
 
@@ -15,6 +15,10 @@ like `## [0.4.16] - 2026-10-24`.
 - Android: the session sheet has Compact, Share as Markdown and Checkpoints. Checkpoints lists each checkpoint with "Restore files only", which keeps every message. The chat sheet has Compact too.
 - Android: a meeting's notes can be selected and copied, with "Save to memory" and "Open as chat" right under them.
 - Android: the empty model picker now says where to add an API key or sign in to an AI plan.
+
+## [0.4.111] - 2026-11-28
+
+### Added
 
 - The model picker on web, desktop and Android has a "Use this model for all subagents" switch (Same model for all work) under Effort. It works on open chats and sessions and on a new chat, Code or Assistant start, where it goes with the create call. A member whose account may not use the model sees it off with the hub's reason, and the hub now checks this at session create too.
 
