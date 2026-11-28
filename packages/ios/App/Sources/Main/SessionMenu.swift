@@ -39,6 +39,14 @@ struct SessionMenu: View {
         Button("Fork", systemImage: "arrow.triangle.branch") {
             Task { if let id = await sheets.fork(session.id, hub: hub) { opened(id) } }
         }
+        // v0.4.112: Compact, Checkpoints and Share as Markdown, as the web menu and Android's session sheet
+        if session.status == .idle || session.status == .error {
+            Button("Compact", systemImage: "arrow.down.right.and.arrow.up.left") { Task { await sheets.compact(session.id, hub: hub) } }
+        }
+        if !session.isChat {
+            Button("Checkpoints", systemImage: "clock.arrow.circlepath") { sheets.checkpointsFor = session.id }
+        }
+        Button("Share as Markdown", systemImage: "square.and.arrow.up") { Task { await sheets.export(session.id, hub: hub) } }
         let groups = ModelPicks.groups(hub.models)
         if !groups.isEmpty {
             // the composer's ModelMenu reads the list; a pick is the chat's default from now on, as there
@@ -96,7 +104,46 @@ final class SessionSheets {
     var title = ""
     var deleting: Session?
     var error: String?
+    /// What the hub said after an action that worked (Compact, a restore, a command).
+    var notice: String?
+    /// The session whose checkpoints are open.
+    var checkpointsFor: String?
+    /// The Markdown of an export, for the share sheet.
+    var exported: ExportedText?
     @ObservationIgnored private var afterDelete: ((String?) -> Void)?
+
+    var noticeShown: Bool {
+        get { notice != nil }
+        set { if !newValue { notice = nil } }
+    }
+
+    func compact(_ id: String, hub: HubModel) async {
+        do {
+            let r = try await hub.client.runCommand(id, line: "/compact")
+            notice = r.output?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty ?? "Compacted."
+        } catch {
+            self.error = Self.words(error)
+        }
+    }
+
+    func export(_ id: String, hub: HubModel) async {
+        do {
+            let r = try await hub.client.exportSession(id)
+            exported = ExportedText(text: r.content)
+        } catch {
+            self.error = Self.words(error)
+        }
+    }
+
+    func restore(_ id: String, _ cp: Checkpoint, hub: HubModel) async {
+        do {
+            try await hub.client.restoreCheckpoint(id, checkpointId: cp.id)
+            checkpointsFor = nil
+            notice = "Files restored. The chat is unchanged."
+        } catch {
+            self.error = Self.words(error)
+        }
+    }
 
     var renameShown: Bool {
         get { renaming != nil }
@@ -198,6 +245,64 @@ extension View {
     }
 }
 
+struct ExportedText: Identifiable {
+    var text: String
+    var id: String { text }
+}
+
+extension String {
+    var nilIfEmpty: String? { isEmpty ? nil : self }
+}
+
+/// Checkpoints (Android session sheet, web ContextPanel): each with "Restore files only", which
+/// keeps every message, behind a confirmation.
+private struct CheckpointsSheet: View {
+    let hub: HubModel
+    let sessionId: String
+    let sheets: SessionSheets
+    @State private var list: [Checkpoint]?
+    @State private var confirm: Checkpoint?
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 0) {
+                    if let list {
+                        if list.isEmpty {
+                            Text("No checkpoints yet. The hub takes one before each file change.").font(.sans(14)).foregroundStyle(Tone.fg3).padding(20)
+                        }
+                        let now = Int64(Date().timeIntervalSince1970 * 1000)
+                        ForEach(list) { cp in
+                            HStack {
+                                Text([Ago.short(cp.createdAt, now: now), cp.files == 1 ? "1 file" : "\(cp.files) files", String(cp.commit.prefix(7))].joined(separator: " \u{00B7} "))
+                                    .font(.sans(14)).monospacedDigit().foregroundStyle(Tone.fg)
+                                Spacer()
+                                Button("Restore files only") { confirm = cp }.buttonStyle(CVButton(look: .outline, height: 36))
+                            }
+                            .padding(.horizontal, 20).padding(.vertical, 8)
+                            Rectangle().fill(Tone.rule).frame(height: 1).padding(.leading, 20)
+                        }
+                    } else {
+                        LoadingLine().padding(20)
+                    }
+                }
+            }
+            .background(Tone.bg)
+            .navigationTitle("Checkpoints")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Close") { dismiss() } } }
+        }
+        .task { list = ((try? await hub.client.checkpoints(sessionId)) ?? []).sorted { $0.createdAt > $1.createdAt } }
+        .alert("Restore files only?", isPresented: Binding(get: { confirm != nil }, set: { if !$0 { confirm = nil } }), presenting: confirm) { cp in
+            Button("Restore files", role: .destructive) { Task { await sheets.restore(sessionId, cp, hub: hub) } }
+            Button("Cancel", role: .cancel) {}
+        } message: { _ in
+            Text("Files go back to how they were at this checkpoint. Every message stays.")
+        }
+    }
+}
+
 private struct SessionActionSheets: ViewModifier {
     let hub: HubModel
     @Bindable var sheets: SessionSheets
@@ -215,6 +320,15 @@ private struct SessionActionSheets: ViewModifier {
             } message: { s in
                 Text("\(s.title.isEmpty ? "This chat" : "\u{201C}\(s.title)\u{201D}") and its messages are deleted. This cannot be undone.")
             }
+            .alert("Done", isPresented: $sheets.noticeShown) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text(sheets.notice ?? "")
+            }
+            .sheet(item: Binding(get: { sheets.checkpointsFor.map(ExportedText.init(text:)) }, set: { sheets.checkpointsFor = $0?.text })) { s in
+                CheckpointsSheet(hub: hub, sessionId: s.text, sheets: sheets)
+            }
+            .sheet(item: $sheets.exported) { e in ShareSheet(items: [e.text]).presentationDetents([.medium, .large]) }
             .alert("That did not work", isPresented: $sheets.errorShown) {
                 Button("OK", role: .cancel) {}
             } message: {

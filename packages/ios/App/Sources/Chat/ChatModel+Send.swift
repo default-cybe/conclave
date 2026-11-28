@@ -28,7 +28,10 @@ extension ChatModel {
         let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         let files = self.files
         guard !text.isEmpty || !files.isEmpty else { return }
+        // a message that is one of the offered commands runs on the hub, never goes to the model as text
+        if files.isEmpty, let name = Slash.commandOf(text, commands) { return await runSlash(name, text) }
         draft = ""
+        notice = nil
         self.files = []
         sendError = nil
         lostFile = nil
@@ -53,6 +56,36 @@ extension ChatModel {
             restore(text, files, words)
             lostFile = Attach.lostWords(words)
         }
+    }
+
+    /// "/btw question" asks aside (POST btw); every other command goes to POST command. The hub's
+    /// line comes back as the composer's notice; /export opens the share sheet instead.
+    private func runSlash(_ name: String, _ text: String) async {
+        draft = ""
+        sendError = nil
+        notice = nil
+        do {
+            switch name {
+            case "btw":
+                let q = Slash.argument(text)
+                guard !q.isEmpty else { draft = "/btw "; return }
+                notice = "Aside: " + (try await client.btw(sessionId, text: q)).answer
+            case "export":
+                exported = try await client.exportSession(sessionId).content
+            default:
+                let r = try await client.runCommand(sessionId, line: text)
+                notice = r.output?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+            }
+        } catch {
+            if draft.isEmpty { draft = text }
+            sendError = (error as? ConclaveAPIError)?.message ?? error.localizedDescription
+        }
+    }
+
+    /// The hub's commands for the "/" menu, read once per chat.
+    func loadCommands(chat: Bool) async {
+        guard commands.isEmpty else { return }
+        commands = Slash.available((try? await client.commands()) ?? [], chat: chat)
     }
 
     private func restore(_ text: String, _ files: [Attachment], _ why: String) {

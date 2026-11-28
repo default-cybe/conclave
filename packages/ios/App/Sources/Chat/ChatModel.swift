@@ -22,6 +22,12 @@ final class ChatModel {
     var sendError: String?
     /// The hub could not read a file: the words to ask "Send without it?" with.
     var lostFile: String?
+    /// The "/" menu's commands (ChatModel+Send loadCommands): /btw, then the hub's.
+    var commands: [CommandDef] = []
+    /// What the last command said (Compacted., an aside's answer), over the composer.
+    var notice: String?
+    /// The Markdown /export made, for the share sheet.
+    var exported: String?
 
     init(sessionId: String, client: ConclaveClient) {
         self.sessionId = sessionId

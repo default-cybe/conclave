@@ -31,7 +31,16 @@ struct ComposerView: View {
                 }
             } else if let e = chat.sendError {
                 Text(e).font(.sans(12.5)).foregroundStyle(Tone.fault)
+            } else if let n = chat.notice {
+                HStack(alignment: .firstTextBaseline) {
+                    Text(n).font(.sans(13)).foregroundStyle(Tone.fg2).textSelection(.enabled).lineLimit(8)
+                    Spacer()
+                    Button { chat.notice = nil } label: { Image(systemName: "xmark").font(.system(size: 10, weight: .semibold)) }
+                        .buttonStyle(CVButton(look: .quiet, height: 26)).accessibilityLabel("Close")
+                }
             }
+            let slash = Slash.matches(chat.draft, chat.commands)
+            if !slash.isEmpty { SlashMenu(matches: slash) { chat.draft = "/" + $0.name + " " } }
             let phone = Metrics(sizeClass).compact
             // web desktop: radius 5, rule-2 line, sunk; phone (PhoneBox, Android): radius 24 on surface-2, a line only in light
             let radius = phone ? Radius.box : Radius.r2
@@ -68,6 +77,10 @@ struct ComposerView: View {
                 for p in providers { if let a = await Attachments.load(p) { add([a]) } }
             }
             return true
+        }
+        .task(id: chat.sessionId) { await chat.loadCommands(chat: session?.isChat ?? false) }
+        .sheet(item: Binding(get: { chat.exported.map(ExportedText.init(text:)) }, set: { chat.exported = $0?.text })) { e in
+            ShareSheet(items: [e.text]).presentationDetents([.medium, .large])
         }
         .photosPicker(isPresented: $showPhotos, selection: $photos, matching: .images)
         .onChange(of: photos) { _, items in
@@ -196,6 +209,38 @@ private struct FileChips: View {
             }
         }
         .scrollIndicators(.hidden)
+    }
+}
+
+/// The "/" menu over the box (Android SlashMenu): each command with its argument hint and line; a tap
+/// puts "/name " in the box, and Send runs it on the hub.
+private struct SlashMenu: View {
+    let matches: [CommandDef]
+    let pick: (CommandDef) -> Void
+
+    var body: some View {
+        ScrollView {
+            VStack(spacing: 0) {
+                ForEach(matches) { c in
+                    Button { pick(c) } label: {
+                        HStack(spacing: 10) {
+                            (Text("/" + c.name).foregroundStyle(Tone.fg) + Text(c.argumentHint.map { " " + $0 } ?? "").foregroundStyle(Tone.fg3))
+                                .font(.mono(13.5)).lineLimit(1).layoutPriority(1)
+                            if let d = c.description { Text(d).font(.sans(12.5)).foregroundStyle(Tone.fg3).lineLimit(1) }
+                            Spacer(minLength: 0)
+                        }
+                        .padding(.horizontal, 14).frame(minHeight: 44).contentShape(Rectangle())
+                    }
+                    .buttonStyle(QuietPress(radius: 0))
+                    .accessibilityLabel("Use /\(c.name)")
+                }
+            }
+            .padding(.vertical, 4)
+        }
+        .frame(maxHeight: 264)
+        .fixedSize(horizontal: false, vertical: true)
+        .panel(Tone.raise, radius: Radius.r3, border: Tone.rule2)
+        .accessibilityIdentifier("slash-menu")
     }
 }
 
