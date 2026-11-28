@@ -70,6 +70,14 @@ object SessionModes {
 
     private const val SECURITY = "Security"
 
+    /**
+     * Why the model picker's "Use this model for all subagents" switch is off (web ComposerParts.tsx
+     * SameModelRow): a [member] whose model the hub marked [unavailable] (engine.ts listModels) gets
+     * the hub's refusal (engine.ts updateSession). Null: it can be switched. Already [on], it can always go off.
+     */
+    fun sameModelRefusal(member: Boolean, unavailable: String?, on: Boolean, name: String): String? =
+        if (member && unavailable != null && !on) "Same model for all work needs a model your account may use; $name is not one." else null
+
     /** Changes the chip always spells out, never folded into "+1": the risky ones (design review, "never hidden"). */
     private val RISKY = setOf("No memory", SECURITY)
 

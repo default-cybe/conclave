@@ -36,6 +36,16 @@ class SessionModesTest {
     }
 
     @Test
+    fun theModelPickersSameModelSwitchIsOffOnlyForAMemberOnARefusedModel() {
+        val why = "Same model for all work needs a model your account may use; Opus 5.5 is not one."
+        assertEquals(why, SessionModes.sameModelRefusal(member = true, unavailable = "Not allowed for you on this hub.", on = false, name = "Opus 5.5"))
+        // the owner is never checked; a member on a model they may use, or with it on already (so it can go off), is free
+        assertEquals(null, SessionModes.sameModelRefusal(member = false, unavailable = "Plan refused", on = false, name = "Opus 5.5"))
+        assertEquals(null, SessionModes.sameModelRefusal(member = true, unavailable = null, on = false, name = "Opus 5.5"))
+        assertEquals(null, SessionModes.sameModelRefusal(member = true, unavailable = "Not allowed", on = true, name = "Opus 5.5"))
+    }
+
+    @Test
     fun expertStylesFoldUnderMoreStyles() {
         assertEquals(listOf(SessionMode.AGENT, SessionMode.CHAT, SessionMode.PLAN), SessionModes.EVERYDAY)
         assertEquals(listOf(SessionMode.JURY, SessionMode.DEBATE, SessionMode.LOOP), SessionModes.MORE_STYLES)

@@ -531,7 +531,7 @@ export function Composer({ session, narrow }: { session: Session; /** A column o
   const permission = (className: string) => (session.mode !== 'chat' || session.permissionMode === 'bypass') && <PermissionPicker look="text" value={session.permissionMode} onChange={(permissionMode) => void patch({ permissionMode })} className={className} />;
   const right = !mineRow && (
     <>
-      <ModelEffort session={session} model={session.model} value={session.chat?.thinking} follow={follow} onModel={(m) => void switchModel(m)} onEffort={pickEffort} sameModel={!!session.chat?.sameModel} harnesses switchOf={messages?.length ? session : undefined} />
+      <ModelEffort session={session} model={session.model} value={session.chat?.thinking} follow={follow} onModel={(m) => void switchModel(m)} onEffort={pickEffort} sameModel={!!session.chat?.sameModel} onSameModel={(on) => void patch({ chat: { sameModel: on } })} harnesses switchOf={messages?.length ? session : undefined} />
       {options}
       <ContextRing session={session} />
     </>

@@ -50,6 +50,20 @@ describe('sendToAssistant', () => {
     expect(calls).toEqual(['send ses_home', 'send ses_home']);
   });
 
+  test('Same model turned on at Home pins the thread before the send; already on, nothing is patched', async () => {
+    await connectClient({ baseUrl: 'http://hub.test', token: 't' });
+    const calls: string[] = [];
+    let pinned = false;
+    Object.assign(api(), {
+      assistantHome: async () => ({ ...home, chat: { webSearch: true, memory: true, ...(pinned ? { sameModel: true } : {}) } }),
+      updateSession: async (id: string, patch: Record<string, unknown>) => (calls.push(`update ${id} ${JSON.stringify(patch)}`), (pinned = true), { ...home, updatedAt: 2 }),
+      send: async (id: string) => (calls.push(`send ${id}`), { queued: false }),
+    });
+    await sendToAssistant({ text: 'hi' }, { sameModel: true });
+    await sendToAssistant({ text: 'hi' }, { sameModel: true });
+    expect(calls).toEqual(['update ses_home {"chat":{"sameModel":true}}', 'send ses_home', 'send ses_home']);
+  });
+
   test('a refused send says so and opens nothing', async () => {
     await connectClient({ baseUrl: 'http://hub.test', token: 't' });
     Object.assign(api(), { assistantHome: async () => home, send: async () => Promise.reject(new Error('The hub is busy.')) });

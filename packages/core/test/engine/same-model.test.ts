@@ -172,4 +172,16 @@ return 'ok'`;
     t.engine.repos.sessions.update({ ...hers, chat: { webSearch: true, memory: true, sameModel: true } });
     expect(modelPin(t.engine, t.engine.getSession(hers.id)!)).toBeUndefined();
   });
+
+  test('on at the start: createSession takes chat.sameModel, the first Task runs on the chat model, a member is checked', async () => {
+    t = await startTestEngine({ script: [[task('NEW-JOB')], [{ text: 'done' }]], route: (body) => (has(body, 'NEW-JOB') ? [{ text: 'checked' }] : undefined), ...setup });
+    const s = await t.engine.createSession({ cwd: t.cwd, agent: 'general-purpose', permissionMode: 'bypass', model: PIN, chat: { sameModel: true } }, undefined, { byPerson: true });
+    expect(s.chat?.sameModel).toBe(true);
+    const chat = await t.engine.createSession({ kind: 'chat', model: PIN, chat: { sameModel: true } }, undefined, { byPerson: true });
+    expect(t.engine.repos.sessions.get(chat.id)!.chat?.sameModel).toBe(true);
+    await t.run(s.id, 'go');
+    expect(t.engine.listSessions({ parentId: s.id })[0].model).toBe(PIN);
+    const alice = t.engine.people.create({ name: 'alice' });
+    await expect(t.engine.createSession({ kind: 'chat', model: PIN, chat: { sameModel: true } }, alice.id, { byPerson: true })).rejects.toThrow('Same model for all work needs a model your account may use');
+  });
 });

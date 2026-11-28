@@ -34,7 +34,7 @@ import { useIsMobile } from '@/lib/hooks';
 import { modelName } from '@/lib/models';
 import { effortLabel, effortMenu, shownEffort, useModelEffort, type EffortSetting, type ModelEffort as EffortLevels } from '@/lib/effort';
 import { MenuList, Popover, type MenuItem } from '@/components/ui/Overlay';
-import { Segmented } from '@/components/ui/Field';
+import { OnOff, Segmented } from '@/components/ui/Field';
 import { LimitRow } from '@/components/ui/Meter';
 import { windowApplies } from '@conclave/core/accounts/windows';
 import type { AccountDto } from '@conclave/core/client';
@@ -94,8 +94,10 @@ interface PickerProps {
    * showing the price and the choices first in a big chat, instead of calling onModel.
    */
   switchOf?: Session;
-  /** Same model for all work is on: a dot on the chip. Its switch is in Options (design review #7). */
+  /** Same model for all work is on: a dot on the chip. */
   sameModel?: boolean;
+  /** Given: the picker shows the switch under Effort (and Options keeps its row). */
+  onSameModel?: (on: boolean) => void;
 }
 
 export const SECURITY_HELP = 'Loads the security agent and its sec-* roles, and checks every network call against scope.yaml. Off brings back the agent you had.';
@@ -125,11 +127,31 @@ export function CyberAccess({ model, value, onChange }: { model: string | undefi
 }
 
 /**
- * The picker's body: Effort for the model on top as one compact row (when it
- * has levels), then the model list. The switches that used to sit in a
- * Settings drawer at the foot are in Options (design review #7).
+ * "Use this model for all subagents" (chat.sameModel) in the picker, under
+ * Effort. A member whose account may not use the model gets it off, with the
+ * hub's reason (engine.ts updateSession refuses the same).
  */
-function ModelEffortBody({ model, value, follow, onModel, onEffort, harnesses = false, onDone, switchOf }: PickerProps & { onDone: () => void }) {
+function SameModelRow({ model, on, onChange, mobile }: { model: string | undefined; on: boolean; onChange: (on: boolean) => void; mobile: boolean }) {
+  // the hub checks members only; it marks a model a member may not use unavailable (engine.ts listModels)
+  const refused = useHub((s) => (model && s.me?.role === 'member' ? s.models.flatMap((g) => g.models).find((m) => m.ref === model)?.unavailable : undefined));
+  const why = refused && !on ? `Same model for all work needs a model your account may use; ${modelName(model)} is not one.` : undefined;
+  return (
+    <div data-part="same-model" title={why ?? SAME_MODEL_HELP} className="flex shrink-0 items-center gap-2 border-b border-rule px-2.5 py-1.5 phone:gap-1.5 phone:px-2">
+      <div className="min-w-0 flex-1">
+        <div className={cn('text-[12px] phone:text-[13px]', why ? 'text-fg-3' : 'text-fg-2')}>Use this model for all subagents</div>
+        <div className="truncate text-[11px] text-fg-3 phone:text-[12px]">{why ?? 'Same model for all work'}</div>
+      </div>
+      <OnOff label="Use this model for all subagents" checked={on} onChange={onChange} disabled={!!why} size={mobile ? 'touch' : 'sm'} />
+    </div>
+  );
+}
+
+/**
+ * The picker's body: Effort for the model on top as one compact row (when it
+ * has levels), the Same model switch, then the model list. Cyber access and
+ * Security are in Options (design review #7).
+ */
+function ModelEffortBody({ model, value, follow, onModel, onEffort, harnesses = false, onDone, switchOf, sameModel, onSameModel }: PickerProps & { onDone: () => void }) {
   const e = useModelEffort(model);
   const mobile = useIsMobile();
   const shown = effortShown(value, e, follow);
@@ -152,6 +174,7 @@ function ModelEffortBody({ model, value, follow, onModel, onEffort, harnesses = 
           )}
         </div>
       )}
+      {onSameModel && !stepping && <SameModelRow model={model} on={!!sameModel} onChange={onSameModel} mobile={mobile} />}
       {switchOf ? <SwitchModelList session={switchOf} harnesses={harnesses} onDone={onDone} onStep={setStepping} /> : <ModelList value={model} harnesses={harnesses} onChange={onModel} onDone={onDone} />}
     </>
   );

@@ -670,17 +670,21 @@ fun OptionLabel(text: String) {
 }
 
 @Composable
-fun SwitchRow(title: String, help: String?, checked: Boolean, onChange: (Boolean) -> Unit) {
+fun SwitchRow(title: String, help: String?, checked: Boolean, onChange: (Boolean) -> Unit) = SwitchRow(title, help, checked, true, onChange)
+
+/** [enabled] false: greyed, [help] says why. */
+@Composable
+fun SwitchRow(title: String, help: String?, checked: Boolean, enabled: Boolean, onChange: (Boolean) -> Unit) {
     val c = Conclave.colors
     Row(
-        Modifier.fillMaxWidth().clickable { onChange(!checked) }.heightIn(min = 52.dp).padding(horizontal = 20.dp, vertical = 10.dp),
+        Modifier.fillMaxWidth().clickable(enabled = enabled) { onChange(!checked) }.heightIn(min = 52.dp).padding(horizontal = 20.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(Modifier.weight(1f)) {
-            Text(title, style = ConclaveType.rowTitle, color = c.fg)
+            Text(title, style = ConclaveType.rowTitle, color = if (enabled) c.fg else c.fg3)
             if (help != null) Text(help, style = ConclaveType.meta, color = c.fg3)
         }
         Spacer(Modifier.width(12.dp))
-        Switch(checked = checked, onCheckedChange = onChange)
+        Switch(checked = checked, onCheckedChange = onChange, enabled = enabled)
     }
 }

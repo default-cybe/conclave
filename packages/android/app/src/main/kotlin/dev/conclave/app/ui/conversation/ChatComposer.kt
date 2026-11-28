@@ -62,8 +62,10 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.conclave.app.data.Attachments
 import dev.conclave.app.ui.chat.rememberVoiceInput
+import dev.conclave.app.ui.common.LocalAppContainer
 import dev.conclave.app.ui.common.ModelPickerSheet
 import dev.conclave.app.ui.common.errorText
 import dev.conclave.app.ui.motion.SendStopButton
@@ -75,6 +77,8 @@ import dev.conclave.client.logic.ComposerText
 import dev.conclave.client.logic.ContextUse
 import dev.conclave.client.logic.Effort
 import dev.conclave.client.logic.EffortFollow
+import dev.conclave.client.logic.ModelRefs
+import dev.conclave.client.logic.SessionModes
 import dev.conclave.client.logic.Start
 import dev.conclave.client.model.Attachment
 import dev.conclave.client.model.CommandDef
@@ -114,7 +118,7 @@ class ComposerModel(
     val cyberChoices: List<String?> = emptyList(),
     val cyberValue: String? = null,
     val onCyber: (String?) -> Unit = {},
-    /** Same model for all work (chat.sameModel): hand-offs run on this model. The switch shows only with [onSameModel] (a session that exists). */
+    /** Same model for all work (chat.sameModel): hand-offs run on this model. The switch (model picker and Options) shows only with [onSameModel]; a new conversation holds it for its create call. */
     val sameModel: Boolean = false,
     val onSameModel: ((Boolean) -> Unit)? = null,
     /** Security mode (chat.security). The switch shows only with [onSecurity]. */
@@ -361,11 +365,22 @@ fun ChatComposer(
             }
         }
     }
+    val me by LocalAppContainer.current.hub.me.collectAsStateWithLifecycle()
     if (picking) {
         // the Effort row on top, one line: the levels this model has; a model without Effort shows none.
-        // Cyber access, Same model and Security are in Options now (design review #7)
+        // under it "Use this model for all subagents" (web ComposerParts.tsx SameModelRow); Cyber access and Security are in Options (design review #7)
         val e = m.effort?.takeIf { Effort.choices(it).isNotEmpty() }
-        val header: (@Composable () -> Unit)? = if (e != null) ({ EffortPicker(e, m.effortValue, m.follow, m.onEffort) }) else null
+        val same = m.onSameModel
+        val header: (@Composable () -> Unit)? = if (e != null || same != null) ({
+            Column {
+                if (e != null) EffortPicker(e, m.effortValue, m.follow, m.onEffort)
+                if (same != null) {
+                    val refused = groups.firstNotNullOfOrNull { g -> g.models.firstOrNull { it.ref == m.model } }?.unavailable
+                    val why = SessionModes.sameModelRefusal(me?.role == "member", refused, m.sameModel, ModelRefs.displayName(m.model))
+                    SwitchRow("Use this model for all subagents", why ?: "Same model for all work", m.sameModel, why == null, same)
+                }
+            }
+        }) else null
         ModelPickerSheet(
             title = if (e != null) "Model and effort" else "Model",
             groups = groups,
