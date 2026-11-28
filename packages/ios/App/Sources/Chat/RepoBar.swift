@@ -20,7 +20,8 @@ struct RepoBar: View {
     @Environment(\.openURL) private var openURL
 
     var body: some View {
-        Group {
+        // a VStack, not a Group: an empty Group drops .task, so the repo never loaded
+        VStack(spacing: 0) {
             if let r = repo {
                 let a = RepoWords.actions(r)
                 HStack(alignment: .firstTextBaseline, spacing: 10) {

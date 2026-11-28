@@ -114,8 +114,8 @@ final class ScreenshotTests: XCTestCase {
     @MainActor func testProvidersDark() throws { try page("providers", "dark", ["-openPage", "providers"]) { Self.text($0, "Rejected, 401") } }
     @MainActor func testSubscriptionsLight() throws { try page("subscriptions", "light", ["-openPage", "subscriptions"]) { Self.text($0, "work account") } }
     @MainActor func testSubscriptionsDark() throws { try page("subscriptions", "dark", ["-openPage", "subscriptions"]) { Self.text($0, "work account") } }
-    @MainActor func testRepoLight() throws { try page("repo", "light", ["-openChat", "s2"]) { Self.text($0, "fix-login-ab12") } }
-    @MainActor func testRepoDark() throws { try page("repo", "dark", ["-openChat", "s2"]) { Self.text($0, "fix-login-ab12") } }
+    @MainActor func testRepoLight() throws { try page("repo", "light", ["-openChat", "s2", "-emptyComposer"]) { Self.text($0, "fix-login-ab12") } }
+    @MainActor func testRepoDark() throws { try page("repo", "dark", ["-openChat", "s2", "-emptyComposer"]) { Self.text($0, "fix-login-ab12") } }
     @MainActor func testReflectLight() throws { try page("reflect", "light", ["-openPage", "reflect"]) { Self.text($0, "no, use pnpm here") } }
     @MainActor func testRemoteLight() throws { try page("remote", "light", ["-openPage", "remote"]) { Self.text($0, "Wi-Fi 192.168.1.20") } }
     @MainActor func testPeopleLight() throws { try page("people", "light", ["-openPage", "people"]) { Self.text($0, "Sam Lee") } }
@@ -134,6 +134,34 @@ final class ScreenshotTests: XCTestCase {
         }
     }
 
+    @MainActor func testSignedInLight() throws { try settingsAt("signedin", "light", "Pixel 8") }
+    @MainActor func testPrivacyLight() throws { try settingsAt("privacy", "light", "Lock with Face ID") }
+    @MainActor func testPrivacyDark() throws { try settingsAt("privacy", "dark", "Lock with Face ID") }
+    @MainActor func testMoveToCodeLight() throws { try moveToCode("light") }
+    @MainActor func testMoveToCodeDark() throws { try moveToCode("dark") }
+
+    /// Settings scrolled until `text` is on screen.
+    @MainActor
+    private func settingsAt(_ name: String, _ appearance: String, _ text: String) throws {
+        try page(name, appearance, ["-openPage", "settings"]) { app in
+            let row = Self.text(app, text)
+            for _ in 0..<8 where !(row.exists && row.isHittable) { app.swipeUp() }
+            return row
+        }
+    }
+
+    /// A chat's menu, Move to Code: agent, device, folder, mode.
+    @MainActor
+    private func moveToCode(_ appearance: String) throws {
+        try page("movecode", appearance, ["-openChat", "s1"]) { app in
+            let b = app.buttons["session-menu"]
+            if b.waitForExistence(timeout: 12) { sleep(1); b.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap() }
+            let item = app.buttons["Move to Code"]
+            if item.waitForExistence(timeout: 6) { item.tap() }
+            return Self.text(app, "Keep this chat in Chats")
+        }
+    }
+
     @MainActor func testSlashLight() throws { try slash("light") }
     @MainActor func testSlashDark() throws { try slash("dark") }
     @MainActor func testCheckpointsLight() throws { try checkpoints("light") }
@@ -142,8 +170,8 @@ final class ScreenshotTests: XCTestCase {
     /// "/" typed in the composer: /btw, then the hub's commands.
     @MainActor
     private func slash(_ appearance: String) throws {
-        // s7 has no saved draft, so "/" is the whole box
-        try page("slash", appearance, ["-openChat", "s7"]) { app in
+        // an empty box, so "/" is the whole draft and the menu opens
+        try page("slash", appearance, ["-openChat", "s7", "-emptyComposer"]) { app in
             let box = app.textViews["composer"]
             if box.waitForExistence(timeout: 12) { sleep(1); box.tap(); box.typeText("/") }
             let row = Self.text(app, "Use /compact")

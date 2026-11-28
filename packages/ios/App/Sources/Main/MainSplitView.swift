@@ -89,7 +89,9 @@ struct MainSplitView: View {
                 selection = selection ?? d.string(forKey: "openChat")
                 page = page ?? d.string(forKey: "openPage").flatMap(SidePage.init)
                 if d.string(forKey: "inspectorTab") != nil { showInspector = true }
-                if ProcessInfo.processInfo.arguments.contains("-mockHub"), let id = selection { MockHub.fillComposer(hub.chat(id)) }
+                // `-emptyComposer`: shots that type into the box start it empty
+                let args = ProcessInfo.processInfo.arguments
+                if args.contains("-mockHub"), !args.contains("-emptyComposer"), let id = selection { MockHub.fillComposer(hub.chat(id)) }
             }
             #endif
             // chrome icons in fg-2 as the web's (no accent on the sidebar toggles); content sets signal where it means focus
