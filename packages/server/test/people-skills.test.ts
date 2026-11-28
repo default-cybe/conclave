@@ -110,6 +110,11 @@ describe('per-account extensions', () => {
     expect(aSkills.some((k) => k.name === 'alice-zq-skill' && k.source === 'account')).toBe(true);
     expect(aSkills.some((k) => k.source === 'builtin')).toBe(true);
     expect(names((await call(tok.alice, 'GET', '/api/commands')).body)).toContain('alice-zq-cmd');
+    // ?builtins=1 puts the hub's own commands first, for Android's "/" menu; without it the list is unchanged
+    const withBuiltins = (await call(tok.alice, 'GET', '/api/commands?builtins=1')).body as Array<{ name: string; source: string }>;
+    expect(withBuiltins[0].source).toBe('builtin');
+    expect(names(withBuiltins)).toEqual(expect.arrayContaining(['compact', 'init', 'clear', 'export', 'alice-zq-cmd']));
+    expect(names((await call(tok.alice, 'GET', '/api/commands')).body)).not.toContain('compact');
     expect(names((await call(tok.alice, 'GET', '/api/workflows')).body)).toContain('alice-zq-flow');
     expect((await call(tok.alice, 'GET', '/api/workflows/alice-zq-flow')).status).toBe(200);
     expect(names((await call(tok.alice, 'GET', '/api/skills/learned')).body)).toEqual(['alice-zq-skill']);

@@ -19,6 +19,7 @@ import type {
 import type { SessionFilter } from '@conclave/core/storage/repos.ts';
 import type { RoutineInput } from '@conclave/core/scheduler/types.ts';
 import type { AgentDef } from '@conclave/core/extensions/types.ts';
+import { builtinCommands } from '@conclave/core/extensions/builtin-commands.ts';
 import { rolesProblem } from '@conclave/core/security/roles.ts';
 import type { MemoryInput } from '@conclave/core/memory/types.ts';
 import { deepMerge, SECRET_NAME, workflowsProblem } from '@conclave/core/config/index.ts';
@@ -848,7 +849,14 @@ export function registerRoutes(app: Hono<HonoEnv>, ctx: ServerContext): void {
 
   // a member sees the skills and commands that ship, plugin ones and their own, never the owner's or another member's
   app.get('/api/skills', (c) => c.json(engine.skillsFor(accountOf(c))));
-  app.get('/api/commands', (c) => c.json(engine.commandsFor(accountOf(c))));
+  // ?builtins=1: the hub's own commands first (source builtin), for a client with no list of its own (Android); a built-in wins a name
+  app.get('/api/commands', (c) => {
+    const custom = engine.commandsFor(accountOf(c));
+    if (qBool(c.req.query('builtins')) !== true) return c.json(custom);
+    const builtins = builtinCommands();
+    const taken = new Set(builtins.map((b) => b.name));
+    return c.json([...builtins, ...custom.filter((x) => !taken.has(x.name))]);
+  });
   app.get('/api/mcp', (c) => c.json(engine.mcpStatus()));
   app.get('/api/plugins', (c) => c.json(engine.extensions.plugins()));
 
