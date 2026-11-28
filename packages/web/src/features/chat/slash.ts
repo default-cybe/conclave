@@ -35,9 +35,9 @@ export interface SlashItem {
 }
 
 /** The commands a bare "/" lists first, so skills show without scrolling. The rest are one row away. */
-export const TOP_COMMANDS = ['clear', 'compact', 'context', 'help', 'mcp', 'model', 'permissions', 'resume'];
+export const TOP_COMMANDS = ['btw', 'clear', 'compact', 'context', 'help', 'mcp', 'model', 'permissions', 'resume'];
 /** Phones have room for fewer before the skills. */
-export const PHONE_TOP_COMMANDS = ['compact', 'context', 'help', 'mcp', 'model'];
+export const PHONE_TOP_COMMANDS = ['btw', 'compact', 'context', 'help', 'mcp', 'model'];
 
 /**
  * What the menu lists for what follows "/". Typing searches everything. A
@@ -117,6 +117,17 @@ const BUILTINS: Builtin[] = [
 export function builtinCommands(mode: SlashMode): SlashItem[] {
   return BUILTINS.filter((b) => b.modes.includes(mode)).map(({ modes: _m, ...b }) => ({ ...b, section: 'commands' as const }));
 }
+
+/**
+ * The commands of a chat's "/" menu (ChatComposer.tsx runs them): the Chat-mode
+ * set without the sheets a chat has no place for; /cost and /status open the
+ * context ring, /model the model picker.
+ */
+export const CHAT_COMMAND_NAMES = ['btw', 'compact', 'cost', 'export', 'fork', 'model', 'new', 'rewind', 'status'];
+const CHAT_WORDS: Record<string, string> = { new: 'Start a new chat', fork: 'Branch this chat from the last reply', cost: 'Tokens, cost and context of this chat', status: 'Model, plan and context of this chat', export: 'Download this chat' };
+export const CHAT_COMMANDS: SlashItem[] = builtinCommands('chat')
+  .filter((c) => CHAT_COMMAND_NAMES.includes(c.name))
+  .map(({ sheet: _s, ...c }) => ({ ...c, description: CHAT_WORDS[c.name] ?? c.description }));
 
 /** The mode of the "/" menu for a session: Chat mode (no tools) gets the small set. */
 export function slashMode(s: { mode: string; kind?: string }): SlashMode {

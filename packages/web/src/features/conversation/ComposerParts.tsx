@@ -34,6 +34,7 @@ import { useIsMobile } from '@/lib/hooks';
 import { modelName } from '@/lib/models';
 import { effortLabel, effortMenu, shownEffort, useModelEffort, type EffortSetting, type ModelEffort as EffortLevels } from '@/lib/effort';
 import { MenuList, Popover, type MenuItem } from '@/components/ui/Overlay';
+import { Tooltip } from '@/components/ui/Tooltip';
 import { OnOff, Segmented } from '@/components/ui/Field';
 import { LimitRow } from '@/components/ui/Meter';
 import { windowApplies } from '@conclave/core/accounts/windows';
@@ -47,6 +48,7 @@ import { PickerButton, SelectMenu } from '@/components/ui/Select';
 import { ModelList } from '@/components/pickers/ModelPicker';
 import { SwitchModelList } from '@/features/chat/SwitchChoice';
 import { SameModelDot } from './PhoneBox';
+import { compactChat } from './actions';
 
 // ---------------------------------------------------------------------------
 // Effort
@@ -334,7 +336,7 @@ export function ContextRing({ session, model }: { session?: Session; model?: str
   const label = u.used ? `Context, ${pct}% used` : 'Context, nothing used yet';
   return (
     <>
-      <button ref={ref} type="button" aria-label={label} aria-haspopup="dialog" aria-expanded={open} onClick={() => setOpen((o) => !o)} className="grid size-6 shrink-0 place-items-center rounded-full text-fg-3 hov:bg-hover hov:text-fg phone:size-9">
+      <button ref={ref} type="button" data-chip="context" aria-label={label} aria-haspopup="dialog" aria-expanded={open} onClick={() => setOpen((o) => !o)} className="grid size-6 shrink-0 place-items-center rounded-full text-fg-3 hov:bg-hover hov:text-fg phone:size-9">
         <svg viewBox="0 0 14 14" className="size-3.5 -rotate-90" aria-hidden>
           <circle cx="7" cy="7" r={r} fill="none" stroke="var(--rule-2)" strokeWidth="1.5" />
           <circle cx="7" cy="7" r={r} fill="none" stroke={u.share > 0.8 ? 'var(--warn)' : 'currentColor'} strokeWidth="1.5" strokeDasharray={c} strokeDashoffset={c * (1 - u.share)} strokeLinecap="round" />
@@ -363,7 +365,21 @@ function ContextDetails({ anchor, open, onClose, session, model }: { anchor: Ref
           </>
         )}
       </dl>
-      <div className="border-t border-rule px-3 py-2 text-[12px] phone:text-[13px]">
+      <div className="flex items-center gap-4 border-t border-rule px-3 py-2 text-[12px] phone:text-[13px]">
+        {/* /compact where the context shows: older messages become a summary, the chat stays */}
+        {session && u.used > 0 && (
+          <button
+            type="button"
+            title="Summarize older messages to free context"
+            className="link phone:min-h-11"
+            onClick={() => {
+              onClose();
+              void compactChat(session.id);
+            }}
+          >
+            Compact
+          </button>
+        )}
         <Link href="/usage" className="link" onClick={onClose}>
           Usage
         </Link>
@@ -413,6 +429,17 @@ export function PlusMenu({ items, onFiles, accept, label = 'Add files and more' 
         <MenuList items={all} onDone={() => setOpen(false)} label={label} />
       </Popover>
     </>
+  );
+}
+
+/** "Ask aside" beside Stop while a turn runs: /btw goes in the box, and what was typed becomes the side question. */
+export function AskAside({ onClick }: { onClick: () => void }) {
+  return (
+    <Tooltip content="Ask a side question. The running turn never sees it">
+      <button type="button" onClick={onClick} className="h-[26px] shrink-0 rounded-full px-2.5 text-[12px] font-medium text-fg-3 transition-colors duration-[var(--dur-1)] hov:bg-hover hov:text-fg">
+        Ask aside
+      </button>
+    </Tooltip>
   );
 }
 
@@ -494,6 +521,14 @@ export interface TurnOption {
   onSecurity?: (on: boolean) => void;
 }
 
+/** Web search of a chat (chat.webSearch), a row of Options so "No web" shows on the chip. */
+export interface WebOption {
+  on: boolean;
+  onChange: (on: boolean) => void;
+}
+
+export const WEB_HELP = 'Look things up and cite sources';
+
 /** Changes the chip always spells out, never folded into "+1": the risky ones (design review, "never hidden"). */
 const RISKY = new Set(['No memory', 'Security']);
 
@@ -502,11 +537,12 @@ const RISKY = new Set(['No memory', 'Security']);
  * memory" is never the part left out, then Security, the style ("Plan"),
  * Ultra, an agent other than the default, Same model and a Cyber access program.
  */
-export function optionsChanges({ style, agent, memory, turn }: { style?: Pick<StyleOption, 'mode' | 'ultra' | 'onUltra'>; agent?: Pick<AgentOption, 'value' | 'agents'>; memory?: MemoryMode; turn?: TurnOption }): string[] {
+export function optionsChanges({ style, agent, memory, web, turn }: { style?: Pick<StyleOption, 'mode' | 'ultra' | 'onUltra'>; agent?: Pick<AgentOption, 'value' | 'agents'>; memory?: MemoryMode; web?: Pick<WebOption, 'on'>; turn?: TurnOption }): string[] {
   const mode = style && style.mode !== 'agent' ? MODES.find((m) => m.value === style.mode)?.label : undefined;
   const custom = agent?.value && agent.value !== agent.agents[0]?.name ? agent.value : undefined;
   return [
     memory && memory !== 'save' ? MEMORY_WORDS[memory] : undefined,
+    web && !web.on ? 'No web' : undefined,
     turn?.onSecurity && turn.security ? 'Security' : undefined,
     mode,
     style?.onUltra && style.ultra ? 'Ultra' : undefined,
@@ -527,14 +563,15 @@ export function optionsWords(changes: string[]): string {
 /**
  * "Options" (design review #6): one chip for how a turn runs, in place of the
  * agent, style and memory chips. Its menu: Working style (Agent, Chat, Plan,
- * then a "More styles" fold with Jury, Debate, Loop and Ultra, design review
- * #4), the agent (Code), memory, then the conversation's switches (`turn`:
+ * Ultra where the session takes it, then a "More styles" fold with Jury,
+ * Debate and Loop, design review #4), the agent (Code), web search (a chat),
+ * memory, then the conversation's switches (`turn`:
  * Same model for all work, Security, Cyber access; design review #7). The
  * fold starts open while one of those is on; a toggle by hand lasts until
  * the menu closes. Nothing to offer (a new incognito chat on a model with no
  * Cyber access): no chip.
  */
-export function OptionsChip({ style, agent, memory, turn }: { style?: StyleOption; agent?: AgentOption; memory?: { value: MemoryMode; onChange: (m: MemoryMode) => void }; turn?: TurnOption }) {
+export function OptionsChip({ style, agent, memory, web, turn }: { style?: StyleOption; agent?: AgentOption; memory?: { value: MemoryMode; onChange: (m: MemoryMode) => void }; web?: WebOption; turn?: TurnOption }) {
   const [fold, setFold] = useState<boolean>();
   const phone = useIsMobile();
   const cyberChoices = useCyberChoices(turn?.onCyber ? turn.model : undefined);
@@ -542,21 +579,25 @@ export function OptionsChip({ style, agent, memory, turn }: { style?: StyleOptio
   if (style) {
     const { mode, onMode, ultra, onUltra } = style;
     const cur = MODES.find((m) => m.value === mode) ?? MODES[0];
-    const more = fold ?? (!!cur.more || (!!onUltra && !!ultra));
+    const more = fold ?? !!cur.more;
     const row = (m: (typeof MODES)[number]): MenuItem => ({ label: m.label, detail: m.description, checked: m.value === mode, onSelect: () => m.value !== mode && onMode(m.value) });
     items.push(
       { group: true, label: STYLE_HEADING },
       ...MODES.filter((m) => !m.more).map(row),
+      // Ultra is a switch on top of any style, so it sits in view, not in the fold (hidden-features 2.11)
+      ...(onUltra ? [{ label: 'Ultra', detail: ULTRA_LINE, checked: !!ultra, keep: true, onSelect: () => onUltra(!ultra) }] : []),
       { separator: true, label: '' },
       { label: MORE_STYLES, hint: <ChevronDown size={14} className={cn('transition-transform', more && 'rotate-180')} aria-hidden />, expanded: more, keep: true, onSelect: () => setFold(!more) },
       ...(more ? MODES.filter((m) => m.more).map(row) : []),
-      // Ultra off keeps the fold open under the row just used
-      ...(more && onUltra ? [{ label: 'Ultra', detail: ULTRA_LINE, checked: !!ultra, keep: true, onSelect: () => (setFold(true), onUltra(!ultra)) }] : []),
     );
   }
   if (agent) {
     if (items.length) items.push({ separator: true, label: '' });
     items.push({ group: true, label: 'Agent' }, ...agent.agents.map((a) => ({ label: a.name, detail: a.description, checked: a.name === agent.value, onSelect: () => a.name !== agent.value && agent.onChange(a.name) })));
+  }
+  if (web) {
+    if (items.length) items.push({ separator: true, label: '' });
+    items.push({ label: 'Search the web', detail: WEB_HELP, checked: web.on, keep: true, onSelect: () => web.onChange(!web.on) });
   }
   if (memory) {
     if (items.length) items.push({ separator: true, label: '' });
@@ -573,7 +614,7 @@ export function OptionsChip({ style, agent, memory, turn }: { style?: StyleOptio
     items.push({ group: true, label: 'Cyber access' }, ...[undefined, ...cyberChoices].map((o): MenuItem => ({ label: o ? cyberLabel(o) : 'Default', checked: turn.cyber === o, onSelect: () => turn.cyber !== o && turn.onCyber!(o) })));
   }
   if (!items.length) return null;
-  const changes = optionsChanges({ style, agent, memory: memory?.value, turn: turn && { ...turn, onCyber: cyberChoices?.length ? turn.onCyber : undefined } });
+  const changes = optionsChanges({ style, agent, memory: memory?.value, web, turn: turn && { ...turn, onCyber: cyberChoices?.length ? turn.onCyber : undefined } });
   // a phone's row stays one line: at the defaults Options is an icon; a change ("No memory") is always in words
   const words = phone && !changes.length ? <Settings2 className="size-4" strokeWidth={1.75} aria-hidden /> : optionsWords(changes);
   // a change from the defaults reads a step brighter than the quiet row, "No memory" among them

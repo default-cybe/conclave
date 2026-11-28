@@ -19,7 +19,7 @@ import type { Message, Session } from '@conclave/core/types';
 import { toolResultsFor, useHub, useQueue, type HubState } from '@/store/store';
 import { replacesPending } from '@/store/queue';
 import { hhmm } from '@/lib/format';
-import { useNow } from '@/lib/hooks';
+import { useLoad, useNow } from '@/lib/hooks';
 import { cn } from '@/lib/text';
 import { modelName } from '@/lib/models';
 import { asksBelow, asksOf } from '@/lib/asks';
@@ -34,7 +34,8 @@ import { AssistantTurn, SecondOpinion, UserMessage } from './Turn';
 import { PendingMessages } from './Pending';
 import { DebateGroup, JuryGroup, type GroupUnit } from './Group';
 import { revealOnMount, toolInfo } from './ToolRows';
-import { isContextOnly, isToolResultOnly, msgText, turnStartedAt } from './util';
+import { COMPOSE_EVENT, isContextOnly, isToolResultOnly, msgText, turnStartedAt, type ComposeDetail } from './util';
+import { api } from '@/lib/api';
 import { fillDirection, grow, idleDirection, mountedRange, nearEdge, openSpan, partsOf, sticks, unitIndexOf, type Direction, type Span } from './window';
 
 export type Unit =
@@ -485,6 +486,30 @@ export class KeepPlace extends Component<{ session: string; start: number; scrol
   }
 }
 
+/** Files an agent reads first in a folder; with neither, /init offers to write AGENTS.md. */
+export const AGENT_FILES = ['AGENTS.md', 'CLAUDE.md'];
+
+/**
+ * "Set up AGENTS.md" in a new Code session whose folder has no AGENTS.md or
+ * CLAUDE.md: puts /init in the box (slash.ts INIT_PROMPT). Unknown (device
+ * offline, home folder): nothing.
+ */
+function InitHint({ session }: { session: Session }) {
+  const coding = session.mode === 'agent' || session.mode === 'plan' || session.mode === 'loop';
+  const at = coding && session.cwd && session.cwd !== '~' ? session.cwd : undefined;
+  const files = useLoad(async () => (at ? api().browse(session.device, at) : undefined), [session.device, at]);
+  if (!at || !files.data || files.data.some((f) => AGENT_FILES.includes(f.name))) return null;
+  return (
+    <span className="mt-3 block text-[13px] text-fg-3">
+      No AGENTS.md here yet.{' '}
+      <button type="button" className="link" onClick={() => window.dispatchEvent(new CustomEvent<ComposeDetail>(COMPOSE_EVENT, { detail: { sessionId: session.id, text: '/init' } }))}>
+        Set up AGENTS.md
+      </button>{' '}
+      so agents learn how to build and test this project.
+    </span>
+  );
+}
+
 /** A new session: what it will do and where, built from the session. */
 function EmptyChat({ session }: { session: Session }) {
   const device = useHub((s) => s.devices[session.device]?.name ?? session.device);
@@ -505,6 +530,7 @@ function EmptyChat({ session }: { session: Session }) {
       <EmptyState ascii>
         {line} Type <span className="mono text-fg">/</span> for commands or <span className="mono text-fg">@</span> for files.
         {agent && mode !== 'jury' && mode !== 'debate' && <span className="mt-1 block text-[13px] text-fg-3">{session.agent}: {agent}</span>}
+        {session.kind !== 'chat' && <InitHint session={session} />}
       </EmptyState>
     </div>
   );

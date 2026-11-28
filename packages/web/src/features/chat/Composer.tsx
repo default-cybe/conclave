@@ -50,11 +50,13 @@ import { moveSessionTo } from './FolderChooser';
 import { MODES } from './modes';
 import { UltraSwitch } from '../workflows/UltraSwitch';
 import { GrantChip } from './GrantChip';
-import { AttachmentStrip, ContextRing, memoryModeOf, memoryPatch, ModelEffort, OptionsChip, PlusMenu, QuietRow, readPickedFor, useAgentFollow, type StripFile } from '@/features/conversation/ComposerParts';
+import { AskAside, AttachmentStrip, ContextRing, memoryModeOf, memoryPatch, ModelEffort, OptionsChip, PlusMenu, QuietRow, readPickedFor, useAgentFollow, type StripFile } from '@/features/conversation/ComposerParts';
 import { FolderChip } from '@/features/home/Where';
 import { CODE_AGENT, customAgent, modeOf } from '@/features/home/start';
 import { useModeOn } from '@/features/home/modes';
-import { COMPOSE_EVENT, downloadExport, isReminder, type ComposeDetail } from './util';
+import { COMPOSE_EVENT, downloadExport, type ComposeDetail } from './util';
+import { compactChat, rewindLast } from '@/features/conversation/actions';
+import { readDesign } from '@conclave/core/session/design-directions';
 import { sessionRepo } from '@/lib/github';
 import { findSlash, INIT_PROMPT, menuList, PHONE_TOP_COMMANDS, pickAction, SECTION_WORDS, slashItems, slashMode, type SheetId, type SlashItem } from './slash';
 import { SessionSheets } from './sheets/SessionSheets';
@@ -228,18 +230,10 @@ export function Composer({ session, narrow }: { session: Session; /** A column o
         }
         return;
       }
-      case 'rewind': {
-        const lastUser = [...(messages ?? [])].reverse().find((m) => m.role === 'user' && m.content.some((b) => b.type === 'text' && !isReminder(b)));
-        if (!lastUser) return;
-        const s = await attempt(() => api().rewind(session.id, lastUser.seq - 1));
-        if (s) upsertSession(s);
-        return;
-      }
-      case 'compact': {
-        const r = await attempt(() => api().compact(session.id, a || undefined));
-        if (r) toast({ title: r.compacted === false ? 'Nothing to compact yet.' : 'Compacted older messages.', level: 'info' });
-        return;
-      }
+      case 'rewind':
+        return rewindLast(session);
+      case 'compact':
+        return compactChat(session.id, a);
       case 'export':
         return downloadExport(session, a === 'json' ? 'json' : 'md');
       case 'clear': {
@@ -629,15 +623,15 @@ export function Composer({ session, narrow }: { session: Session; /** A column o
       </div>
     );
 
-  // "+" is the files only: agent, mode, Ultra and memory are chips, the device is the chip at the left
-  const plus: MenuItem[] = [];
+  // "+" is the files and Code's design direction: agent, mode, Ultra and memory are in Options, the device is the chip at the left
+  const plus: MenuItem[] = code ? [{ label: 'Design direction…', detail: readDesign(session.meta) ? 'Set for this session' : 'How UI changes should look', onSelect: () => setPanel('design') }] : [];
   const cfg = session.modeConfig ?? {};
   const left = (
     <>
       {!mineRow && <LaneChip session={session} />}
       {permission('h-[24px] text-[12px]')}
-      {session.mode === 'jury' && <JurorsPicker look="text" value={cfg.jury} onChange={(jury) => void patch({ modeConfig: { ...cfg, jury } })} className="h-[24px] text-[12px]" />}
-      {session.mode === 'debate' && <DebatersPicker look="text" value={cfg.debate} onChange={(debate) => void patch({ modeConfig: { ...cfg, debate } })} className="h-[24px] text-[12px]" />}
+      {session.mode === 'jury' && <JurorsPicker look="text" value={cfg.jury} onChange={(jury) => void patch({ modeConfig: { ...cfg, jury } })} judgeFallback={session.model} className="h-[24px] text-[12px]" />}
+      {session.mode === 'debate' && <DebatersPicker look="text" value={cfg.debate} onChange={(debate) => void patch({ modeConfig: { ...cfg, debate } })} judgeFallback={session.model} className="h-[24px] text-[12px]" />}
       {agentDef?.recipes?.includes('scope-guard') && <GrantChip sessionId={session.id} />}
       {session.mode === 'loop' && <LoopPicker look="text" value={cfg.loop} onChange={(loop) => void patch({ modeConfig: { ...cfg, loop } })} className="h-[24px] text-[12px]" />}
       {folders && !narrow && <FolderChip device={session.device} cwd={session.cwd} onCwd={sessionRepo(session) ? undefined : (cwd) => void patch({ cwd })} onDevice={(id) => void moveSessionTo(session, id)} />}
@@ -695,6 +689,8 @@ export function Composer({ session, narrow }: { session: Session; /** A column o
             </Tooltip>
           )}
           <span className="flex-1" />
+          {/* a side question while the turn runs (/btw), next to Stop */}
+          {(running || waitingOnYou) && !mineRow && !/^\/btw\b/i.test(text) && <AskAside onClick={() => (setText((t) => `/btw ${t.trimStart()}`), box.current?.focus())} />}
           {running && hasText && (
             <Button variant="quiet" busy={sending === 'steer'} onClick={() => send(text, 'steer')} title={`Add this to the running turn now (${MOD}↵)`}>
               Steer

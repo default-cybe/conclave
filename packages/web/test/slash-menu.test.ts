@@ -148,3 +148,15 @@ describe('/context bar', () => {
     expect(s).toEqual({ system: 5, tools: 10, messages: 25, toolOutput: 100 });
   });
 });
+
+describe("a chat's own commands", () => {
+  test('a chat lists /btw, /compact, /rewind and the rest it can run; none opens a session sheet', async () => {
+    const { CHAT_COMMANDS, CHAT_COMMAND_NAMES } = await import('../src/features/chat/slash');
+    expect(CHAT_COMMANDS.map((c) => c.name).sort()).toEqual([...CHAT_COMMAND_NAMES].sort());
+    expect(CHAT_COMMANDS.every((c) => !c.sheet)).toBe(true);
+    // /btw is in the first rows of a bare "/" (hidden-features 2.4)
+    expect(TOP_COMMANDS).toContain('btw');
+    expect(findSlash(CHAT_COMMANDS, 'compact')?.name).toBe('compact');
+    expect(findSlash(CHAT_COMMANDS, 'init')).toBeUndefined();
+  });
+});

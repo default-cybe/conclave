@@ -10,6 +10,7 @@ import { DEFAULT_LANE, detectLanes, laneOf } from '@conclave/core/security/lanes
 import { managedBy, type SecretInfo } from '@conclave/core/config/secret-names';
 import { isDelegated, movedSession, movedToMain } from '@conclave/core/session/delegated';
 import { askOnceUsd, isCheapTarget, summaryUsd, SUGGEST_BRIEF_USD, SWITCH_BRIEF_AT, switchMath } from '@conclave/core/modes/switch-math';
+import { ROUTINE_TEMPLATES } from '@conclave/core/scheduler/templates';
 import * as D from './data';
 import { registerExtensionCatalog } from './ext-catalog';
 import { registerExtensionRuntime } from './ext-runtime';
@@ -1010,6 +1011,7 @@ function mockContext(id: string): ContextUsageDto {
 on('POST', '/api/sessions/:id/command', ({ body }) => ({ ok: true, output: `Ran ${body.line}` }));
 on('GET', '/api/sessions/:id/todos', ({ params }) => db.todos.get(params[0]) ?? []);
 on('GET', '/api/sessions/:id/checkpoints', ({ params }) => D.checkpoints[params[0]] ?? []);
+on('POST', '/api/sessions/:id/checkpoints/:cp/restore', () => ({ ok: true }));
 on('GET', '/api/sessions/:id/shells', () => []);
 on('GET', '/api/sessions/:id/diff', ({ params }) => (params[0] === 's_auth' ? D.sessionDiff : { diff: '', files: [] }));
 on('GET', '/api/sessions/:id/export', ({ params, query }) => {
@@ -1152,6 +1154,14 @@ on('PATCH', '/api/routines/:id', ({ params, body }) => {
   if (!r) return notFound();
   Object.assign(r, body, { updatedAt: Date.now() });
   if (body.schedule) r.nextRunAt = previewSchedule(body.schedule).next[0];
+  emit({ type: 'routine.updated', routine: { ...r } });
+  return r;
+});
+on('POST', '/api/routines/:id/upgrade', ({ params }) => {
+  const r = db.routines.get(params[0]);
+  const t = ROUTINE_TEMPLATES.find((x) => x.id === r?.template);
+  if (!r || !t) return notFound();
+  Object.assign(r, { prompt: t.prompt, updatedAt: Date.now() });
   emit({ type: 'routine.updated', routine: { ...r } });
   return r;
 });
