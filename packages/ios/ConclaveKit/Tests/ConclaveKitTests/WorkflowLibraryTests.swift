@@ -35,6 +35,22 @@ struct WorkflowLibraryTests {
         #expect(l[1].portable)
     }
 
+    @Test func keyOrderReadsTheTextOrder() {
+        let text = #"""
+        [ {"a":1,"argsSchema":{"zeta":{"d":"x,}"},"al\"pha":{"n":[1,{"argsSchema":{}}]},"mid":true}},
+          {"argsSchema":null}, 7, {"x":{"argsSchema":{"inner":1}},"argsSchema":{}} ]
+        """#
+        let o = JSONKeyOrder.keys(ofField: "argsSchema", inArray: Data(text.utf8))
+        #expect(o?.count == 4)
+        #expect(o?[0] == ["zeta", "al\"pha", "mid"])
+        #expect(o?[1] == nil)
+        #expect(o?[2] == nil)
+        // a nested argsSchema is not the element's own
+        #expect(o?[3] == [])
+        #expect(JSONKeyOrder.keys(ofField: "argsSchema", inArray: Data("[]".utf8)) == [])
+        #expect(JSONKeyOrder.keys(ofField: "argsSchema", inArray: Data(#"{"a":1}"#.utf8)) == nil)
+    }
+
     @Test func presetsStartAndFindingsHitTheirRoutes() async throws {
         let hub = MockHub()
         let c = hub.client()

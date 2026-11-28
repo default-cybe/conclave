@@ -110,6 +110,32 @@ final class ScreenshotTests: XCTestCase {
     @MainActor func testLaunchDark() throws { try page("launch", "dark", ["-openPage", "workflows", "-openWorkflow", "review-changes"]) { Self.text($0, "ios branch") } }
     @MainActor func testFindingsLight() throws { try page("findings", "light", ["-openPage", "workflows", "-openRun", "wfr_review"]) { Self.text($0, "Refuters dropped") } }
     @MainActor func testFindingsDark() throws { try page("findings", "dark", ["-openPage", "workflows", "-openRun", "wfr_review"]) { Self.text($0, "Refuters dropped") } }
+    @MainActor func testSlashLight() throws { try slash("light") }
+    @MainActor func testSlashDark() throws { try slash("dark") }
+    @MainActor func testCheckpointsLight() throws { try checkpoints("light") }
+    @MainActor func testCheckpointsDark() throws { try checkpoints("dark") }
+
+    /// "/" typed in the composer: /btw, then the hub's commands.
+    @MainActor
+    private func slash(_ appearance: String) throws {
+        try page("slash", appearance, ["-openChat", "s2"]) { app in
+            let box = app.textViews["composer"]
+            if box.waitForExistence(timeout: 12) { sleep(1); box.tap(); box.typeText("/") }
+            return Self.text(app, "Use /compact")
+        }
+    }
+
+    /// The session menu's Checkpoints, each with Restore files only.
+    @MainActor
+    private func checkpoints(_ appearance: String) throws {
+        try page("checkpoints", appearance, ["-openChat", "s2"]) { app in
+            let b = app.buttons["session-menu"]
+            if b.waitForExistence(timeout: 12) { sleep(1); b.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap() }
+            let item = app.buttons["Checkpoints"]
+            if item.waitForExistence(timeout: 6) { item.tap() }
+            return app.buttons["Restore files only"].firstMatch
+        }
+    }
 
     /// Any element whose label holds `s`: a row's title may be a Button's label, not a StaticText.
     @MainActor private static func text(_ app: XCUIApplication, _ s: String) -> XCUIElement {

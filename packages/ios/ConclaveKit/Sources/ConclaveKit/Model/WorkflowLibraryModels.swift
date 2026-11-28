@@ -83,7 +83,7 @@ public struct WorkflowSummary: Sendable, Hashable, Decodable, Identifiable {
         whenToUse = try c.opt(.whenToUse)
         source = try c.or(.source, "user")
         if let s = try? c.nestedContainer(keyedBy: Key.self, forKey: .argsSchema) {
-            // shortcut: allKeys follows the JSON order on Apple's decoder but is not promised; sort if it ever shuffles
+            // allKeys has no order; ConclaveClient.workflows() puts the fields back in the JSON's order (JSONKeyOrder)
             argsSchema = s.allKeys.map { k in
                 let f = try? s.decode(Field.self, forKey: k)
                 return WorkflowArgField(k.stringValue, type: f?.type ?? "string", description: f?.description)

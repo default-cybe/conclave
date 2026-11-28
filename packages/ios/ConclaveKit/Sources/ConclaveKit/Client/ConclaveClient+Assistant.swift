@@ -32,8 +32,19 @@ extension ConclaveClient {
         return try await send("POST", ["api", "workflows", "runs", runId, "rerun"], JSONValue.object(body))
     }
 
-    /// GET /api/workflows: the library (built in, project, yours, plugins).
-    public func workflows() async throws -> [WorkflowSummary] { try await get(["api", "workflows"]) }
+    /// GET /api/workflows: the library (built in, project, yours, plugins). Each workflow's args keep the order the hub's JSON has them (the script's
+    /// own), as the web's form lists them; JSONDecoder alone loses it.
+    public func workflows() async throws -> [WorkflowSummary] {
+        let (data, _) = try await request("GET", ["api", "workflows"])
+        var list = try Wire.decoder().decode([WorkflowSummary].self, from: data)
+        if let orders = JSONKeyOrder.keys(ofField: "argsSchema", inArray: data), orders.count == list.count {
+            for (i, order) in orders.enumerated() {
+                guard let order, let fields = list[i].argsSchema else { continue }
+                list[i].argsSchema = fields.sorted { (order.firstIndex(of: $0.name) ?? .max) < (order.firstIndex(of: $1.name) ?? .max) }
+            }
+        }
+        return list
+    }
 
     public func workflowPresets(_ id: String) async throws -> [WorkflowPreset] { try await get(["api", "workflows", id, "presets"]) }
 

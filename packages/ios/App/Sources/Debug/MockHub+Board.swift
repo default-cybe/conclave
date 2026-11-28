@@ -31,6 +31,31 @@ extension MockHub {
             default: return nil
             }
         }
+        // the "/" menu, Checkpoints, commands and /btw (ConclaveClient+Commands)
+        if p == ["api", "commands"] {
+            return (200, boardJSON([
+                ["name": "clear", "description": "Clear the conversation and start fresh", "source": "builtin", "chat": true, "body": ""],
+                ["name": "compact", "description": "Summarize older messages to free context", "argumentHint": "[instructions]", "source": "builtin", "chat": true, "body": ""],
+                ["name": "cost", "description": "Tokens and cost of this session", "source": "builtin", "chat": true, "body": ""],
+                ["name": "export", "description": "Share this session as Markdown", "source": "builtin", "chat": true, "body": ""],
+                ["name": "fork", "description": "Fork this session", "source": "builtin", "chat": true, "body": ""],
+                ["name": "init", "description": "Write an AGENTS.md that explains this project", "source": "builtin", "body": ""],
+                ["name": "review", "description": "Second opinion on the last reply", "argumentHint": "[model]", "source": "builtin", "body": ""],
+                ["name": "ship", "description": "Run the tests, then open a pull request", "source": "user", "body": "x"],
+            ] as [[String: Any]]))
+        }
+        if p.count == 4, p[0] == "api", p[1] == "sessions" {
+            switch (method, p[3]) {
+            case ("GET", "checkpoints"):
+                return (200, boardJSON([["id": "cp2", "sessionId": p[2], "seq": 14, "commit": "9f3c2a71bd", "files": 3, "createdAt": boardAgo(12)],
+                                        ["id": "cp1", "sessionId": p[2], "seq": 6, "commit": "41ad0e9c55", "files": 1, "createdAt": boardAgo(95)]] as [[String: Any]]))
+            case ("POST", "command"): return (200, #"{"ok":true,"output":"Compacted."}"#)
+            case ("POST", "btw"): return (200, #"{"answer":"It reads the cache first, so the second run is fast."}"#)
+            case ("GET", "export"): return (200, #"{"content":"# Chat\n\nHello","filename":"chat.md"}"#)
+            default: break
+            }
+        }
+        if p.count == 6, p[0] == "api", p[1] == "sessions", p[3] == "checkpoints", p[5] == "restore" { return (200, #"{"ok":true}"#) }
         if p.count == 2, p[0] == "api", p[1] == "workflows", method == "GET" { return (200, boardJSON(library())) }
         if p.count >= 4, p[0] == "api", p[1] == "workflows", p[2] != "runs", p[3] == "presets" {
             switch method {
