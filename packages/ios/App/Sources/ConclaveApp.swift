@@ -15,6 +15,7 @@ struct ConclaveApp: App {
                 .onOpenURL { model.open($0) }
                 .preferredColorScheme(scheme)
                 .transaction { t in if reduceMotion, t.animation != nil { t.animation = .linear(duration: Motion.dur1) } }
+                .modifier(PrivacyCover())
         }
     }
 

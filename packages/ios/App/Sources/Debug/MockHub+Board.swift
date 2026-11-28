@@ -51,7 +51,7 @@ extension MockHub {
                                         ["id": "cp1", "sessionId": p[2], "seq": 6, "commit": "41ad0e9c55", "files": 1, "createdAt": boardAgo(95)]] as [[String: Any]]))
             case ("POST", "command"): return (200, #"{"ok":true,"output":"Compacted."}"#)
             case ("POST", "btw"): return (200, #"{"answer":"It reads the cache first, so the second run is fast."}"#)
-            case ("GET", "export"): return (200, #"{"content":"# Chat\n\nHello","filename":"chat.md"}"#)
+            case ("GET", "export"): return (200, ##"{"content":"# Chat\n\nHello","filename":"chat.md"}"##)
             default: break
             }
         }

@@ -8,6 +8,8 @@ struct SettingsView: View {
     @Environment(AppModel.self) private var model
     @AppStorage("theme") private var theme = "system"
     @AppStorage("reduceMotion") private var reduceMotion = false
+    @AppStorage("privacy.lock") private var lock = false
+    @AppStorage("privacy.hide") private var hide = false
     @State private var error: String?
     @State private var confirmForget = false
 
@@ -39,6 +41,14 @@ struct SettingsView: View {
                 }
                 CardRow(label: "Reduce motion", detail: "Cards and messages appear without moving. The system setting also turns it on.") {
                     Toggle("", isOn: $reduceMotion).labelsHidden().tint(Tone.signal)
+                }
+            }
+            CardSection(title: "Privacy", note: "The hub token is kept in the iOS Keychain on this device only and is never in a backup.") {
+                CardRow(label: "Lock with Face ID", detail: PrivacyCover.canLock ? "Ask for Face ID, Touch ID or the passcode when you come back to the app." : "Set a passcode on this device first.") {
+                    Toggle("Lock with Face ID", isOn: $lock).labelsHidden().tint(Tone.signal).disabled(!PrivacyCover.canLock && !lock)
+                }
+                CardRow(label: "Hide content", detail: "Blank the app in the app switcher.") {
+                    Toggle("Hide content", isOn: $hide).labelsHidden().tint(Tone.signal)
                 }
             }
             CardSection(title: "About") {
