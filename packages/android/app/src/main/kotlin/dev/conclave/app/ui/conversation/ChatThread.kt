@@ -528,6 +528,7 @@ fun ChatThreadScreen(
                 if (s.status == SessionStatus.PAUSED || (s.status == SessionStatus.IDLE && stoppedTurn)) add(SheetAction("Resume", onClick = then { vm.resume() }))
                 add(SheetAction("Rename", onClick = then { renaming = true }))
                 add(SheetAction("Add a note", onClick = then { addingNote = true }))
+                if (!running) add(SheetAction("Compact", onClick = then { vm.compact() }))
                 if (ShareWords.canSend(s)) add(SheetAction("Send to friend", onClick = then { sendingToFriend = true }))
                 add(SheetAction("Archive", onClick = then { vm.archive(onDone = onNewChat) }))
                 add(SheetAction("Move to Code", onClick = then { continuing = true }))

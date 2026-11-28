@@ -8,6 +8,7 @@ import { newId } from '../util/ids';
 import { oneLine } from '../util/text';
 import { reminder } from '../session/transcript';
 import { projectsOf } from '../projects/attached';
+import { INIT_PROMPT } from '../extensions/builtin-commands';
 
 /** A command body with shell lines: !`cmd` (Claude Code) or !{cmd} (Gemini CLI). */
 const SHELL_LINE = /!`[^`]+`|!\{/;
@@ -106,6 +107,11 @@ export async function runCommand(engine: Engine, sessionId: string, line: string
       engine.updateSession(sessionId, { mode: 'debate', modeConfig: { ...s.modeConfig, debate: { a: a ?? s.model, b: b ?? engine.reviewerFor(s.accountId), rounds: Number(rounds) || 2 } } });
       return { output: 'Debate mode on.' };
     }
+    case 'init':
+      // the web sends the prompt itself; a client without it (Android) runs /init here
+      if (s.mode === 'chat') return { output: '/init needs tools. Switch this session to Agent mode first.' };
+      await engine.send(sessionId, { text: INIT_PROMPT });
+      return {};
     case 'export': {
       const exported = engine.exportSession(sessionId, 'md');
       return { output: exported.content };

@@ -665,7 +665,8 @@ class ConclaveClient(
 
     suspend fun skills(): List<SkillDef> = get(p("api", "skills"), ListSerializer(SkillDef.serializer()))
 
-    suspend fun commands(): List<CommandDef> = get(p("api", "commands"), ListSerializer(CommandDef.serializer()))
+    /** The hub's built-in commands first (/compact, /init, /clear, /export...), then the custom ones; an older hub sends only the custom ones. */
+    suspend fun commands(): List<CommandDef> = get(p("api", "commands"), ListSerializer(CommandDef.serializer()), mapOf("builtins" to 1))
 
     suspend fun tools(): List<ToolInfo> = get(p("api", "tools"), ListSerializer(ToolInfo.serializer()))
 

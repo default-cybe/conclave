@@ -7,6 +7,7 @@ import dev.conclave.app.ui.common.HubViewModel
 import dev.conclave.app.ui.common.errorText
 import dev.conclave.client.ConclaveApiException
 import dev.conclave.client.acceptFriend
+import dev.conclave.client.addFriendByAddress
 import dev.conclave.client.acceptFriendInvite
 import dev.conclave.client.acceptShare
 import dev.conclave.client.cancelFriendMessage
@@ -19,16 +20,19 @@ import dev.conclave.client.friend
 import dev.conclave.client.friendInbox
 import dev.conclave.client.friendOutbox
 import dev.conclave.client.friendReachability
+import dev.conclave.client.friendSettings
 import dev.conclave.client.handoffShare
 import dev.conclave.client.logic.FriendWords
 import dev.conclave.client.logic.ShareWords
 import dev.conclave.client.markFriendRead
+import dev.conclave.client.model.AddFriendResult
 import dev.conclave.client.model.EngineEvent
 import dev.conclave.client.model.ForkShareInput
 import dev.conclave.client.model.FriendDto
 import dev.conclave.client.model.FriendInvite
 import dev.conclave.client.model.FriendInviteInput
 import dev.conclave.client.model.FriendReachability
+import dev.conclave.client.model.FriendSettings
 import dev.conclave.client.model.HandoffShareInput
 import dev.conclave.client.model.OutboxItemDto
 import dev.conclave.client.model.ReceivedShareDto
@@ -40,6 +44,7 @@ import dev.conclave.client.removeFriend
 import dev.conclave.client.retryFriendMessage
 import dev.conclave.client.sendFriendNote
 import dev.conclave.client.setFriendGrants
+import dev.conclave.client.setFriendSettings
 import dev.conclave.client.syncFriend
 import dev.conclave.client.unsendShare
 import dev.conclave.client.verifyFriend
@@ -118,6 +123,42 @@ class FriendsViewModel(hub: HubRepository) : HubViewModel(hub) {
         hub.putFriend(f)
         requested.value = f
         onSent()
+    }
+
+    /** What came of Add by address: the request sent, or the hub's reason it did not go. */
+    val byAddress = MutableStateFlow<AddFriendResult?>(null)
+
+    /** Requests by address and this hub's address for friends; null until the hub answers. */
+    val addressSettings = MutableStateFlow<FriendSettings?>(null)
+
+    /** Ask a hub to be friends by its address (web AddByAddress.tsx); [email] stays on this hub. */
+    fun addByAddress(address: String, email: String, onSent: () -> Unit) = run("address") {
+        val r = hub.api { it.addFriendByAddress(address.trim(), email.trim().ifEmpty { null }) }
+        r.friend?.let { hub.putFriend(it) }
+        byAddress.value = r
+        if (r.sent) onSent()
+    }
+
+    fun loadAddressSettings() = viewModelScope.launch {
+        try {
+            addressSettings.value = hub.api { it.friendSettings() }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            // an older hub: no switch
+        }
+    }
+
+    /** The switch moves at once; the hub's answer settles it. */
+    fun setRequestsByAddress(on: Boolean) = run("settings") {
+        val before = addressSettings.value
+        addressSettings.value = before?.copy(requestsByAddress = on)
+        try {
+            addressSettings.value = hub.api { it.setFriendSettings(on) }
+        } catch (e: Exception) {
+            addressSettings.value = before
+            throw e
+        }
     }
 
     fun acceptRequest(f: FriendDto) = run("accept:${f.id}") {

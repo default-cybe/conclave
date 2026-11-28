@@ -4,6 +4,7 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -36,6 +37,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -52,6 +54,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -206,6 +209,7 @@ fun FriendsScreen(
                     scanRound++
                     scanning = true
                 })
+                AddByAddressBlock(vm)
             }
         }
     }
@@ -382,6 +386,7 @@ private fun UseLinkBlock(vm: FriendsViewModel, text: String, onText: (String) ->
     val checking = "link" in busy
     val send = { if (parsed != null && !expired) vm.useLink(parsed.link, onSent = { onText("") }) }
     val note: Pair<String, Boolean>? = when {
+        text.isNotBlank() && parsed == null && text.trim().startsWith("http") -> "That is a hub address. Use Add by address below." to true
         text.isNotBlank() && parsed == null -> "That is not a friend link. It starts with conclave://friend." to true
         expired -> "This invite has expired. Ask your friend for a new one." to true
         parsed != null -> "An invite from the hub ${FriendWords.shortFingerprint(parsed.fp, 2)} at ${FriendWords.hostWords(parsed.url)}. It works ${FriendWords.untilText(parsed.expiresAt, now, clock)}." to false
@@ -416,6 +421,102 @@ private fun UseLinkBlock(vm: FriendsViewModel, text: String, onText: (String) ->
             )
             Text("Safety code, to compare with them:", style = ConclaveType.meta, color = c.fg3, modifier = Modifier.padding(top = 4.dp))
             SafetyCode(f.safetyCode, Modifier.padding(top = 4.dp))
+        }
+    }
+}
+
+/**
+ * Add by address (web AddByAddress.tsx): their hub's address and, if you
+ * like, their email. Under it Requests by address and this hub's address.
+ */
+@Composable
+private fun AddByAddressBlock(vm: FriendsViewModel) {
+    val c = Conclave.colors
+    val context = LocalContext.current
+    val busy by vm.busy.collectAsStateWithLifecycle()
+    val result by vm.byAddress.collectAsStateWithLifecycle()
+    val settings by vm.addressSettings.collectAsStateWithLifecycle()
+    LaunchedEffect(Unit) { vm.loadAddressSettings() }
+    var address by remember { mutableStateOf("") }
+    var email by remember { mutableStateOf("") }
+    val checking = "address" in busy
+    val send = { if (address.isNotBlank() && !checking) vm.addByAddress(address, email, onSent = { address = "" }) }
+    Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp)) {
+        Text("Add by address", style = ConclaveType.rowTitle, color = c.fg)
+        Text("Their hub's address and, if you like, their email. The request lands in their Inbox, and they accept or decline it.", style = ConclaveType.meta, color = c.fg3)
+        OutlinedTextField(
+            value = address,
+            onValueChange = {
+                address = it
+                vm.byAddress.value = null
+            },
+            placeholder = { Text("https://hub.example.com", style = CodeStyle) },
+            textStyle = CodeStyle,
+            singleLine = true,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, imeAction = ImeAction.Next, autoCorrectEnabled = false),
+            modifier = Modifier.fillMaxWidth().padding(top = 10.dp),
+        )
+        OutlinedTextField(
+            value = email,
+            onValueChange = { email = it },
+            placeholder = { Text("Their email (optional)") },
+            singleLine = true,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email, imeAction = ImeAction.Send, autoCorrectEnabled = false),
+            keyboardActions = KeyboardActions(onSend = { send() }),
+            modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+        )
+        Button(onClick = send, enabled = address.isNotBlank() && !checking, colors = solidButtonColors(), modifier = Modifier.fillMaxWidth().padding(top = 10.dp).heightIn(min = 48.dp)) {
+            Swap(on = checking, off = { Text("Send request") }) { Text("Checking") }
+        }
+        Text("Only your hub's name and address go with it. The email stays on your hub.", style = ConclaveType.meta, color = c.fg3, modifier = Modifier.padding(top = 6.dp))
+        result?.let { r ->
+            val f = r.friend
+            if (r.sent && f != null) {
+                Text(
+                    if (f.isActive) "You are friends. They had asked you too." else "Request sent. It waits in their Inbox until they accept.",
+                    style = ConclaveType.body,
+                    color = c.ok,
+                    modifier = Modifier.padding(top = 12.dp),
+                )
+                Text("Safety code, to compare with them:", style = ConclaveType.meta, color = c.fg3, modifier = Modifier.padding(top = 4.dp))
+                SafetyCode(f.safetyCode, Modifier.padding(top = 4.dp))
+            } else {
+                Text(listOfNotNull("Not sent.", r.reason).joinToString(" "), style = ConclaveType.body, color = c.warn, modifier = Modifier.padding(top = 12.dp))
+                // with an email the hub made an invite they can use from their side
+                val mailto = r.mailto
+                if (mailto != null && mailto.startsWith("mailto:")) {
+                    OutlinedButton(
+                        onClick = { runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(mailto))) } },
+                        colors = outlineButtonColors(),
+                        border = outlineButtonBorder(),
+                        modifier = Modifier.padding(top = 8.dp).heightIn(min = 48.dp),
+                    ) { Text("Email them an invite") }
+                }
+            }
+        }
+        settings?.let { st ->
+            Row(
+                Modifier.fillMaxWidth().padding(top = 12.dp).clickable { vm.setRequestsByAddress(!st.requestsByAddress) }.heightIn(min = 52.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text("Requests by address", style = ConclaveType.body, color = c.fg)
+                    Text(
+                        if (st.requestsByAddress) "Hubs that know your address can ask to be friends. Each request waits for you; a few an hour at most." else "Off: friends need an invite from you.",
+                        style = ConclaveType.meta,
+                        color = c.fg3,
+                    )
+                }
+                Spacer(Modifier.width(12.dp))
+                Switch(checked = st.requestsByAddress, onCheckedChange = { vm.setRequestsByAddress(it) })
+            }
+            st.address?.let { a ->
+                Text("Your hub's address, for a friend to add you", style = ConclaveType.meta, color = c.fg3, modifier = Modifier.padding(top = 10.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(a, style = CodeStyle, color = c.fg, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                    TextButton(onClick = { copyText(context, a, "Hub address") }, modifier = Modifier.heightIn(min = 48.dp)) { Text("Copy", color = c.fg) }
+                }
+            }
         }
     }
 }

@@ -15,6 +15,8 @@ import dev.conclave.client.model.RepoSessionDto
 import dev.conclave.client.model.RepoSessionInput
 import dev.conclave.client.model.Session
 import kotlinx.serialization.builtins.ListSerializer
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 
 // Repo sessions on GitHub (docs/DESIGN.md 30), the same calls as github ...
 // cleanupSession in packages/core/src/client/index.ts. The token stays on
@@ -22,6 +24,10 @@ import kotlinx.serialization.builtins.ListSerializer
 
 /** Who the hub's GitHub token is. */
 suspend fun ConclaveClient.github(): GithubStatus = get(p("api", "github"), GithubStatus.serializer())
+
+/** Check a token with GitHub and keep it as the hub secret "github" (owner only). */
+suspend fun ConclaveClient.githubConnect(token: String): GithubStatus =
+    sendJson("PUT", p("api", "github", "token"), buildJsonObject { put("token", token) }, GithubStatus.serializer())
 
 /** Repositories the token can see, most recently pushed first; [q] filters by name and description. */
 suspend fun ConclaveClient.githubRepos(q: String? = null, refresh: Boolean = false): List<GithubRepo> =

@@ -809,7 +809,7 @@ private fun AppNavHost(nav: NavHostController, modifier: Modifier) {
             }
             composable(Routes.MEETING, arguments = listOf(navArgument("id") { type = NavType.StringType })) { entry ->
                 val id = entry.arguments?.getString("id").orEmpty()
-                MeetingDetailScreen(id, onBack = back, onEdit = { mid -> nav.navigate(Routes.meetingForm(edit = mid)) })
+                MeetingDetailScreen(id, onBack = back, onEdit = { mid -> nav.navigate(Routes.meetingForm(edit = mid)) }, onOpenChat = { cid -> nav.navigate(Routes.chat(cid)) { launchSingleTop = true } })
             }
             composable(
                 Routes.MEETING_FORM,

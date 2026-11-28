@@ -12,6 +12,7 @@ import { SUMMARY_HEADINGS } from '../../src/session/prompt';
 import { checkMcpOff, mcpOff, sessionAllowsServerTool } from '../../src/session/connectors';
 import { splitMessages } from '../../src/session/context-usage';
 import type { Message } from '../../src/types';
+import { INIT_PROMPT } from '../../src/extensions/builtin-commands';
 
 let t: TestEngine | undefined;
 afterEach(async () => {
@@ -54,6 +55,19 @@ describe('a skill typed as /<name> args', () => {
     expect((await t.engine.command(chat.id, '/release-notes')).output).toContain('Switch this session to Agent mode');
     const plain = await t.engine.createSession({ title: 'p', cwd: t.cwd });
     expect((await t.engine.command(plain.id, '/no-such-thing')).output).toBe('Unknown command: /no-such-thing');
+  });
+});
+
+describe('/init on the hub', () => {
+  test('sends the AGENTS.md prompt as a turn; a chat says it needs tools', async () => {
+    t = await startTestEngine({ script: [[{ text: 'writing it' }]] });
+    const s = await t.engine.createSession({ title: 's', cwd: t.cwd });
+    expect((await t.engine.command(s.id, '/init')).output).toBeUndefined();
+    await t.engine.runnerFor(s.id).waitIdle();
+    const text = lastUser(t.engine.getMessages(s.id)).content.find((b) => b.type === 'text') as { text: string };
+    expect(text.text).toBe(INIT_PROMPT);
+    const chat = await t.engine.createSession({ title: 'c', cwd: t.cwd, mode: 'chat' });
+    expect((await t.engine.command(chat.id, '/init')).output).toContain('Agent mode');
   });
 });
 

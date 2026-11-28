@@ -34,7 +34,7 @@ import { downloadExport, isChat } from '@/features/chat/util';
 import { canSend, SendToFriendDialog } from '@/features/friends/SendToFriend';
 import { FriendShareLine } from '@/features/friends/FriendShareLine';
 import { ImportedLine } from '@/features/import/ImportedLine';
-import { branchChat, patchChat, stopChat } from './actions';
+import { branchChat, compactChat, patchChat, stopChat } from './actions';
 import { ChatComposer, FILES_EVENT } from './ChatComposer';
 import { BrowserLive } from '@/features/chat/BrowserLive';
 import { ChatMessages } from './ChatMessages';
@@ -277,7 +277,7 @@ function ChatHeader({ id, renaming, setRenaming }: { id?: string; renaming: bool
   );
 }
 
-/** Rename, Branch from the last reply, Continue as a session, Export Markdown, Send to friend, Delete; and what the chat cost. */
+/** Rename, Branch from the last reply, Continue as a session, Compact, Pin, Export, Send to friend, Delete; and what the chat cost. */
 function ChatMenu({ id, onRename }: { id: string; onRename: () => void }) {
   const session = useHub((s) => s.sessions[id]);
   const ref = useRef<HTMLButtonElement>(null);
@@ -305,8 +305,11 @@ function ChatMenu({ id, onRename }: { id: string; onRename: () => void }) {
             { label: 'Branch from the last reply', onSelect: () => branchChat(session, undefined, navigate) },
             { label: 'Continue as a session…', onSelect: () => openContinue(session.id) },
             { label: 'Add a note', onSelect: later(addNote) },
+            ...(session.stats.messages ? [{ label: 'Compact', detail: 'Summarize older messages', onSelect: () => void compactChat(session.id) }] : []),
+            { label: session.pinned ? 'Unpin' : 'Pin to the top', onSelect: () => void patchChat(session.id, { pinned: !session.pinned }) },
             { separator: true, label: '' },
             { label: 'Export Markdown', onSelect: () => downloadExport(session, 'md') },
+            { label: 'Export with thinking', detail: 'Markdown with the model\'s thinking text', onSelect: () => downloadExport(session, 'md', { thinking: true }) },
             ...(session.kind === 'chat' ? [{ label: 'Add people…', onSelect: later(() => setAdding(true)) }] : []),
             ...(canSend(session) ? [{ label: 'Send to friend…', onSelect: later(() => setSend(true)) }] : []),
             { label: 'Delete', danger: true, onSelect: later(() => setDel(true)) },

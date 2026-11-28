@@ -15,9 +15,27 @@ like `## [0.4.16] - 2026-10-24`.
 - A phone's Settings index has a search, like a computer's, and remembers whether Advanced is open. Ctrl K finds Modes, Plan order and limits, Secrets, the fallbacks, Security roles, Logs, Reflect, Shares and Shared projects.
 - The owner's account menu and the "Something went wrong" screen have Report a problem, which opens Settings > Logs. The Workflows page has a Limits link, and a run waiting for a limit links to the caps. Usage has Change order next to the account limits and shows the default model's own fallback first.
 - Android Settings: Hub defaults (Default model opens the model picker; memory switches), one switch per notification category, Hub update available with Update now next to the hub's version, and Hub password in Security. All owner-only.
+- Android: the "/" menu now lists the hub's built-in commands (/compact, /init, /clear, /export and more) and runs them on the hub. `GET /api/commands?builtins=1` returns them first, and `/init` now runs on the hub too. On Android, /export opens the share sheet.
+- Android: the session sheet has Compact, Share as Markdown and Checkpoints. Checkpoints lists each checkpoint with "Restore files only", which keeps every message. The chat sheet has Compact too.
+- Android: a meeting's notes can be selected and copied, with "Save to memory" and "Open as chat" right under them.
+- Android: the empty model picker now says where to add an API key or sign in to an AI plan.
+- Android: the session sheet has Connectors, to turn the hub's connected MCP servers on or off for that session, and in a Security session "Lane", to change the lane.
+- Android: Code's GitHub option can connect GitHub with a token when it is not connected yet, then lists the repositories.
+- Android: Friends has "Add by address", to ask a hub by its address (with an email if you like), plus the "Requests by address" switch and your hub's address to copy.
+- Android: Jury, Debate and Loop get a chip next to Options to pick the jurors, the two debaters and rounds, or the check command and the most runs.
+- Chats have a "/" menu that runs their commands in the chat: /btw, /compact, /rewind, /fork, /export, /new, /model, /cost and /status. A typed "/compact" no longer goes to the model as text.
+- Compact is in the context ring's popover, the chat ... menu and the phone chat sheet. Pin to the top is in the chat ... menu and the phone sheet.
+- "Ask aside" sits next to Stop while a turn runs, in chats and sessions, and /btw is in the first rows of the "/" menu.
+- Checkpoints in the Changes card have "Files only": the files go back to the checkpoint and every message stays.
+- A routine whose prompt differs from its template's current one says so on its page, with "Use the template's prompt".
+- The Jurors and Debaters popovers have a Judge row, so the judge can change after the start.
+- A Code session's "+" has Design direction. A new Code session in a folder without AGENTS.md or CLAUDE.md offers "Set up AGENTS.md" (/init).
+- Export with thinking in the chat and session ... menus.
 
 ### Changed
 
+- Ultra is a row of its own in Options, next to the styles, instead of under More styles.
+- Web search for a chat moved from "+" into Options; off shows "No web" on the chip.
 - Modes has its own Settings row under You. Plan order and limits and Secrets moved next to Subscriptions and Providers. Limit fallback is at /settings/limit-fallback (the old /settings/usage address still opens it). Reflect is a page next to Memory in More, and the Memory page has a Settings tab with the memory switches.
 
 ## [0.4.111] - 2026-11-28

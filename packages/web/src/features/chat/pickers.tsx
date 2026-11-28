@@ -183,7 +183,18 @@ export function modePatch(mode: SessionMode, cfg: ModeConfig = {}): { mode: Sess
 // Jury: "[logos] 4 jurors" and "Judge Opus 5.5"
 // ---------------------------------------------------------------------------
 
-export function JurorsPicker({ value, onChange, look = 'text', className }: { value: JuryConfig | undefined; onChange: (v: JuryConfig) => void; look?: 'text' | 'field'; className?: string }) {
+/** "Judge" and its model, inside the Jurors and Debaters popovers. Unset: the session's model judges. */
+function JudgeRow({ value, fallback, onChange }: { value: string | undefined; fallback?: string; onChange: (m: string | undefined) => void }) {
+  return (
+    <div className="flex items-center justify-between gap-3">
+      <span className="text-[12px] font-medium text-fg-2">Judge</span>
+      <JudgePicker bare look="text" value={value} fallback={fallback} onChange={onChange} className="h-[24px] text-[12px]" />
+    </div>
+  );
+}
+
+/** `judgeFallback`: the model that judges while none is picked (the session's). */
+export function JurorsPicker({ value, onChange, look = 'text', className, judgeFallback }: { value: JuryConfig | undefined; onChange: (v: JuryConfig) => void; look?: 'text' | 'field'; className?: string; judgeFallback?: string }) {
   const v = value ?? DEFAULT_JURY;
   const ref = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
@@ -209,6 +220,8 @@ export function JurorsPicker({ value, onChange, look = 'text', className }: { va
               ]}
             />
           </div>
+          {/* the judge can change after the start too (hidden-features 3.20) */}
+          <JudgeRow value={v.judge} fallback={judgeFallback} onChange={(judge) => onChange({ ...v, judge })} />
           <Checkbox checked={v.anonymize} onChange={(anonymize) => onChange({ ...v, anonymize })} label="Hide model names from the judge" />
           <Checkbox checked={v.jurorTools === 'readonly'} onChange={(on) => onChange({ ...v, jurorTools: on ? 'readonly' : 'none' })} label="Jurors may read files" />
         </div>
@@ -225,7 +238,7 @@ export function JudgePicker({ value, onChange, look = 'text', className, fallbac
 // Debate: "GPT-5.5 vs Opus 5.5" with stances and rounds
 // ---------------------------------------------------------------------------
 
-export function DebatersPicker({ value, onChange, look = 'text', className }: { value: DebateConfig | undefined; onChange: (v: DebateConfig) => void; look?: 'text' | 'field'; className?: string }) {
+export function DebatersPicker({ value, onChange, look = 'text', className, judgeFallback }: { value: DebateConfig | undefined; onChange: (v: DebateConfig) => void; look?: 'text' | 'field'; className?: string; judgeFallback?: string }) {
   const v = value ?? DEFAULT_DEBATE;
   const ref = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
@@ -256,6 +269,7 @@ export function DebatersPicker({ value, onChange, look = 'text', className }: { 
             <span className="text-[12px] font-medium text-fg-2">Rounds</span>
             <Segmented size="sm" label="Rounds" value={String(v.rounds)} onChange={(r) => onChange({ ...v, rounds: Number(r) })} options={['1', '2', '3', '4'].map((r) => ({ value: r, label: r }))} />
           </div>
+          <JudgeRow value={v.judge} fallback={judgeFallback} onChange={(judge) => onChange({ ...v, judge })} />
         </div>
       </Popover>
     </>

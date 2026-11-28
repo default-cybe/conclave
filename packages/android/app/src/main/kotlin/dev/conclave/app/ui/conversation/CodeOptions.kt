@@ -38,6 +38,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -52,6 +54,7 @@ import dev.conclave.app.ui.theme.ConclaveType
 import dev.conclave.client.folderGit
 import dev.conclave.client.github
 import dev.conclave.client.githubBranches
+import dev.conclave.client.githubConnect
 import dev.conclave.client.githubRepos
 import dev.conclave.client.logic.Locations
 import dev.conclave.client.logic.Panel
@@ -377,11 +380,48 @@ private fun GithubPlace(d: CodeDefaults, onChange: (CodeDefaults) -> Unit) {
     val st = status
     if (st != null && !st.connected) {
         Text(
-            (st.error ?: "Connect GitHub to start from a repository.") + " In the web app: Settings, GitHub.",
+            (st.error ?: "Connect GitHub to start from a repository.") + " Paste a fine-grained token from github.com/settings/personal-access-tokens/new. It stays on the hub.",
             style = ConclaveType.body,
             color = c.fg2,
             modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
         )
+        // the same call as the web's Settings, GitHub; the hub takes it from the owner only and says so otherwise
+        var token by remember { mutableStateOf("") }
+        var connecting by remember { mutableStateOf(false) }
+        var connectError by remember { mutableStateOf<String?>(null) }
+        val scope = rememberCoroutineScope()
+        OutlinedTextField(
+            value = token,
+            onValueChange = { token = it },
+            placeholder = { Text("GitHub token") },
+            singleLine = true,
+            visualTransformation = PasswordVisualTransformation(),
+            keyboardOptions = KeyboardOptions(autoCorrectEnabled = false, keyboardType = KeyboardType.Password),
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 4.dp),
+        )
+        connectError?.let { Text(it, style = ConclaveType.meta, color = c.fault, modifier = Modifier.padding(horizontal = 20.dp, vertical = 6.dp)) }
+        Button(
+            onClick = {
+                connecting = true
+                connectError = null
+                scope.launch {
+                    try {
+                        // connected: the repository list loads (LaunchedEffect on status.connected)
+                        status = hub.api { it.githubConnect(token.trim()) }
+                        token = ""
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        connectError = errorText(e)
+                    } finally {
+                        connecting = false
+                    }
+                }
+            },
+            enabled = !connecting && token.isNotBlank(),
+            colors = solidButtonColors(),
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp).height(52.dp),
+        ) { Text(if (connecting) "Connecting" else "Connect GitHub") }
         return
     }
     OutlinedTextField(
