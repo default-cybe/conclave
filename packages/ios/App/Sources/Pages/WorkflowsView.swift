@@ -1,16 +1,20 @@
 import ConclaveKit
 import SwiftUI
 
-/// Workflow runs, newest first (Android WorkflowRunsScreen): the workflow, its agents, tokens and
-/// cost, and its state word in a fixed place. A run opens in place with a way back, since this
-/// page sits in the split view's detail column.
+/// Workflows as the web has them: Library (start one) and Runs, newest first (Android
+/// WorkflowRunsScreen): the workflow, its agents, tokens and cost, and its state word in a fixed
+/// place. A run opens in place with a way back, since this page sits in the split view's detail column.
 struct WorkflowsView: View {
+    enum Tab: Hashable { case library, runs }
     let hub: HubModel
     let open: (String) -> Void
+    @State private var tab = Tab.library
     @State private var runs: [WorkflowRun]?
+    @State private var libraryCount: Int?
     @State private var error: String?
     @State private var openRun: String?
     @State private var hooked = false
+    @State private var refreshes = 0
 
     var body: some View {
         Group {
@@ -24,13 +28,40 @@ struct WorkflowsView: View {
             #if DEBUG
             // screenshots: -openRun <id> opens that run first
             if !hooked, let id = UserDefaults.standard.string(forKey: "openRun"), !id.isEmpty { openRun = id }
+            if !hooked, UserDefaults.standard.string(forKey: "workflowsTab") == "runs" { tab = .runs }
             #endif
             hooked = true
         }
     }
 
     private var list: some View {
-        Page(title: "Workflow runs", sub: runs.map(Self.summary)) {
+        Page(title: "Workflows", sub: sub) {
+            Segmented(options: [(Tab.library, "Library"), (Tab.runs, "Runs")], selection: $tab)
+                .accessibilityIdentifier("workflows-tab")
+        } content: {
+            if tab == .library {
+                WorkflowLibraryList(hub: hub, started: { run in
+                    runs = [run] + (runs ?? []).filter { $0.id != run.id }
+                    tab = .runs
+                    openRun = run.id
+                }, count: $libraryCount, refreshes: refreshes)
+            } else {
+                runList
+            }
+        }
+        .refreshable { refreshes += 1; await load() }
+        .task { await load() }
+    }
+
+    /// "12 in the library, 1 running" or "3 runs, 1 running".
+    private var sub: String? {
+        let live = (runs ?? []).filter { WorkflowWords.isLive($0.status) }.count
+        let tail = live > 0 ? ", \(live) running" : ""
+        if tab == .library { return libraryCount.map { "\($0) in the library" + tail } }
+        return runs.map(Self.summary)
+    }
+
+    @ViewBuilder private var runList: some View {
             if let error { ErrorBox(message: error) { Task { await load() } } }
             if let runs {
                 if runs.isEmpty {
@@ -51,9 +82,6 @@ struct WorkflowsView: View {
             } else if error == nil {
                 LoadingLine()
             }
-        }
-        .refreshable { await load() }
-        .task { await load() }
     }
 
     /// "3 runs, 1 running".
@@ -129,6 +157,11 @@ struct WorkflowRunView: View {
                     section("Result") {
                         Text(report).font(.sans(14)).foregroundStyle(Tone.fg).lineSpacing(3).textSelection(.enabled)
                             .padding(14).frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                }
+                if !detail.findings.isEmpty {
+                    FindingsSection(hub: hub, runId: runId, findings: detail.findings, refutedRate: detail.refutedRate) { f in
+                        self.detail?.findings = (self.detail?.findings ?? []).map { $0.id == f.id ? f : $0 }
                     }
                 }
                 if !detail.logs.isEmpty {
@@ -305,13 +338,3 @@ struct WorkflowRunView: View {
     }
 }
 
-private extension RunTone {
-    var color: Color {
-        switch self {
-        case .signal: Tone.signal
-        case .warn: Tone.warn
-        case .fault: Tone.fault
-        case .dim: Tone.fg3
-        }
-    }
-}

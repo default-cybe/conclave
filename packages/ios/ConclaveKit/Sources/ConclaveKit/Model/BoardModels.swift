@@ -337,18 +337,23 @@ public struct WorkflowLogLine: Sendable, Hashable, Codable, Identifiable {
 }
 
 /// GET /api/workflows/runs/:id. `result` is whatever the script returned: text, an object, or nothing.
-/// Findings are not read here (the run view does not show them yet).
+/// `findings` come from a run with a finder/verifier panel; `refutedRate` is refuted over checked.
 public struct WorkflowRunDetail: Sendable, Hashable, Codable {
     public var run: WorkflowRun
     public var calls: [WorkflowCall] = []
     public var logs: [WorkflowLogLine] = []
     public var result: JSONValue?
+    public var findings: [WorkflowFinding] = []
+    public var refutedRate: Double?
 
-    public init(run: WorkflowRun, calls: [WorkflowCall] = [], logs: [WorkflowLogLine] = [], result: JSONValue? = nil) {
+    public init(run: WorkflowRun, calls: [WorkflowCall] = [], logs: [WorkflowLogLine] = [], result: JSONValue? = nil,
+                findings: [WorkflowFinding] = [], refutedRate: Double? = nil) {
         self.run = run
         self.calls = calls
         self.logs = logs
         self.result = result
+        self.findings = findings
+        self.refutedRate = refutedRate
     }
 
     public init(from decoder: Decoder) throws {
@@ -357,5 +362,7 @@ public struct WorkflowRunDetail: Sendable, Hashable, Codable {
         calls = try c.or(.calls, [])
         logs = try c.or(.logs, [])
         result = try? c.opt(.result)
+        findings = (try? c.or(.findings, [WorkflowFinding]())) ?? []
+        refutedRate = try? c.opt(.refutedRate)
     }
 }

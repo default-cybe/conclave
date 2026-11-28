@@ -31,9 +31,31 @@ extension MockHub {
             default: return nil
             }
         }
+        if p.count == 2, p[0] == "api", p[1] == "workflows", method == "GET" { return (200, boardJSON(library())) }
+        if p.count >= 4, p[0] == "api", p[1] == "workflows", p[2] != "runs", p[3] == "presets" {
+            switch method {
+            case "GET": return (200, boardJSON(p[2] == "review-changes" ? [["id": "pr1", "workflow": p[2], "name": "ios branch", "args": ["base": "main", "strict": true], "createdAt": boardAgo(3000)],
+                                                                           ["id": "pr2", "workflow": p[2], "name": "quick", "args": ["strict": false], "createdAt": boardAgo(900)]] as [[String: Any]] : [[String: Any]]()))
+            case "POST": return (201, boardJSON(["id": "pr-\(UUID().uuidString.prefix(6))", "workflow": p[2], "name": input["name"] ?? "", "args": input["args"] ?? NSNull(), "createdAt": boardNow] as [String: Any]))
+            default: return (204, "")
+            }
+        }
         guard p.count >= 3, p[0] == "api", p[1] == "workflows", p[2] == "runs" else { return nil }
         let runs = boardRuns()
         if p.count == 3, method == "GET" { return (200, boardJSON(runs)) }
+        if p.count == 3, method == "POST" {
+            var run = runs[0]
+            run["id"] = "wfr_parity"
+            run["name"] = input["name"] ?? "workflow"
+            return (201, boardJSON(run))
+        }
+        if p.count == 6, method == "POST", p[4] == "findings" {
+            guard var f = (boardDetail(runs[1])["findings"] as? [[String: Any]])?.first(where: { $0["id"] as? String == p[5] }) else { return (404, #"{"error":"unknown finding"}"#) }
+            f["verdict"] = input["verdict"]
+            if let r = input["reason"] { f["reason"] = r }
+            f["decidedAt"] = boardNow
+            return (200, boardJSON(f))
+        }
         guard p.count >= 4, var run = runs.first(where: { $0["id"] as? String == p[3] }) else { return (404, #"{"error":"unknown run"}"#) }
         if p.count == 4, method == "GET" { return (200, boardJSON(boardDetail(run))) }
         if p.count == 5, method == "POST" {
@@ -93,6 +115,28 @@ extension MockHub {
         ]
     }
 
+    private static func library() -> [[String: Any]] {
+        [
+            ["id": "review-changes", "name": "review-changes", "description": "Review the working changes with a finder panel and refuters, then report what holds up.",
+             "whenToUse": "Before you open a pull request.", "source": "builtin", "portable": false, "runnable": true,
+             "phases": [["title": "Scope"], ["title": "Find"], ["title": "Verify"], ["title": "Report"]],
+             "argsSchema": ["base": ["type": "string", "description": "Branch to compare with"], "votes": ["type": "number", "description": "Refuters per finding"],
+                            "strict": ["type": "boolean", "description": "Report only proven findings"]],
+             "lastRun": ["id": "wfr_review", "status": "done", "createdAt": boardAgo(190), "finishedAt": boardAgo(176)]],
+            ["id": "deep-research", "name": "deep-research", "description": "Search the web in parallel, check every claim against its source and write a cited report.",
+             "source": "builtin", "portable": true, "runnable": true, "phases": [["title": "Search"], ["title": "Check"], ["title": "Write"]],
+             "argsSchema": ["question": ["type": "string", "description": "What to find out"]],
+             "lastRun": ["id": "wfr_research", "status": "failed", "createdAt": boardAgo(1500), "finishedAt": boardAgo(1492)]],
+            ["id": "bug-hunt", "name": "bug-hunt", "description": "Hunt for bugs file by file and prove each with a failing test.", "source": "builtin", "portable": false, "runnable": true,
+             "phases": [["title": "Map"], ["title": "Hunt"], ["title": "Prove"]]],
+            ["id": "parity-batch", "name": "parity-batch", "description": "Port the remaining Android pages to iOS, one agent per page.", "source": "project", "portable": false, "runnable": true,
+             "phases": [["title": "Plan"], ["title": "Port"], ["title": "Verify"]],
+             "lastRun": ["id": "wfr_parity", "status": "running", "createdAt": boardAgo(19)]],
+            ["id": "nightly-notes", "name": "nightly-notes", "description": "Turn the day's sessions into notes.", "source": "user", "portable": true, "runnable": false,
+             "phases": [[String: Any]](), "error": "SyntaxError: Unexpected token at line 14"],
+        ]
+    }
+
     private static func boardDetail(_ run: [String: Any]) -> [String: Any] {
         func call(_ seq: Int, _ label: String, _ phase: String, _ state: String, model: String = "anthropic/claude-sonnet-5-5",
                   tool: String? = nil, child: String? = nil, tokens: Int = 0, cost: Double = 0, error: String? = nil) -> [String: Any] {
@@ -121,7 +165,17 @@ extension MockHub {
                 call(1, "correctness", "Find", "done", tokens: 120_000, cost: 0.9),
                 call(2, "verify findings", "Verify", "done", tokens: 90_000, cost: 0.7),
             ], "logs": [["n": 1, "ts": boardAgo(176), "text": "No blocking issues."]],
-               "result": ["report": "No blocking issues. Two nits in TasksView."]]
+               "result": ["report": "No blocking issues. Two nits in TasksView."],
+               "refutedRate": 0.25,
+               "findings": [
+                   ["id": "f1", "runId": "wfr_review", "workflow": "review-changes", "findingKey": "k1", "title": "Board drag drops the task when the column scrolls", "priority": "P1",
+                    "file": "App/Sources/Pages/TasksView.swift", "line": 212, "proven": true, "createdAt": boardAgo(178),
+                    "data": ["quote": "guard let target = columns.first(where: { $0.frame.contains(p) })", "scenario": "Drag a card to Done while the board is scrolled right."]],
+                   ["id": "f2", "runId": "wfr_review", "workflow": "review-changes", "findingKey": "k2", "title": "Due word says tomorrow for a task due at midnight", "priority": "P2",
+                    "file": "ConclaveKit/Sources/ConclaveKit/Logic/BoardWords.swift", "line": 48, "proven": false, "votes": ["confirmed", "confirmed", "refuted"], "createdAt": boardAgo(178)],
+                   ["id": "f3", "runId": "wfr_review", "workflow": "review-changes", "findingKey": "k3", "title": "Unused import in TasksView", "priority": "P3",
+                    "file": "App/Sources/Pages/TasksView.swift", "line": 3, "proven": false, "verdict": "dismissed", "reason": "SwiftUI needs it for previews.", "createdAt": boardAgo(178)],
+               ]]
         default:
             return ["run": run, "calls": [
                 call(1, "search 1", "Search", "done", tokens: 30_000, cost: 0.2),

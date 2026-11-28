@@ -32,5 +32,35 @@ extension ConclaveClient {
         return try await send("POST", ["api", "workflows", "runs", runId, "rerun"], JSONValue.object(body))
     }
 
+    /// GET /api/workflows: the library (built in, project, yours, plugins).
+    public func workflows() async throws -> [WorkflowSummary] { try await get(["api", "workflows"]) }
+
+    public func workflowPresets(_ id: String) async throws -> [WorkflowPreset] { try await get(["api", "workflows", id, "presets"]) }
+
+    public func saveWorkflowPreset(_ id: String, name: String, args: JSONValue?) async throws -> WorkflowPreset {
+        var body: JSONObject = ["name": .string(name)]
+        if let args, args != .null { body["args"] = args }
+        return try await send("POST", ["api", "workflows", id, "presets"], JSONValue.object(body))
+    }
+
+    public func deleteWorkflowPreset(_ id: String, presetId: String) async throws { try await sendUnit("DELETE", ["api", "workflows", id, "presets", presetId]) }
+
+    /// POST /api/workflows/runs {name, args}: the run starts in the background and answers at once.
+    public func startWorkflow(_ name: String, args: JSONValue?, device: String? = nil, cwd: String? = nil, budgetTokens: Int? = nil) async throws -> WorkflowRun {
+        var body: JSONObject = ["name": .string(name)]
+        if let args { body["args"] = args }
+        if let device, !device.isEmpty { body["device"] = .string(device) }
+        if let cwd, !cwd.isEmpty { body["cwd"] = .string(cwd) }
+        if let budgetTokens { body["budget"] = .object(["tokens": .number(Double(budgetTokens))]) }
+        return try await send("POST", ["api", "workflows", "runs"], JSONValue.object(body))
+    }
+
+    /// POST /api/workflows/runs/:id/findings/:findingId: dismissed needs a reason (later runs learn from it).
+    public func judgeFinding(_ runId: String, findingId: String, verdict: FindingVerdict, reason: String? = nil) async throws -> WorkflowFinding {
+        var body: JSONObject = ["verdict": .string(verdict.rawValue)]
+        if let reason { body["reason"] = .string(reason) }
+        return try await send("POST", ["api", "workflows", "runs", runId, "findings", findingId], JSONValue.object(body))
+    }
+
     public func previewSchedule(_ schedule: String) async throws -> SchedulePreview { try await get(["api", "routines", "preview"], query: [("schedule", schedule)]) }
 }

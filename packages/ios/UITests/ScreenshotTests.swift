@@ -104,6 +104,12 @@ final class ScreenshotTests: XCTestCase {
     @MainActor func testTodayDark() throws { try page("today", "dark", ["-openPage", "today"]) { Self.text($0, "Recruiter call") } }
     @MainActor func testRoutinesLight() throws { try page("routines", "light", ["-openPage", "routines"]) { Self.text($0, "Morning brief") } }
     @MainActor func testRoutinesDark() throws { try page("routines", "dark", ["-openPage", "routines"]) { Self.text($0, "Morning brief") } }
+    @MainActor func testLibraryLight() throws { try page("library", "light", ["-openPage", "workflows"]) { Self.text($0, "nightly-notes") } }
+    @MainActor func testLibraryDark() throws { try page("library", "dark", ["-openPage", "workflows"]) { Self.text($0, "nightly-notes") } }
+    @MainActor func testLaunchLight() throws { try page("launch", "light", ["-openPage", "workflows", "-openWorkflow", "review-changes"]) { Self.text($0, "ios branch") } }
+    @MainActor func testLaunchDark() throws { try page("launch", "dark", ["-openPage", "workflows", "-openWorkflow", "review-changes"]) { Self.text($0, "ios branch") } }
+    @MainActor func testFindingsLight() throws { try page("findings", "light", ["-openPage", "workflows", "-openRun", "wfr_review"]) { Self.text($0, "Refuters dropped") } }
+    @MainActor func testFindingsDark() throws { try page("findings", "dark", ["-openPage", "workflows", "-openRun", "wfr_review"]) { Self.text($0, "Refuters dropped") } }
 
     /// Any element whose label holds `s`: a row's title may be a Button's label, not a StaticText.
     @MainActor private static func text(_ app: XCUIApplication, _ s: String) -> XCUIElement {
