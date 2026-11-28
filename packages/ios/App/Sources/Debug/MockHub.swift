@@ -79,7 +79,15 @@ enum MockHub {
         if path == "/api/info" { return (200, #"{"name":"conclave","version":"0.4.107","defaultModel":"anthropic/claude-sonnet-5-5"}"#) }
         if path == "/api/config" {
             if method == "PATCH" { return (200, #"{"ok":true}"#) }
-            return (200, #"{"config":{"ui":{"name":"Kai"},"smallModel":"anthropic/claude-haiku-5","models":{"tiers":{"deep":"anthropic/claude-opus-5-5"},"sameModel":true},"limits":{"autoResume":true,"maxSteps":250,"subagentMaxSteps":100,"stuck":{"minutes":5},"routine":{"tokens":1000000,"minutes":120},"session":{"costUsd":2.5}},"cache":{"ttl":"auto"},"permissions":{"onFileConflict":"warn"},"memory":{"enabled":true}},"user":{},"secrets":{}}"#)
+            return (200, #"{"config":{"ui":{"name":"Kai"},"smallModel":"anthropic/claude-haiku-5","models":{"tiers":{"deep":"anthropic/claude-opus-5-5"},"sameModel":true},"limits":{"autoResume":true,"maxSteps":250,"subagentMaxSteps":100,"stuck":{"minutes":5},"routine":{"tokens":1000000,"minutes":120},"session":{"costUsd":2.5}},"cache":{"ttl":"auto"},"permissions":{"onFileConflict":"warn"},"memory":{"enabled":true}},"user":{},"secrets":{"providers":["anthropic","zai"],"keyed":["openrouter"]}}"#)
+        }
+        if path.hasPrefix("/api/providers/"), path.hasSuffix("/test") {
+            if path.contains("zai") { return (200, #"{"ok":false,"detail":"HTTP 401 Unauthorized"}"#) }
+            return (200, #"{"ok":true,"detail":"Found 12 models","latencyMs":184}"#)
+        }
+        if path == "/api/secrets" { return (200, #"{"ok":true}"#) }
+        if path == "/api/subscriptions" {
+            return (200, #"{"mode":"builtin","state":"on","version":"6.9.3","management":true,"providers":[{"id":"claude","name":"Claude","plan":"Claude Pro or Max","accounts":1},{"id":"codex","name":"ChatGPT","plan":"ChatGPT Plus or Pro","accounts":0},{"id":"gemini","name":"Gemini","plan":"Gemini with a Google account","flow":"redirect","accounts":0},{"id":"qwen","name":"Qwen","plan":"Qwen Code","flow":"device","more":true}],"accounts":[{"name":"claude-kai.json","provider":"claude","providerName":"Claude","label":"kai@dymnitguys.com","state":"active","canRefresh":true},{"name":"claude-work.json","provider":"claude","providerName":"Claude","label":"work account","state":"unavailable","detail":"Weekly limit, resets Monday"}]}"#)
         }
         if path == "/api/logs/client" { return (200, #"{"accepted":1}"#) }
         if path == "/api/approvals" { return (200, approvals) }

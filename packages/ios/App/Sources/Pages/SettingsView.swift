@@ -5,6 +5,8 @@ import SwiftUI
 /// /api/me, as members have since 0.4.106), Appearance and About. Cards, not an iOS grouped Form.
 struct SettingsView: View {
     let hub: HubModel
+    /// Opens a page Settings leads to (Providers, Subscriptions).
+    var open: (SidePage) -> Void = { _ in }
     @Environment(AppModel.self) private var model
     @AppStorage("theme") private var theme = "system"
     @AppStorage("reduceMotion") private var reduceMotion = false
@@ -31,6 +33,12 @@ struct SettingsView: View {
             CardSection(title: "Defaults", note: "Your own default, used for new chats. Empty uses the hub's default.") {
                 CardRow(label: "Default model", detail: me?.preferences.defaultModel == nil ? info.map { "Hub default: \(ModelRefs.displayName($0.defaultModel))" } : nil) {
                     modelMenu
+                }
+            }
+            if me?.isMember == false {
+                CardSection(title: "Models and plans") {
+                    link("Providers", "API keys for Anthropic, OpenAI, Z.ai and others", .providers)
+                    link("Subscriptions", "Sign in to a Claude, ChatGPT or Gemini plan instead of a key", .subscriptions)
                 }
             }
             // the hub's own settings: a member sees none of them (v0.4.112)
@@ -107,6 +115,15 @@ struct SettingsView: View {
             .panel(.clear, radius: Radius.r2, border: Tone.rule2)
         }
         .accessibilityIdentifier("default-model")
+    }
+
+    private func link(_ label: String, _ detail: String, _ to: SidePage) -> some View {
+        Button { open(to) } label: {
+            CardRow(label: label, detail: detail) { Image(systemName: "chevron.right").font(.system(size: 12, weight: .semibold)).foregroundStyle(Tone.fg3) }
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(QuietPress(radius: 0))
+        .accessibilityIdentifier("settings-\(to.rawValue)")
     }
 
     private func set(_ ref: String?) async {

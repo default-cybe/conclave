@@ -110,6 +110,10 @@ final class ScreenshotTests: XCTestCase {
     @MainActor func testLaunchDark() throws { try page("launch", "dark", ["-openPage", "workflows", "-openWorkflow", "review-changes"]) { Self.text($0, "ios branch") } }
     @MainActor func testFindingsLight() throws { try page("findings", "light", ["-openPage", "workflows", "-openRun", "wfr_review"]) { Self.text($0, "Refuters dropped") } }
     @MainActor func testFindingsDark() throws { try page("findings", "dark", ["-openPage", "workflows", "-openRun", "wfr_review"]) { Self.text($0, "Refuters dropped") } }
+    @MainActor func testProvidersLight() throws { try page("providers", "light", ["-openPage", "providers"]) { Self.text($0, "Rejected, 401") } }
+    @MainActor func testProvidersDark() throws { try page("providers", "dark", ["-openPage", "providers"]) { Self.text($0, "Rejected, 401") } }
+    @MainActor func testSubscriptionsLight() throws { try page("subscriptions", "light", ["-openPage", "subscriptions"]) { Self.text($0, "work account") } }
+    @MainActor func testSubscriptionsDark() throws { try page("subscriptions", "dark", ["-openPage", "subscriptions"]) { Self.text($0, "work account") } }
     @MainActor func testHubSettingsLight() throws { try hubSettings("light") }
     @MainActor func testHubSettingsDark() throws { try hubSettings("dark") }
 
