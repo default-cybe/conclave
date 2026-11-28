@@ -140,6 +140,7 @@ fun SettingsScreen(
     onOpenPage: (SettingsPage) -> Unit = {},
     onOpenProviders: () -> Unit = {},
     onOpenSubscriptions: () -> Unit = {},
+    onOpenDefaults: () -> Unit = {},
 ) {
     val container = LocalAppContainer.current
     val hub = container.hub
@@ -174,7 +175,6 @@ fun SettingsScreen(
     var hubConfig by remember { mutableStateOf<JsonObject?>(null) }
     var hubUpdate by remember { mutableStateOf<JsonObject?>(null) }
     var password by remember { mutableStateOf<PasswordStatus?>(null) }
-    var pickingDefault by remember { mutableStateOf(false) }
     var editingPassword by remember { mutableStateOf(false) }
     LaunchedEffect(isOwner) {
         if (!isOwner) return@LaunchedEffect
@@ -269,16 +269,9 @@ fun SettingsScreen(
             NavRow("Providers", if (isOwner) "Add, replace or remove an API key" else "Your own keys, or the hub's", onClick = onOpenProviders)
             NavRow("Subscriptions", "Sign in to a Claude, ChatGPT or Gemini plan", onClick = onOpenSubscriptions)
 
-            // ---------------------------------------------------------------- hub defaults (web Settings > Defaults)
+            // the hub's defaults for the owner, a member's own (web Settings > Defaults)
+            NavRow("Defaults", if (isOwner) "Models, tiers, limits and memory for new sessions" else "Your models, computer and memory", onClick = onOpenDefaults)
             val cfg = hubConfig
-            if (isOwner && cfg != null) {
-                Group("Hub defaults")
-                NavRow("Default model", (cfg.path("defaultModel") as? JsonPrimitive)?.contentOrNull ?: "Not set", onClick = { pickingDefault = true })
-                ToggleRow(title = "Use memory", help = "Off: sessions neither read nor save notes.", checked = cfg.flag(true, "memory", "enabled"), onChange = { on -> setHub(JsonPrimitive(on), "memory", "enabled") })
-                ToggleRow(title = "Give relevant notes", help = "Notes that match your message ride along with it.", checked = cfg.flag(true, "memory", "autoInject"), onChange = { on -> setHub(JsonPrimitive(on), "memory", "autoInject") })
-                ToggleRow(title = "Save what sessions learn", help = "After a turn, new facts about you are saved as notes.", checked = cfg.flag(true, "memory", "autoExtract"), onChange = { on -> setHub(JsonPrimitive(on), "memory", "autoExtract") })
-                Note("Model tiers, limits, plan fallback and workflow caps are in the web app under Settings, Defaults.")
-            }
 
             // ---------------------------------------------------------------- notifications
             Group("Notifications")
@@ -494,19 +487,6 @@ fun SettingsScreen(
         )
     }
 
-    if (pickingDefault) {
-        ModelPickerSheet(
-            title = "Default model",
-            groups = models,
-            current = (hubConfig?.path("defaultModel") as? JsonPrimitive)?.contentOrNull,
-            onPick = { ref ->
-                pickingDefault = false
-                setHub(JsonPrimitive(ref), "defaultModel")
-            },
-            onDismiss = { pickingDefault = false },
-        )
-    }
-
     if (editingPassword) {
         var pw by remember { mutableStateOf("") }
         AlertDialog(
@@ -614,21 +594,21 @@ private val NOTIFY_EVENTS = listOf(
     "friendMessage" to "Friends",
 )
 
-private fun JsonObject.path(vararg keys: String): JsonElement? {
+internal fun JsonObject.path(vararg keys: String): JsonElement? {
     var e: JsonElement? = this
     for (k in keys) e = (e as? JsonObject)?.get(k)
     return e
 }
 
-private fun JsonObject.flag(default: Boolean, vararg keys: String): Boolean = (path(*keys) as? JsonPrimitive)?.booleanOrNull ?: default
+internal fun JsonObject.flag(default: Boolean, vararg keys: String): Boolean = (path(*keys) as? JsonPrimitive)?.booleanOrNull ?: default
 
 /** {"a": {"b": value}} for keys a, b: a PATCH /api/config merges it. */
-private fun patchAt(value: JsonElement, vararg keys: String): JsonObject =
+internal fun patchAt(value: JsonElement, vararg keys: String): JsonObject =
     keys.foldRight(value) { k, acc -> JsonObject(mapOf(k to acc)) } as JsonObject
 
 /** A group's label; every group after the [first] has a separator above it. */
 @Composable
-private fun Group(label: String, first: Boolean = false) {
+internal fun Group(label: String, first: Boolean = false) {
     val c = Conclave.colors
     Column(Modifier.fillMaxWidth()) {
         if (!first) HorizontalDivider(thickness = 1.dp, color = c.rule, modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp))
@@ -691,7 +671,7 @@ private fun PageRow(title: String, count: Int, onClick: () -> Unit) {
 
 /** A switch row: the name, what it does in a quiet line, the switch. */
 @Composable
-private fun ToggleRow(title: String, help: String, checked: Boolean, onChange: (Boolean) -> Unit) {
+internal fun ToggleRow(title: String, help: String, checked: Boolean, onChange: (Boolean) -> Unit) {
     val c = Conclave.colors
     Row(
         Modifier.fillMaxWidth().clickable { onChange(!checked) }.heightIn(min = 56.dp).padding(start = 20.dp, end = 16.dp, top = 8.dp, bottom = 8.dp),
@@ -708,7 +688,7 @@ private fun ToggleRow(title: String, help: String, checked: Boolean, onChange: (
 
 /** One of a choice's rows, with a check on the chosen one. [inset]: its side padding (none inside a dialog). */
 @Composable
-private fun CheckRow(title: String, selected: Boolean, inset: Dp = 20.dp, onClick: () -> Unit) {
+internal fun CheckRow(title: String, selected: Boolean, inset: Dp = 20.dp, onClick: () -> Unit) {
     val c = Conclave.colors
     Row(
         Modifier.fillMaxWidth().clickable(onClick = onClick).heightIn(min = 48.dp).padding(horizontal = inset),

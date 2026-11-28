@@ -163,6 +163,10 @@ object Routes {
     const val PROVIDERS = "providers"
     const val SUBSCRIPTIONS = "subscriptions"
 
+    /** Settings, Defaults; with ?memory=true only its memory rows (the Memory page's Settings). */
+    const val DEFAULTS = "defaults?memory={memory}"
+    fun defaults(memory: Boolean = false) = if (memory) "defaults?memory=true" else "defaults"
+
     /** Workflow runs, newest first; with ?session= only that session's runs. */
     const val WORKFLOW_RUNS = "workflow-runs?session={session}"
 
@@ -673,6 +677,7 @@ private fun AppNavHost(nav: NavHostController, modifier: Modifier) {
                     onBack = back,
                     onImport = { nav.navigate(Routes.IMPORT) },
                     onMap = { nav.navigate(Routes.memoryMap()) { launchSingleTop = true } },
+                    onSettings = { push(Routes.defaults(memory = true)) },
                     focus = focus,
                     onFocused = { entry.savedStateHandle["focus"] = null },
                 )
@@ -756,7 +761,11 @@ private fun AppNavHost(nav: NavHostController, modifier: Modifier) {
                     onOpenPage = { page -> openPage(page, top = { r -> navigateTop(nav, r) }, push = push) },
                     onOpenProviders = { push(Routes.PROVIDERS) },
                     onOpenSubscriptions = { push(Routes.SUBSCRIPTIONS) },
+                    onOpenDefaults = { push(Routes.defaults()) },
                 )
+            }
+            composable(Routes.DEFAULTS, arguments = listOf(navArgument("memory") { type = NavType.BoolType; defaultValue = false })) { entry ->
+                dev.conclave.app.ui.settings.DefaultsScreen(onBack = back, memoryOnly = entry.arguments?.getBoolean("memory") == true)
             }
             composable(Routes.PROVIDERS) { dev.conclave.app.ui.settings.ProvidersScreen(onBack = back, onOpenSubscriptions = { push(Routes.SUBSCRIPTIONS) }) }
             composable(Routes.SUBSCRIPTIONS) { dev.conclave.app.ui.settings.SubscriptionsScreen(onBack = back) }
