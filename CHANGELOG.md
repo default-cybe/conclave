@@ -7,6 +7,24 @@ from the section of its version (`scripts/releases/notes.ts`); a release
 without one fails. At tag time, rename `[Unreleased]` to the version and date,
 like `## [0.4.16] - 2026-10-24`.
 
+## [Unreleased]
+
+### Added
+
+- Chats have a "/" menu that runs their commands in the chat: /btw, /compact, /rewind, /fork, /export, /new, /model, /cost and /status. A typed "/compact" no longer goes to the model as text.
+- Compact is in the context ring's popover, the chat ... menu and the phone chat sheet. Pin to the top is in the chat ... menu and the phone sheet.
+- "Ask aside" sits next to Stop while a turn runs, in chats and sessions, and /btw is in the first rows of the "/" menu.
+- Checkpoints in the Changes card have "Files only": the files go back to the checkpoint and every message stays.
+- A routine whose prompt differs from its template's current one says so on its page, with "Use the template's prompt".
+- The Jurors and Debaters popovers have a Judge row, so the judge can change after the start.
+- A Code session's "+" has Design direction. A new Code session in a folder without AGENTS.md or CLAUDE.md offers "Set up AGENTS.md" (/init).
+- Export with thinking in the chat and session ... menus.
+
+### Changed
+
+- Ultra is a row of its own in Options, next to the styles, instead of under More styles.
+- Web search for a chat moved from "+" into Options; off shows "No web" on the chip.
+
 ## [0.4.111] - 2026-11-28
 
 ### Added

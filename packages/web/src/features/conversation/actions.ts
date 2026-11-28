@@ -7,7 +7,7 @@ import type { Attachment } from '@conclave/core/client';
 import type { ChatSettings, Message, Session } from '@conclave/core/types';
 import { api } from '@/lib/api';
 import { attempt, loadMessages, sendQueued, toast, upsertSession, useHub } from '@/store/store';
-import { msgText } from '@/features/chat/util';
+import { isReminder, msgText } from '@/features/chat/util';
 import { DEFAULTS_EVENT, movePending, patchPending, saveDefaults, setLeaving, setPending, setRestore, type Pending } from './state';
 import { timeGroup } from './units';
 
@@ -234,6 +234,22 @@ export async function patchChat(id: string, patch: Parameters<ReturnType<typeof 
   const s = await attempt(() => api().updateSession(id, patch));
   if (s) keepSession(s);
   return s;
+}
+
+/** /compact, the context ring's Compact and the menus' Compact: older messages become a summary. */
+export async function compactChat(id: string, instructions?: string) {
+  const r = await attempt(() => api().compact(id, instructions || undefined));
+  if (r) toast({ title: r.compacted === false ? 'Nothing to compact yet.' : 'Compacted older messages.', level: 'info' });
+  return r;
+}
+
+/** /rewind: the last exchange leaves the conversation (from your last message on). */
+export async function rewindLast(session: Session) {
+  const list = useHub.getState().messages[session.id] ?? [];
+  const lastUser = [...list].reverse().find((m) => m.role === 'user' && m.content.some((b) => b.type === 'text' && !isReminder(b)));
+  if (!lastUser) return;
+  const s = await attempt(() => api().rewind(session.id, lastUser.seq - 1));
+  if (s) upsertSession(s);
 }
 
 /** Undo a "Saved to memory" row: the note leaves memory. */

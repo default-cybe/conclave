@@ -9,14 +9,15 @@ import { Link, useLocation, useSearch } from 'wouter';
 import { MoreHorizontal } from 'lucide-react';
 import type { Routine, RoutineRun, Session } from '@conclave/core/types';
 import { api } from '@/lib/api';
-import { agentByName, loadRuns, toast, useHub } from '@/store/store';
+import { agentByName, attempt, loadRuns, toast, upsertRoutine, useHub } from '@/store/store';
 import { cn } from '@/lib/text';
 import { hhmm, inTime, usd } from '@/lib/format';
 import { copyAndTell, useCopy, useIsMobile, useNow } from '@/lib/hooks';
 import { dayStart, describeSchedule } from '@/lib/schedule';
 import { Page, PageHeader, usePageHeader } from '@/components/ui/Page';
 import { Button, IconButton } from '@/components/ui/Button';
-import { Menu } from '@/components/ui/Overlay';
+import { ConfirmDialog, Menu } from '@/components/ui/Overlay';
+import { useTemplates, type Template } from './Templates';
 import { SectionHeading, TextAction } from '@/components/ui/Section';
 import { Tabs } from '@/components/ui/Tags';
 import { EmptyState, LoadingRows } from '@/components/ui/EmptyState';
@@ -157,7 +158,44 @@ function Header({ routine, runs, onEditFilters }: { routine: Routine; runs: Rout
           </>
         }
       />
+      <TemplateLine routine={routine} />
       {act.dialogs}
+    </>
+  );
+}
+
+/** The routine's prompt next to its template's current one (hub-side the same trim, template-upgrade.ts). */
+export const differsFromTemplate = (routine: Pick<Routine, 'prompt'>, t: Pick<Template, 'prompt'> | undefined) => !!t && t.prompt.replace(/\r\n/g, '\n').trim() !== routine.prompt.replace(/\r\n/g, '\n').trim();
+
+/**
+ * A routine made from a template whose prompt is not the template's current
+ * one: the hub upgrades unedited ones by itself, so this one was edited. Apply
+ * gives it the template's prompt and rules; schedule, model and the rest stay.
+ */
+function TemplateLine({ routine }: { routine: Routine }) {
+  const templates = useTemplates();
+  const [asking, setAsking] = useState(false);
+  const t = routine.template ? templates.data?.find((x) => x.id === routine.template) : undefined;
+  if (!t || !differsFromTemplate(routine, t)) return null;
+  return (
+    <>
+      <p data-part="template-line" className="-mt-2 mb-5 flex flex-wrap items-baseline gap-x-3 text-[13px] text-fg-3 phone:text-[14px]">
+        <span>Your prompt differs from the current {t.name} template.</span>
+        <TextAction label="Use the template's prompt" onClick={() => setAsking(true)} />
+      </p>
+      <ConfirmDialog
+        open={asking}
+        onClose={() => setAsking(false)}
+        width={480}
+        title={`Use the ${t.name} template's prompt?`}
+        body="Your edits to the prompt are replaced. The schedule, model, agent, notifications and folder stay as they are."
+        confirm="Use template prompt"
+        busy="Applying"
+        onConfirm={async () => {
+          const r = await attempt(() => api().upgradeRoutine(routine.id), `${routine.name} now uses the ${t.name} template's prompt.`);
+          if (r) upsertRoutine(r);
+        }}
+      />
     </>
   );
 }

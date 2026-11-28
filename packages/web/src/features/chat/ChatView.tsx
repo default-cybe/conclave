@@ -415,6 +415,7 @@ function SessionMenu({ session }: { session: Session }) {
             { separator: true, label: '' },
             { label: 'Export Markdown', onSelect: () => downloadExport(session, 'md') },
             { label: 'Export JSON', onSelect: () => downloadExport(session, 'json') },
+            { label: 'Export with thinking', detail: "Markdown with the model's thinking text", onSelect: () => downloadExport(session, 'md', { thinking: true }) },
             ...(canSend(session) ? [{ label: 'Send to friend…', onSelect: later(() => setSend(true)) }] : []),
             { separator: true, label: '' },
             { label: session.pinned ? 'Unpin' : 'Pin to the top', onSelect: () => patch({ pinned: !session.pinned }) },

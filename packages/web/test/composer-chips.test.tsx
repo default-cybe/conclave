@@ -173,6 +173,9 @@ describe('the Options chip words', () => {
     expect(optionsWords(many)).toBe('No memory +3');
     // Ultra is only named where the session takes it
     expect(optionsChanges({ style: { mode: 'agent', ultra: true } })).toEqual([]);
+    // web search off is a change; on is the default
+    expect(optionsWords(optionsChanges({ web: { on: false } }))).toBe('No web');
+    expect(optionsChanges({ web: { on: true } })).toEqual([]);
   });
 });
 
@@ -183,16 +186,16 @@ describe('the session composer', () => {
     const v = await mount(<Composer session={base({ mode: 'debate' })} />);
     expect(v.chip('options')?.textContent).toBe('Debate');
     const rows = await v.open(v.chip('options'));
-    expect(v.rowLabels(rows).slice(0, 8)).toEqual(['Agent', 'Chat', 'Plan', 'More styles', 'Jury', 'Debate', 'Loop', 'Ultra']);
+    expect(v.rowLabels(rows).slice(0, 8)).toEqual(['Agent', 'Chat', 'Plan', 'Ultra', 'More styles', 'Jury', 'Debate', 'Loop']);
     expect(rows.find((r) => r.textContent?.startsWith('Debate'))?.getAttribute('aria-checked')).toBe('true');
     // the fold still closes by hand
     await v.pick(rows, 'More styles');
-    expect(v.rowLabels(await v.open(v.chip('options'))).slice(0, 5)).toEqual(['Agent', 'Chat', 'Plan', 'More styles', 'coder']);
+    expect(v.rowLabels(await v.open(v.chip('options'))).slice(0, 6)).toEqual(['Agent', 'Chat', 'Plan', 'Ultra', 'More styles', 'coder']);
     await v.close(v.chip('options'));
     await v.unmount();
   });
 
-  test('one Options chip sets the fields the agent, style and memory chips set; "+" is the files only; one place chip', async () => {
+  test('one Options chip sets the fields the agent, style and memory chips set; "+" is the files and design direction; one place chip', async () => {
     const sent = patches();
     const { Composer } = await import('../src/features/chat/Composer');
     const v = await mount(<Composer session={base()} />);
@@ -202,29 +205,29 @@ describe('the session composer', () => {
     expect(v.chip('options')?.textContent).toBe('Options');
     expect(v.chip('options')?.getAttribute('aria-label')).toBe('Options, all at their defaults');
 
-    // "+": files only
-    expect(v.rowLabels(await v.open(v.plus()))).toEqual(['Attach files and images']);
+    // "+": files, and a Code session's design direction (hidden-features 2.13)
+    expect(v.rowLabels(await v.open(v.plus()))).toEqual(['Attach files and images', 'Design direction…']);
     await v.close(v.plus());
 
     // Options: Working style, then the agents, then memory, then this conversation's switches (design review #7)
     const rows = await v.open(v.chip('options'));
     const menu = document.querySelector('[role=menu][aria-label="Options"]')?.textContent ?? '';
     for (const heading of ['Working style', 'Agent', 'Memory', 'This conversation']) expect(menu).toContain(heading);
-    expect(v.rowLabels(rows)).toEqual(['Agent', 'Chat', 'Plan', 'More styles', 'coder', 'reviewer', 'Use and save', 'Use only', 'Off', 'Same model for all work', 'Security']);
+    expect(v.rowLabels(rows)).toEqual(['Agent', 'Chat', 'Plan', 'Ultra', 'More styles', 'coder', 'reviewer', 'Use and save', 'Use only', 'Off', 'Same model for all work', 'Security']);
     await v.pick(rows, 'reviewer');
     expect(sent.at(-1)).toEqual({ agent: 'reviewer' });
 
     await v.pick(await v.open(v.chip('options')), 'More styles');
     const folded = await v.open(v.chip('options'));
-    expect(v.rowLabels(folded).slice(0, 8)).toEqual(['Agent', 'Chat', 'Plan', 'More styles', 'Jury', 'Debate', 'Loop', 'Ultra']);
+    expect(v.rowLabels(folded).slice(0, 8)).toEqual(['Agent', 'Chat', 'Plan', 'Ultra', 'More styles', 'Jury', 'Debate', 'Loop']);
     await v.pick(folded, 'Jury');
     expect(sent.at(-1)).toEqual({ mode: 'jury', modeConfig: { jury: DEFAULT_JURY } });
     // a fold opened by hand shuts again with the menu
     const again = await v.open(v.chip('options'));
-    expect(v.rowLabels(again).slice(0, 5)).toEqual(['Agent', 'Chat', 'Plan', 'More styles', 'coder']);
+    expect(v.rowLabels(again).slice(0, 6)).toEqual(['Agent', 'Chat', 'Plan', 'Ultra', 'More styles', 'coder']);
     expect(again.find((r) => r.textContent === 'More styles')?.getAttribute('aria-expanded')).toBe('false');
-    await v.pick(again, 'More styles');
-    await v.pick(await v.open(v.chip('options')), 'Ultra');
+    // Ultra is in view without the fold (hidden-features 2.11)
+    await v.pick(again, 'Ultra');
     expect(sent.at(-1)).toEqual({ ultra: true });
 
     await v.pick(await v.open(v.chip('options')), 'Use only');
@@ -274,7 +277,7 @@ describe('the session composer', () => {
 });
 
 describe('the chat composer', () => {
-  test('memory is in Options, web search stays in "+", no status line', async () => {
+  test('memory and web search are in Options, "+" is the files, no status line', async () => {
     const sent = patches();
     const { ChatComposer } = await import('../src/features/conversation/ChatComposer');
     const chat = base({ id: 'ses_chat', kind: 'chat', mode: 'chat', meta: {}, chat: { webSearch: true, memory: true } } as Partial<Session>);
@@ -283,15 +286,18 @@ describe('the chat composer', () => {
     expect(v.host.querySelector('[data-status-line]')).toBeNull();
     expect(v.chip('agent')).toBeNull();
     expect(v.chip('memory')).toBeNull();
-    expect(v.rowLabels(await v.open(v.plus()))).toEqual(['Attach files and images', 'Search the web']);
+    expect(v.rowLabels(await v.open(v.plus()))).toEqual(['Attach files and images']);
     await v.close(v.plus());
     // the model, then Options, then the ring
     const order = [...v.host.querySelectorAll('[data-chip]')].map((el) => el.getAttribute('data-chip'));
     expect(order.indexOf('model')).toBeLessThan(order.indexOf('options'));
     const mem = await v.open(v.chip('options'));
-    expect(v.rowLabels(mem)).toEqual(['Use and save', 'Use only', 'Off', 'Same model for all work']);
+    expect(v.rowLabels(mem)).toEqual(['Search the web', 'Use and save', 'Use only', 'Off', 'Same model for all work']);
     await v.pick(mem, 'Off');
     expect(sent.at(-1)).toEqual({ chat: { memory: false, memorySave: true } });
+    // web search off says "No web" on the chip (hidden-features 2.3)
+    await v.pick(await v.open(v.chip('options')), 'Search the web');
+    expect(sent.at(-1)).toEqual({ chat: { webSearch: false } });
     await v.unmount();
   });
 });
@@ -432,7 +438,7 @@ describe('Options holds the switches that left the model picker (design review #
 });
 
 describe('the Code start', () => {
-  test('Options holds the agent, style with Ultra and memory; "+" keeps Work in, worktree and design direction', async () => {
+  test('Options holds the agent, style, Ultra and memory; "+" keeps Work in, worktree and design direction', async () => {
     patches();
     const { ChatComposer } = await import('../src/features/conversation/ChatComposer');
     const { useSessionTarget } = await import('../src/features/home/SessionStart');
@@ -445,7 +451,7 @@ describe('the Code start', () => {
     const opts = v.rowLabels(await v.open(v.chip('options')));
     expect(opts).toContain('coder');
     expect(opts).toContain('Use and save');
-    expect(opts).not.toContain('Ultra');
+    expect(opts).toContain('Ultra');
     await v.close(v.chip('options'));
     const plus = v.rowLabels(await v.open(v.plus()));
     expect(plus[0]).toBe('Attach files and images');
@@ -454,11 +460,9 @@ describe('the Code start', () => {
     expect(plus).toContain('Minimal');
     for (const gone of ['coder, the default', 'Ultra', 'Use and save', 'madx (hub)', 'MacBook']) expect(plus).not.toContain(gone);
     await v.close(v.plus());
-    // Ultra is in the fold, and the fold starts open while Ultra is on
-    await v.pick(await v.open(v.chip('options')), 'More styles');
+    // Ultra is a row of its own, on and off without the fold
     await v.pick(await v.open(v.chip('options')), 'Ultra');
     expect(v.chip('options')?.textContent).toBe('Ultra');
-    // Ultra off keeps the fold open under it
     await v.pick(await v.open(v.chip('options')), 'Ultra');
     expect(v.chip('options')?.textContent).toBe('Options');
     expect(v.rowLabels(await v.open(v.chip('options')))).toContain('Ultra');
