@@ -889,6 +889,8 @@ async function runHub(root: string): Promise<void> {
         github: { apiUrl: github.apiUrl, gitUrl: github.httpGitUrl, pollSeconds: 0 },
         // the workflow run's last agent waits on purpose (a held reply); the stuck watchdog would stop it after 5 minutes
         limits: { stuck: { minutes: 0 } },
+        // no look at GitHub's newest release: its "is ready" notice would cover the screenshots
+        updates: { auto: false, check: false },
         server: { token, remote: { lan: true } },
         ui: { theme: 'system', onboarded: true, name: 'Sam' },
       },
