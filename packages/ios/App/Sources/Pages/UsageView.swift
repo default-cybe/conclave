@@ -43,7 +43,8 @@ struct UsageView: View {
                 if let s = summary { totals(s) }
             }
         }
-        .refreshable { await load() }
+        // a pull re-reads the plans' limits too, as Refresh limits does (Android's pull)
+        .refreshable { await load(); await readLimits() }
         .task(id: range) { await load() }
     }
 

@@ -108,14 +108,23 @@ struct SearchView: View {
         .accessibilityIdentifier("search-title-\(s.id)")
     }
 
-    /// A session's title, then up to three of its hits; any tap opens the session.
+    /// A session's title, then up to three of its hits. The title opens the session; a hit opens it at
+    /// that message (the chat pages back to it).
     private func hitRow(_ g: HitGroup, _ m: Metrics) -> some View {
         Button { open(g.sessionId) } label: {
             VStack(alignment: .leading, spacing: 4) {
                 Text(g.title).font(.sans(m.compact ? 15 : 14, .medium)).foregroundStyle(Tone.fg).lineLimit(1)
                 ForEach(g.hits.prefix(3)) { h in
-                    snippet(h.snippet).font(.sans(m.compact ? 13.5 : 12.5)).foregroundStyle(Tone.fg3).lineLimit(2)
-                        .fixedSize(horizontal: false, vertical: true)
+                    Button {
+                        if !h.messageId.isEmpty { hub.chat(g.sessionId).focus = h.messageId }
+                        open(g.sessionId)
+                    } label: {
+                        snippet(h.snippet).font(.sans(m.compact ? 13.5 : 12.5)).foregroundStyle(Tone.fg3).lineLimit(2)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityHint("Opens the chat at this message")
                 }
                 if g.hits.count > 3 {
                     Text("\(g.hits.count - 3) more in this session").font(.sans(12)).foregroundStyle(Tone.fg4)

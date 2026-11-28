@@ -22,6 +22,8 @@ final class HubModel {
     private(set) var deviceTick = 0
     /// Bumps on every workflow.* event (run, phase, agent, log, progress): an open run reads again.
     private(set) var workflowTick = 0
+    /// Bumped by memory.updated and memory.deleted: the Memory page reads again.
+    private(set) var memoryTick = 0
     /// The hub's model list, read when a picker first opens.
     private(set) var models: [ModelGroup] = []
     /// GET /api/agents, read when a picker or the Agents page first needs it.
@@ -135,6 +137,8 @@ final class HubModel {
         case .questionAsked(let q):
             waiting.insert(Asks.home(q))
             if !questions.contains(where: { $0.id == q.id }) { questions.append(q) }
+        case .other(let type) where type == "memory.updated" || type == "memory.deleted":
+            memoryTick += 1
         case .other(let type) where type == "device.updated" || type == "device.deleted":
             deviceTick += 1
             Task { if let d = try? await client.devices() { devices = d } }

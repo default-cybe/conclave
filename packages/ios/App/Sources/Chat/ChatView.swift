@@ -134,6 +134,14 @@ struct ChatView: View {
         }
         .task {
             await chat.loadIfNeeded()
+            // a search hit: page back to its message, then bring it into view
+            if let id = chat.focus {
+                chat.focus = nil
+                if await chat.loadUntil(id) {
+                    try? await Task.sleep(for: .milliseconds(300))
+                    position.scrollTo(id: id, anchor: .center)
+                }
+            }
             #if DEBUG
             // CI screenshots: `-scrollTop` reads the chat from its first message
             if ProcessInfo.processInfo.arguments.contains("-scrollTop") {

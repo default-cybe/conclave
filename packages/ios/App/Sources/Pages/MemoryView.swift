@@ -51,7 +51,8 @@ struct MemoryView: View {
         }
         .refreshable { await load() }
         // typing waits 300 ms; a new key cancels the last wait (Android's debounce)
-        .task(id: "\(kind?.rawValue ?? "")|\(query)") {
+        // memory events from the hub re-read the list (memoryTick)
+        .task(id: "\(kind?.rawValue ?? "")|\(query)|\(hub.memoryTick)") {
             if !query.isEmpty { try? await Task.sleep(for: .milliseconds(300)) }
             guard !Task.isCancelled else { return }
             await load()

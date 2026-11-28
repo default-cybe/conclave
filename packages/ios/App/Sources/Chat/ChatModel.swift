@@ -52,6 +52,18 @@ final class ChatModel {
         loaded = true
     }
 
+    /// A search hit's message to bring into view once the chat opens (SearchView), then cleared.
+    var focus: String?
+
+    /// Older pages until `id` is held, at most `pages` of them; whether it is held now.
+    func loadUntil(_ id: String, pages: Int = 10) async -> Bool {
+        await loadIfNeeded()
+        for _ in 0..<pages where !transcript.messages.contains(where: { $0.id == id }) {
+            guard await loadOlder() else { break }
+        }
+        return transcript.messages.contains { $0.id == id }
+    }
+
     /// The page before the first message held. False when there was none to read.
     @discardableResult
     func loadOlder() async -> Bool {
