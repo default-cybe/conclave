@@ -90,6 +90,10 @@ enum MockHub {
             let now = Int64(Date().timeIntervalSince1970 * 1000)
             return (200, #"{"values":[{"name":"github-token","prefix":"ghp_","setAt":\#(now - 3 * 86_400_000)},{"name":"notion-key","prefix":"secr","setAt":\#(now - 7_200_000)},{"name":"telegram.bot","managedBy":"Settings > Notifications"}]}"#)
         }
+        if path.hasPrefix("/api/accounts") {
+            let now = Int64(Date().timeIntervalSince1970 * 1000)
+            return (200, #"{"management":true,"refreshedAt":\#(now),"accounts":[{"id":"sub:claude-kai","label":"personal","vendor":"anthropic","vendorName":"Claude","kind":"subscription","plan":"Max 20x","email":"kai@dymnitguys.com","enabled":true,"state":"ready","windows":[{"name":"5h","usedPercent":42,"resetsAt":\#(now + 7_800_000)}]},{"id":"sub:claude-work","label":"work","vendor":"anthropic","vendorName":"Claude","kind":"subscription","plan":"Pro","enabled":true,"state":"limited","detail":"Weekly limit","windows":[{"name":"7d","usedPercent":100,"resetsAt":\#(now + 172_800_000)}]},{"id":"api:anthropic","label":"Anthropic key","vendor":"anthropic","vendorName":"Claude","kind":"api","enabled":false,"state":"paused","windows":[]},{"id":"api:zai","label":"Z.ai","vendor":"zai","vendorName":"GLM","kind":"api","plan":"Coding plan","enabled":true,"state":"ready","refusal":true,"windows":[]}],"routes":[{"vendor":"anthropic","vendorName":"Claude","order":["sub:claude-kai","sub:claude-work","api:anthropic"]},{"vendor":"zai","vendorName":"GLM","order":["api:zai"]}]}"#)
+        }
         if path == "/api/clients" {
             let now = Int64(Date().timeIntervalSince1970 * 1000)
             return (200, #"[{"id":"cl-ipad","name":"Kai's iPad","platform":"ios","createdAt":1,"online":true,"revoked":false},{"id":"cl-pixel","name":"Pixel 8","platform":"android","createdAt":1,"lastSeenAt":\#(now - 3 * 3_600_000),"revoked":false},{"id":"cl-cli","name":"madx","platform":"linux","createdAt":1,"lastSeenAt":\#(now - 2 * 86_400_000),"revoked":false}]"#)

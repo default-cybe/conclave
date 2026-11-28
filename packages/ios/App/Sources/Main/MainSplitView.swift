@@ -2,7 +2,7 @@ import ConclaveKit
 import SwiftUI
 
 /// The pages the sidebar opens besides chats.
-enum SidePage: String { case inbox, devices, settings, search, memory, usage, tasks, workflows, agents, today, routines, providers, subscriptions, secrets }
+enum SidePage: String { case inbox, devices, settings, search, memory, usage, tasks, workflows, agents, today, routines, providers, subscriptions, secrets, accounts }
 
 /// The iPad layout: sidebar, transcript and an inspector. On iPhone and in a narrow window it
 /// collapses to a stack. Each window keeps its own selection.
@@ -30,6 +30,7 @@ struct MainSplitView: View {
                         case .settings: SettingsView(hub: hub) { self.page = $0 }
                         case .providers: ProvidersView(hub: hub) { self.page = .settings }
                         case .subscriptions: SubscriptionsView(hub: hub) { self.page = .settings }
+                        case .accounts: AccountsView(hub: hub) { self.page = .settings }
                         case .secrets: SecretsView(hub: hub, member: hub.me?.isMember ?? false) { self.page = .settings }
                         case .search: SearchView(hub: hub) { open($0) }
                         case .memory: MemoryView(hub: hub)

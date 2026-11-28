@@ -42,6 +42,7 @@ struct SettingsView: View {
                 if me?.isMember == false {
                     link("Providers", "API keys for Anthropic, OpenAI, Z.ai and others", .providers)
                     link("Subscriptions", "Sign in to a Claude, ChatGPT or Gemini plan instead of a key", .subscriptions)
+                    link("Plan order and limits", "Which plan or key takes a call, and what happens at a limit", .accounts)
                 }
                 link("Secrets", "Tokens MCP servers use by name", .secrets)
             }

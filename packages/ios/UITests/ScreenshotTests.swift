@@ -114,6 +114,7 @@ final class ScreenshotTests: XCTestCase {
     @MainActor func testProvidersDark() throws { try page("providers", "dark", ["-openPage", "providers"]) { Self.text($0, "Rejected, 401") } }
     @MainActor func testSubscriptionsLight() throws { try page("subscriptions", "light", ["-openPage", "subscriptions"]) { Self.text($0, "work account") } }
     @MainActor func testSubscriptionsDark() throws { try page("subscriptions", "dark", ["-openPage", "subscriptions"]) { Self.text($0, "work account") } }
+    @MainActor func testAccountsLight() throws { try page("accounts", "light", ["-openPage", "accounts"]) { Self.text($0, "At its limit") } }
     @MainActor func testSecretsLight() throws { try page("secrets", "light", ["-openPage", "secrets"]) { Self.text($0, "github-token") } }
     @MainActor func testHubSettingsLight() throws { try hubSettings("light") }
     @MainActor func testHubSettingsDark() throws { try hubSettings("dark") }

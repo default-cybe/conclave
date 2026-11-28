@@ -72,6 +72,17 @@ struct ProvidersTests {
         #expect(r.path == "/api/me/secrets" && r.json == .object(["key": .string("gh"), "value": .null]))
     }
 
+    @Test func accountOrders() throws {
+        let s = try JSONDecoder().decode(AccountsStatus.self, from: Data(#"{"management":true,"accounts":[{"id":"a","vendor":"anthropic","vendorName":"Claude","state":"limited","enabled":true},{"id":"b","vendor":"anthropic","state":"ready"},{"id":"c","vendor":"anthropic","state":"ready"},{"id":"z","vendor":"zai","state":"cooldown"}],"routes":[{"vendor":"anthropic","vendorName":"Claude","order":["b","a"]},{"vendor":"anthropic","match":"claude-opus-*","order":["a"]}]}"#.utf8))
+        let g = AccountWords.vendorOrders(s)
+        // per-model routes are not vendor rows; an account the order leaves out goes last
+        #expect(g.count == 1 && g[0].1.map(\.id) == ["b", "a", "c"])
+        #expect(AccountWords.moved(["b", "a", "c"], "a", by: -1) == ["a", "b", "c"])
+        #expect(AccountWords.moved(["b", "a", "c"], "b", by: -1) == ["b", "a", "c"])
+        #expect(AccountWords.state("limited").0 == "At its limit")
+        #expect(AccountWords.state("unknown").0 == "Ready")
+    }
+
     @Test func routes() async throws {
         let hub = MockHub()
         let c = hub.client()
