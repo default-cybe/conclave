@@ -9,7 +9,7 @@ import { useHub } from '@/store/store';
 import { useIsMobile } from '@/lib/hooks';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Field';
-import { Group, save, SettingRow } from './parts';
+import { Group, NumberSetting, save, SettingRow } from './parts';
 
 type LimitKey = keyof typeof WORKFLOW_LIMITS;
 
@@ -19,6 +19,9 @@ const ROWS: Array<{ key: LimitKey; label: string; help: string }> = [
   { key: 'hubMax', label: 'At once on this hub', help: 'Workflow agents at the same time on the whole hub. Applies at once.' },
   { key: 'maxAgents', label: 'Most agents one run can start', help: 'When a run reaches it, its next agent call fails.' },
 ];
+
+/** Ultra's threshold (workflows.autoApproveTokens): its own group, it is not a cap on agents at once. */
+const ULTRA_ROW: { key: LimitKey; label: string; help: string } = { key: 'autoApproveTokens', label: 'Start Ultra runs without asking under', help: 'In Ultra, a run estimated under this many tokens starts at once; a bigger one asks first.' };
 
 /** The number typed, when it is a whole number from 1 to the key's max; undefined otherwise. */
 export function limitValue(key: LimitKey, raw: string): number | undefined {
@@ -35,7 +38,24 @@ export function saveLimit(key: LimitKey, value: number | null): Promise<boolean>
 
 export function WorkflowsSection() {
   const wf = (useHub((s) => s.config?.workflows) ?? {}) as Partial<Record<LimitKey, number | null>>;
-  return <WorkflowsBody values={wf} />;
+  return (
+    <div className="space-y-9">
+      <WorkflowsBody values={wf} />
+      <Group title="Ultra">
+        <LimitRow key={`${ULTRA_ROW.key}:${wf[ULTRA_ROW.key] ?? 'default'}`} row={ULTRA_ROW} saved={wf[ULTRA_ROW.key] ?? undefined} />
+      </Group>
+      {/* limits.maxSteps and limits.subagentMaxSteps (core session/runner.ts): "Stopped after N steps." */}
+      <Group title="Model calls per turn" help="A turn that reaches its number wraps up with a final reply and no more tools. An agent's own maxSteps wins over both.">
+        <NumberSetting path="limits.maxSteps" label="In a chat or session" unit="calls" help="Model calls in one of your turns." />
+        <NumberSetting path="limits.subagentMaxSteps" label="In a subagent" unit="calls" help="Model calls in one subagent's turn." />
+      </Group>
+      {/* server.heavyCommands and server.uploadMaxMb: here, not in This computer, which only the desktop app shows */}
+      <Group title="This hub">
+        <NumberSetting path="server.heavyCommands" label="Test runs and builds at once" help="Whole test suites and builds agents run on the hub itself at the same time; more wait in line. Paired computers are never held." zero="turns the line off" />
+        <NumberSetting path="server.uploadMaxMb" label="Largest upload" unit="MB" help="One file you attach. Over about 127 MB takes effect after the hub restarts." />
+      </Group>
+    </div>
+  );
 }
 
 export function WorkflowsBody({ values }: { values: Partial<Record<LimitKey, number | null>> }) {

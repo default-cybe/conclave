@@ -211,6 +211,49 @@ function NumberField({ path, label, help, unit, zero, saved }: { path: string; l
   );
 }
 
+/**
+ * One text setting at a config path (a folder, a program, an address). Save
+ * shows once it changes; an empty field saves null, back to the default.
+ * `extra` sits next to Save (a Test button).
+ */
+export function TextSetting({ path, label, help, placeholder, mono = true, extra }: { path: string; label: string; help: ReactNode; placeholder: string; mono?: boolean; extra?: (saved: string) => ReactNode }) {
+  const config = useHub((s) => s.config);
+  const raw = configAt(config, path);
+  const saved = typeof raw === 'string' ? raw : '';
+  return <TextField key={`${path}:${saved}`} path={path} label={label} help={help} placeholder={placeholder} mono={mono} saved={saved} extra={extra} />;
+}
+
+function TextField({ path, label, help, placeholder, mono, saved, extra }: { path: string; label: string; help: ReactNode; placeholder: string; mono: boolean; saved: string; extra?: (saved: string) => ReactNode }) {
+  const mobile = useIsMobile();
+  const [text, setText] = useState(saved);
+  const [busy, setBusy] = useState(false);
+  const dirty = text.trim() !== saved;
+  const run = async () => {
+    setBusy(true);
+    if (await save(patchAt(path, text.trim() || null))) toast({ title: text.trim() ? `${label} saved.` : `${label} cleared.` });
+    setBusy(false);
+  };
+  return (
+    <SettingRow label={label} help={help} stack>
+      <form
+        className="flex flex-wrap items-center gap-2"
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (dirty) void run();
+        }}
+      >
+        <Input mono={mono} value={text} onChange={(e) => setText(e.target.value)} placeholder={placeholder} aria-label={label} className="min-w-0 flex-1" size="sm" />
+        {dirty && (
+          <Button type="submit" variant="solid" size={mobile ? 'touch' : 'sm'} busy={busy ? 'Saving' : false}>
+            Save
+          </Button>
+        )}
+        {!dirty && extra?.(saved)}
+      </form>
+    </SettingRow>
+  );
+}
+
 /** A result in words: the word in its state color, then quiet detail. */
 export function Outcome({ word, tone, children, className }: { word: ReactNode; tone: 'ok' | 'fault' | 'dim' | 'warn'; children?: ReactNode; className?: string }) {
   return (

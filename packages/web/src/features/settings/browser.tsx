@@ -16,7 +16,7 @@ import { Button } from '@/components/ui/Button';
 import { Dialog } from '@/components/ui/Overlay';
 import { Field, Input, Select } from '@/components/ui/Field';
 import { LoadingRows } from '@/components/ui/EmptyState';
-import { agoWords, errText, Group, SettingRow } from './parts';
+import { agoWords, errText, Group, SettingRow, TextSetting } from './parts';
 import { EnginesGroup, newProfileWords, profileHelp, ProfileEngine, ProxyGroup } from './browserParts';
 import { SitesAndLogins } from './sitesLogins';
 import { RemotePage } from './RemotePage';
@@ -67,6 +67,14 @@ export function BrowserSection() {
       )}
 
       <SitesAndLogins s={s} onStatus={setS} />
+
+      {/* browser.executablePath and browser.profileDir (core browser/manager.ts): the owner's, read at the next launch */}
+      {!member && (
+        <Group title="Program and profile folder" help="Takes effect the next time a browser starts.">
+          <TextSetting path="browser.executablePath" label="Browser program" placeholder="Bundled Chromium or system Chrome" help="A Chromium-based browser on the hub. Empty: the bundled Chromium, else a Chrome it finds." />
+          <TextSetting path="browser.profileDir" label="Profile folder" placeholder="Inside the hub's folder" help="Where profiles keep cookies and logins between runs. Empty: inside the hub's folder." />
+        </Group>
+      )}
 
       {s.proxy && <ProxyGroup s={s} onStatus={setS} />}
 

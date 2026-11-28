@@ -13,7 +13,7 @@ import { Input, SECRET_FIELD } from '@/components/ui/Field';
 import { ConfirmDialog } from '@/components/ui/Overlay';
 import { LoadingRows } from '@/components/ui/EmptyState';
 import { githubStatus, RepoList } from '@/features/github/RepoPicker';
-import { errText, Group, Outcome, SettingRow } from './parts';
+import { Group, NumberSetting, Outcome, SettingRow, TextSetting, errText } from './parts';
 
 /** The page on github.com that makes a fine-grained token. */
 const NEW_TOKEN = 'https://github.com/settings/personal-access-tokens/new';
@@ -106,6 +106,12 @@ export function GithubSection() {
           label="What the hub does with it"
           help="It clones a repository once per device, gives each repo session its own worktree and branch, pushes that branch and opens the pull request when you say so, and reads the pull request's state and checks. It never force pushes and never pushes to the default branch."
         />
+      </Group>
+
+      {/* github.reposRoot and github.pollSeconds (core github/service.ts), read at each use */}
+      <Group title="Clones and checks">
+        <TextSetting path="github.reposRoot" label="Clone into" placeholder="~/repos" help="The folder on each device where repositories are cloned, as <folder>/<owner>/<repo>. Empty: ~/repos." />
+        <NumberSetting path="github.pollSeconds" label="Check pull requests every" unit="seconds" help="How often the hub reads open pull requests and their checks." zero="checks only when you ask" />
       </Group>
 
       {status.connected && (
