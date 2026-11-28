@@ -74,6 +74,19 @@ struct HubSettingsSections: View {
                 Segmented(options: [("warn", "Warn"), ("ask", "Ask")], selection: Binding(get: { ConfigPath.value(c, "permissions.onFileConflict")?.string ?? "warn" }, set: { v in Task { await set("permissions.onFileConflict", .string(v)) } }))
             }
         }
+        // web settings/permissions.tsx: the default mode, the rules (deny wins over ask, ask over allow) and extra folders
+        CardSection(title: "Permissions", note: PermissionWords.help(ConfigPath.value(c, "permissions.mode")?.string ?? "default") + " Each session can change it.") {
+            CardRow(label: "When a session wants to act") {
+                Segmented(options: PermissionWords.modes.map { ($0.0, $0.1) }, selection: Binding(get: { ConfigPath.value(c, "permissions.mode")?.string ?? "default" }, set: { v in Task { await set("permissions.mode", .string(v)) } }))
+            }
+        }
+        RuleList(title: "Rules", note: "Claude Code syntax, such as Bash(git push:*) or mcp__github. Deny wins over ask, ask over allow.", config: c, kinds: ["deny", "ask", "allow"], placeholder: "Bash(git push:*)", valid: PermissionWords.ruleOK) { path, list in await set(path, .array(list.map(JSONValue.string))) }
+        RuleList(title: "Extra folders", note: "Folders sessions may use on top of each device's roots. Paths are on the device that runs the session.", config: c, kinds: ["additionalDirectories"], placeholder: "~/notes", valid: { !$0.isEmpty }) { path, list in await set(path, .array(list.map(JSONValue.string))) }
+        // web settings/refusal.tsx: the switches; the model order stays on the web
+        CardSection(title: "When a model refuses", note: "The order of models to try is set on the web: Settings, When a model refuses.") {
+            toggle(c, "Try the next model on its own", "models.refusalFallback.enabled", def: false, help: "Off: a refused reply shows Try the next model instead.")
+            toggle(c, "Stay on the model that answered", "models.refusalFallback.stay", def: false, help: "Off: the next message goes to the chat's own model again.")
+        }
         // which notices the hub sends (notifications.on; web NOTIFY_EVENTS, every one on by default)
         CardSection(title: "Notifications", note: "The hub sends them to your devices. While you use Conclave on another device, the hub holds the rest.") {
             ForEach([("approvalNeeded", "Approvals and questions"), ("errors", "Failures"), ("stuck", "Stuck sessions"), ("fileConflict", "File conflicts"),
@@ -143,6 +156,51 @@ struct HubSettingsSections: View {
             self.error = "Could not save. " + ((error as? ConclaveAPIError)?.message ?? error.localizedDescription)
         }
         await load()
+    }
+}
+
+/// Lists of strings in the config (permissions.deny/ask/allow, additionalDirectories): each with
+/// Remove, and an Add line with the kind to file it under. Saving writes the whole list.
+private struct RuleList: View {
+    let title: String
+    let note: String
+    let config: JSONValue
+    let kinds: [String]
+    let placeholder: String
+    let valid: (String) -> Bool
+    let save: (String, [String]) async -> Void
+    @State private var text = ""
+    @State private var kind = ""
+
+    var body: some View {
+        let lists = kinds.map { k in (k, (ConfigPath.value(config, "permissions.\(k)")?.arrayStrings) ?? []) }
+        CardSection(title: title, note: note) {
+            ForEach(lists, id: \.0) { k, items in
+                ForEach(items, id: \.self) { r in
+                    CardRow(label: r, detail: kinds.count > 1 ? k.capitalized : nil) {
+                        Button("Remove") { Task { await save("permissions.\(k)", items.filter { $0 != r }) } }.buttonStyle(CVButton(look: .quiet, height: 30))
+                    }
+                }
+            }
+            HStack(spacing: 8) {
+                TextField(placeholder, text: $text).font(.mono(13)).textInputAutocapitalization(.never).autocorrectionDisabled()
+                    .padding(.horizontal, 10).frame(height: 34).panel(Tone.sunk, radius: Radius.r2, border: text.isEmpty || valid(text.trimmingCharacters(in: .whitespaces)) ? Tone.rule2 : Tone.fault)
+                    .accessibilityLabel("New \(title.lowercased())")
+                if kinds.count > 1 {
+                    Menu(kind.isEmpty ? kinds[0].capitalized : kind.capitalized) { ForEach(kinds, id: \.self) { k in Button(k.capitalized) { kind = k } } }
+                        .font(.sans(13, .medium)).accessibilityLabel("Decision")
+                }
+                Button("Add") {
+                    let r = text.trimmingCharacters(in: .whitespaces)
+                    let k = kind.isEmpty ? kinds[0] : kind
+                    let cur = lists.first { $0.0 == k }?.1 ?? []
+                    text = ""
+                    if !cur.contains(r) { Task { await save("permissions.\(k)", cur + [r]) } }
+                }
+                .buttonStyle(CVButton(look: .outline, height: 34)).disabled(!valid(text.trimmingCharacters(in: .whitespaces)))
+            }
+            .padding(.horizontal, 14).padding(.vertical, 8)
+        }
     }
 }
 

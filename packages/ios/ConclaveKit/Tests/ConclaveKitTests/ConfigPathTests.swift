@@ -30,6 +30,17 @@ struct ConfigPathTests {
         #expect(SessionPlacePatch(agent: "coder").json == ["agent": .string("coder")])
     }
 
+    @Test func permissionRules() {
+        #expect(PermissionWords.ruleOK("Bash(git push:*)"))
+        #expect(PermissionWords.ruleOK("Read"))
+        #expect(PermissionWords.ruleOK("mcp__github"))
+        #expect(PermissionWords.ruleOK("mcp__github__create_issue"))
+        #expect(!PermissionWords.ruleOK("bash"))
+        #expect(!PermissionWords.ruleOK("Bash("))
+        #expect(PermissionWords.help("bypass").hasPrefix("Nothing asks"))
+        #expect(JSONValue.array([.string("a"), .number(1)]).arrayStrings == ["a"])
+    }
+
     @Test func configReadsInsideTheWrapper() async throws {
         let hub = MockHub()
         let c = hub.client()
