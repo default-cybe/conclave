@@ -23,6 +23,13 @@ struct ConfigPathTests {
         #expect(ConfigPath.number("lots") == nil)
     }
 
+    /// Move to Code's PATCH (Android continueAsSession): kind agent, the place, the mode, the kept title.
+    @Test func moveToCodePatch() {
+        let p = SessionPlacePatch(agent: "coder", device: "local", cwd: "~", kind: .agent, permissionMode: .acceptEdits, title: "Plan")
+        #expect(p.json == ["agent": .string("coder"), "device": .string("local"), "cwd": .string("~"), "kind": .string("agent"), "permissionMode": .string("acceptEdits"), "title": .string("Plan")])
+        #expect(SessionPlacePatch(agent: "coder").json == ["agent": .string("coder")])
+    }
+
     @Test func configReadsInsideTheWrapper() async throws {
         let hub = MockHub()
         let c = hub.client()
