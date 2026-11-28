@@ -6,6 +6,13 @@ public struct KeyProvider: Sendable, Hashable, Identifiable {
     public let name: String
     public let description: String
     public let keyPrefix: String?
+
+    public init(id: String, name: String, description: String, keyPrefix: String?) {
+        self.id = id
+        self.name = name
+        self.description = description
+        self.keyPrefix = keyPrefix
+    }
 }
 
 /// Settings > Providers and Subscriptions words and choices (Android logic/Providers.kt, web
