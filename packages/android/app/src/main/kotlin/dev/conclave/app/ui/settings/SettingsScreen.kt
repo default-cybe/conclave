@@ -138,6 +138,8 @@ fun SettingsScreen(
     onScanCode: () -> Unit,
     onOpenFriends: () -> Unit = {},
     onOpenPage: (SettingsPage) -> Unit = {},
+    onOpenProviders: () -> Unit = {},
+    onOpenSubscriptions: () -> Unit = {},
 ) {
     val container = LocalAppContainer.current
     val hub = container.hub
@@ -261,6 +263,11 @@ fun SettingsScreen(
             NavRow("Scan a new code", "Another hub, or a new address", onClick = onScanCode)
             NavRow("Refresh", null, chevron = false, onClick = { scope.launch { hub.refreshAll() } })
             NavRow("Sign out", null, chevron = false, danger = true, onClick = { confirmRepair = true })
+
+            // ---------------------------------------------------------------- AI connections (web Settings > Providers, Subscriptions)
+            Group("AI connections")
+            NavRow("Providers", if (isOwner) "Add, replace or remove an API key" else "Your own keys, or the hub's", onClick = onOpenProviders)
+            NavRow("Subscriptions", "Sign in to a Claude, ChatGPT or Gemini plan", onClick = onOpenSubscriptions)
 
             // ---------------------------------------------------------------- hub defaults (web Settings > Defaults)
             val cfg = hubConfig
@@ -648,7 +655,7 @@ private fun InfoRow(title: String, value: String?, trailing: (@Composable () -> 
 
 /** A row that opens something: the name, a line under it, and a chevron; or an action, without one. */
 @Composable
-private fun NavRow(title: String, detail: String?, chevron: Boolean = true, danger: Boolean = false, onClick: () -> Unit) {
+internal fun NavRow(title: String, detail: String?, chevron: Boolean = true, danger: Boolean = false, onClick: () -> Unit) {
     val c = Conclave.colors
     Row(
         Modifier.fillMaxWidth().clickable(onClick = onClick).heightIn(min = 52.dp).padding(start = 20.dp, end = 12.dp, top = 8.dp, bottom = 8.dp),
@@ -714,6 +721,6 @@ private fun CheckRow(title: String, selected: Boolean, inset: Dp = 20.dp, onClic
 
 /** A quiet paragraph under a group's rows. */
 @Composable
-private fun Note(text: String, color: androidx.compose.ui.graphics.Color = Conclave.colors.fg3) {
+internal fun Note(text: String, color: androidx.compose.ui.graphics.Color = Conclave.colors.fg3) {
     Text(text, style = ConclaveType.meta, color = color, modifier = Modifier.padding(horizontal = 20.dp, vertical = 6.dp))
 }

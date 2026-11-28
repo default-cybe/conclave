@@ -21,6 +21,7 @@ import dev.conclave.app.ui.conversation.ChoiceRow
 import dev.conclave.app.ui.conversation.OptionLabel
 import dev.conclave.app.ui.conversation.OptionRow
 import dev.conclave.app.ui.conversation.OptionsSheet
+import dev.conclave.app.ui.conversation.SwitchRow
 import dev.conclave.app.ui.theme.CodeStyle
 import dev.conclave.client.logic.SessionModes
 import dev.conclave.client.model.ModeConfig
@@ -62,6 +63,10 @@ internal fun ModeSetupSheet(mode: SessionMode, cfg: ModeConfig?, groups: List<Mo
                     onChange = { now = now.copy(jury = jury.copy(strategy = it)) },
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp),
                 )
+                // web JurorsPicker: the judge (the session's model while none is picked), anonymize, juror tools
+                OptionRow("Judge", jury.judge?.let(::name) ?: "The chat's model", onClick = { picking = "judge" })
+                SwitchRow("Hide model names from the judge", null, jury.anonymize) { now = now.copy(jury = jury.copy(anonymize = it)) }
+                SwitchRow("Jurors may read files", null, jury.jurorTools == "readonly") { now = now.copy(jury = jury.copy(jurorTools = if (it) "readonly" else "none")) }
             }
             mode == SessionMode.DEBATE && debate != null -> {
                 OptionRow("First side", name(debate.a), onClick = { picking = "a" })
@@ -73,6 +78,7 @@ internal fun ModeSetupSheet(mode: SessionMode, cfg: ModeConfig?, groups: List<Mo
                     onChange = { now = now.copy(debate = debate.copy(rounds = it)) },
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp),
                 )
+                OptionRow("Judge", debate.judge?.let(::name) ?: "The chat's model", onClick = { picking = "djudge" })
             }
             mode == SessionMode.LOOP && loop != null -> {
                 OptionLabel("Repeat until this command passes")
@@ -103,11 +109,17 @@ internal fun ModeSetupSheet(mode: SessionMode, cfg: ModeConfig?, groups: List<Mo
 
     picking?.let { what ->
         ModelPickerSheet(
-            title = if (what == "juror") "Add a juror" else "Pick a debater",
+            title = when (what) {
+                "juror" -> "Add a juror"
+                "judge", "djudge" -> "Judge"
+                else -> "Pick a debater"
+            },
             groups = groups,
             current = when (what) {
                 "a" -> now.debate?.a
                 "b" -> now.debate?.b
+                "judge" -> now.jury?.judge
+                "djudge" -> now.debate?.judge
                 else -> null
             },
             onPick = { ref ->
@@ -118,6 +130,8 @@ internal fun ModeSetupSheet(mode: SessionMode, cfg: ModeConfig?, groups: List<Mo
                     what == "juror" && jury != null -> now.copy(jury = jury.copy(jurors = (jury.jurors + ref).distinct()))
                     what == "a" && debate != null -> now.copy(debate = debate.copy(a = ref))
                     what == "b" && debate != null -> now.copy(debate = debate.copy(b = ref))
+                    what == "judge" && jury != null -> now.copy(jury = jury.copy(judge = ref))
+                    what == "djudge" && debate != null -> now.copy(debate = debate.copy(judge = ref))
                     else -> now
                 }
             },

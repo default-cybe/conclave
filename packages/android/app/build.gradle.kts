@@ -98,6 +98,8 @@ dependencies {
 
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.activity.compose)
+    // Custom Tabs: a plan's sign-in page (Settings, Subscriptions)
+    implementation(libs.androidx.browser)
     implementation(libs.androidx.fragment.ktx)
     // Only for the window theme: BiometricPrompt's fingerprint dialog (API 26-27) needs an AppCompat theme.
     implementation(libs.androidx.appcompat)

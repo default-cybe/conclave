@@ -88,6 +88,9 @@ import java.util.Locale
  * shows its context, price and pin. A model the plan refused waits in the
  * "Not available" fold at the end with its reason (design review #7).
  */
+/** Opens Settings, Providers: the empty model picker's Add a model (null outside the app's pages). */
+val LocalAddModel = androidx.compose.runtime.staticCompositionLocalOf<(() -> Unit)?> { null }
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ModelPickerSheet(
@@ -179,11 +182,23 @@ fun ModelPickerSheet(
                 }
                 if (list.isEmpty() && extras.isEmpty()) {
                     item {
-                        Text(
-                            if (q.isNotEmpty()) "No models match." else "No models yet. Add an API key or sign in to an AI plan in the web app: Settings, Providers.",
-                            modifier = Modifier.padding(24.dp),
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
+                        val addModel = LocalAddModel.current
+                        Column(Modifier.padding(24.dp)) {
+                            Text(
+                                if (q.isNotEmpty()) "No models match." else "No models yet. Add an API key, or sign in to an AI plan.",
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            if (q.isEmpty() && addModel != null) {
+                                androidx.compose.material3.Button(
+                                    onClick = {
+                                        onDismiss()
+                                        addModel()
+                                    },
+                                    colors = solidButtonColors(),
+                                    modifier = Modifier.padding(top = 12.dp).heightIn(min = 48.dp),
+                                ) { Text("Add a model") }
+                            }
+                        }
                     }
                 }
             }
