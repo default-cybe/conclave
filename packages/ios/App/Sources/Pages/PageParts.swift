@@ -147,6 +147,34 @@ struct Segmented<T: Hashable>: View {
     }
 }
 
+/// A page's list while it first loads: a small spinner and a quiet line (web's loading row).
+struct LoadingLine: View {
+    var text = "Loading"
+    var body: some View {
+        HStack(spacing: 8) {
+            ProgressView().controlSize(.small)
+            Text(text).font(.sans(13)).foregroundStyle(Tone.fg3)
+        }
+        .frame(maxWidth: .infinity).padding(.vertical, 32)
+        .accessibilityElement(children: .combine)
+    }
+}
+
+/// A load that failed: the hub's words in fault and Try again (web ErrorState, Android ErrorBox).
+struct ErrorBox: View {
+    let message: String
+    let retry: () -> Void
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(message).font(.sans(13)).foregroundStyle(Tone.fault).fixedSize(horizontal: false, vertical: true)
+            Button("Try again", action: retry).buttonStyle(CVButton(look: .outline))
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .panel(Tone.fault.opacity(0.06), radius: Radius.r3, border: Tone.fault.opacity(0.3))
+    }
+}
+
 /// A quiet centred line where a list is empty.
 struct EmptyLine: View {
     let text: String
