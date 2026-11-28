@@ -110,6 +110,7 @@ fun HomeScreen(
     val model by chat.model.collectAsStateWithLifecycle()
     val switches by chat.switches.collectAsStateWithLifecycle()
     val privacy by chat.privacy.collectAsStateWithLifecycle()
+    val sameModel by chat.sameModel.collectAsStateWithLifecycle()
     val code by chat.code.collectAsStateWithLifecycle()
     val failure by chat.failure.collectAsStateWithLifecycle()
     val name by hub.ownerName.collectAsStateWithLifecycle()
@@ -297,6 +298,8 @@ fun HomeScreen(
                         effortValue = code.thinking,
                         follow = Effort.follow(Start.ASSISTANT_AGENT, agents.firstOrNull { it.name == Start.ASSISTANT_AGENT }?.thinking, assistantModel),
                         onEffort = pickEffort,
+                        sameModel = sameModel,
+                        onSameModel = chat::setSameModel,
                         context = ContextUse.of(emptyList(), null, hub.modelInfo(assistantModel)),
                         onUsage = onOpenUsage,
                         // the assistant runs on the hub: no device or folder, only the permission mode
@@ -325,6 +328,8 @@ fun HomeScreen(
                         effortValue = code.thinking,
                         follow = Effort.follow(setup.agent, agents.firstOrNull { it.name == setup.agent }?.thinking, setup.model),
                         onEffort = pickEffort,
+                        sameModel = sameModel,
+                        onSameModel = chat::setSameModel,
                         context = ContextUse.of(emptyList(), null, hub.modelInfo(setup.model)),
                         onUsage = onOpenUsage,
                         left = {
@@ -380,6 +385,8 @@ fun HomeScreen(
                         effort = hub.modelInfo(chatModel)?.effort,
                         effortValue = switches.thinking,
                         onEffort = chat::setThinking,
+                        sameModel = sameModel,
+                        onSameModel = chat::setSameModel,
                         context = ContextUse.of(emptyList(), null, hub.modelInfo(chatModel)),
                         onUsage = onOpenUsage,
                         // a chat never gets a device or folder: Options (memory) beside the model, "+" has the web

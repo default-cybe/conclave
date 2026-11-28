@@ -802,6 +802,16 @@ class ChatHomeViewModel(hub: HubRepository, private val settings: SettingsStore)
         privacy.value = p
     }
 
+    /** Same model for all work for the next new chat, Code or Assistant start (the model picker's switch); never kept for the one after. */
+    val sameModel = MutableStateFlow(false)
+
+    fun setSameModel(on: Boolean) {
+        sameModel.value = on
+    }
+
+    /** [base] with sameModel when the switch is on. */
+    private fun pinned(base: ChatSettingsPatch): ChatSettingsPatch = if (sameModel.value) base.copy(sameModel = true) else base
+
     /** The defaults this page asked to save, in order (one writer, so a quick second change never lands first). */
     private val wanted = MutableStateFlow<ChatDefaults?>(null)
 
@@ -843,7 +853,7 @@ class ChatHomeViewModel(hub: HubRepository, private val settings: SettingsStore)
         val command = if (files.isEmpty()) Start.commandOf(text, commands) else null
         val priv = privacy.value
         val effort = Effort.clamp(d.thinking, hub.modelInfo(setup.model)?.effort)
-        val chat = if (effort == null && priv.memory == MemoryMode.SAVE) null else priv.chat(ChatSettingsPatch(thinking = effort))
+        val chat = if (effort == null && priv.memory == MemoryMode.SAVE && !sameModel.value) null else priv.chat(pinned(ChatSettingsPatch(thinking = effort)))
         val incognito = if (priv.incognito) true else null
         sending.value = true
         viewModelScope.launch {
@@ -907,6 +917,7 @@ class ChatHomeViewModel(hub: HubRepository, private val settings: SettingsStore)
                     hub.api { it.createSession(input) }
                 }
                 privacy.value = Privacy()
+                sameModel.value = false
                 if (d.ultra) s = hub.api { it.updateSession(s.id, SessionPatch(ultra = true)) }
                 hub.putSession(s)
                 if (command != null) {
@@ -939,13 +950,17 @@ class ChatHomeViewModel(hub: HubRepository, private val settings: SettingsStore)
         val d = code.value
         val command = if (files.isEmpty()) Start.commandOf(text, commands) else null
         val chat = Effort.clamp(d.thinking, hub.modelInfo(model)?.effort)?.let { ChatSettingsPatch(thinking = it) }
+        val pin = sameModel.value
         sending.value = true
         viewModelScope.launch {
             try {
                 // the one Assistant thread; an older hub without it (null) gets a new session, as before
                 val home = hub.api { it.assistantHome() }
                 val s = if (home != null) {
-                    if (model != null && model != home.model) hub.api { it.updateSession(home.id, SessionPatch(model = model)) } else home
+                    // a model picked here, and Same model turned on here, go to the thread before the message
+                    val switch = model != null && model != home.model
+                    val turnOn = pin && home.chat?.sameModel != true
+                    if (switch || turnOn) hub.api { it.updateSession(home.id, SessionPatch(model = if (switch) model else null, chat = if (turnOn) ChatSettingsPatch(sameModel = true) else null)) } else home
                 } else {
                     val input = CreateSessionInput(
                         agent = Start.ASSISTANT_AGENT,
@@ -953,11 +968,12 @@ class ChatHomeViewModel(hub: HubRepository, private val settings: SettingsStore)
                         device = "local",
                         permissionMode = d.permissionMode,
                         prompt = if (files.isEmpty() && command == null) text else null,
-                        chat = chat,
+                        chat = if (pin) (chat ?: ChatSettingsPatch()).copy(sameModel = true) else chat,
                     )
                     hub.api { it.createSession(input) }
                 }
                 hub.putSession(s)
+                sameModel.value = false
                 if (command != null) {
                     runCommand(s.id, command, text)
                 } else if (home != null || files.isNotEmpty()) {
@@ -1034,11 +1050,12 @@ class ChatHomeViewModel(hub: HubRepository, private val settings: SettingsStore)
                 val input = CreateSessionInput(
                     kind = SessionKind.CHAT,
                     model = model.value,
-                    chat = privacy.value.chat(ChatSettingsPatch(webSearch = sw.webSearch, thinking = sw.thinking)),
+                    chat = privacy.value.chat(pinned(ChatSettingsPatch(webSearch = sw.webSearch, thinking = sw.thinking))),
                     prompt = if (files.isEmpty()) text else null,
                     incognito = if (privacy.value.incognito) true else null,
                 )
                 privacy.value = Privacy()
+                sameModel.value = false
                 val s = hub.api { it.createSession(input) }
                 hub.putSession(s)
                 if (files.isNotEmpty()) {
