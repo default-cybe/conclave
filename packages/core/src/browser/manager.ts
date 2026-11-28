@@ -1446,11 +1446,19 @@ export class BrowserManager implements BrowserTakeover {
       const made = !page;
       page ??= await bounded('opening a tab', CDP_MS * 2, p.context.newPage());
       const cdp = await bounded('attaching to the tab', CDP_MS, p.context.newCDPSession(page));
+      // an origin is matched with its port: the open tabs on the site give the ones on a port of their own
+      const origins = new Set([...hosts].flatMap((h) => [`https://${h}`, `http://${h}`]));
+      for (const x of p.context.pages()) {
+        try {
+          const u = new URL(x.url());
+          if (hosts.has(u.hostname.toLowerCase())) origins.add(u.origin);
+        } catch {
+          // about:blank and the like
+        }
+      }
       try {
-        for (const h of hosts) {
-          for (const scheme of ['https', 'http']) {
-            await bounded('clearing site data', CDP_MS, (cdp as unknown as RawCdp).send('Storage.clearDataForOrigin', { origin: `${scheme}://${h}`, storageTypes: 'all' })).catch(() => {});
-          }
+        for (const origin of origins) {
+          await bounded('clearing site data', CDP_MS, (cdp as unknown as RawCdp).send('Storage.clearDataForOrigin', { origin, storageTypes: 'all' })).catch(() => {});
         }
       } finally {
         await bounded('detaching', CDP_MS, cdp.detach()).catch(() => {});
