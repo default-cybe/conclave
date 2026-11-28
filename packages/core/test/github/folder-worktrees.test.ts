@@ -8,9 +8,11 @@ import { afterEach, describe, expect, test } from 'bun:test';
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { startTestEngine, type Step, type TestEngine } from '../engine/harness';
-import { sh, twoDevices, type TwoDevices } from '../projects/machines';
+import { attach, HomeMachine, sh, twoDevices, type TwoDevices } from '../projects/machines';
 import { githubOf } from '../../src/github';
-import { githubName, type GithubService } from '../../src/github/service';
+import { githubName, isAbsoluteFolder, type GithubService } from '../../src/github/service';
+import type { ExecOptions, ExecResult } from '../../src/machine/types';
+import type { MachineInfo } from '../../src/types';
 import { projectsOf } from '../../src/projects/registry';
 import { FakeGithub } from './fake-github';
 
@@ -206,5 +208,37 @@ describe('Run in a worktree on a git folder', () => {
     const dto = await svc.openPr(s.id, { title: 'Answer' });
     expect(dto.pr).toMatchObject({ number: 1, state: 'open' });
     expect(fake.pulls[0]).toMatchObject({ head: row.branch, base: 'main' });
+  }, 30_000);
+
+  test('a Windows device: D:\\ and D:/ folders are checked, not refused (git for Windows prints D:/x)', async () => {
+    const { t, d, repo } = await setup();
+    const svc = githubOf(t.engine) as GithubService;
+    // a win32 device whose D:\Coding is the temp repo's parent folder
+    const real = join(d.pc.home, 'code');
+    const toReal = (p: string) => p.replace(/^D:[\\/]Coding/i, real).replace(/\\/g, '/');
+    class WinMachine extends HomeMachine {
+      override infoNow(): MachineInfo {
+        return { ...super.infoNow(), platform: 'win32', home: 'C:\\Users\\nihir' };
+      }
+      override async stat(path: string) {
+        return super.stat(toReal(path));
+      }
+      override async exec(command: string, opts: ExecOptions): Promise<ExecResult> {
+        const r = await super.exec(command, { ...opts, cwd: toReal(opts.cwd) });
+        return { ...r, stdout: r.stdout.split(real).join('D:/Coding') };
+      }
+    }
+    const win = new WinMachine('win', 'BINARY-101', d.pc.home);
+    t.engine.repos.devices.insert({ id: win.id, name: win.name, tokenHash: 'test', roots: [] });
+    attach(t.engine, win);
+    expect(repo.startsWith(real)).toBe(true);
+    for (const f of ['D:\\Coding\\app', 'D:/Coding/app/src', 'D:\\Coding\\app\\'])
+      expect(await svc.folderGit('win', f)).toEqual({ git: true, root: 'D:/Coding/app', branch: 'main' });
+    expect(await svc.folderGit('win', 'D:\\Coding\\nothing')).toEqual({ git: false });
+    expect(await svc.folderGit('win', '\\\\server\\share\\x')).toEqual({ git: false });
+    // a relative path, and a Windows path on a POSIX device, are still refused
+    await expect(svc.folderGit('win', 'Coding\\app')).rejects.toThrow(/absolute path/);
+    await expect(svc.folderGit('pc', 'D:\\Coding\\app')).rejects.toThrow(/absolute path/);
+    expect(isAbsoluteFolder('D:/x') && isAbsoluteFolder('/x') && isAbsoluteFolder('\\\\srv\\share') && !isAbsoluteFolder('x/y') && !isAbsoluteFolder('D:x')).toBe(true);
   }, 30_000);
 });

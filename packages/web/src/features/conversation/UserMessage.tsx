@@ -103,6 +103,11 @@ function SavedInChat({ files }: { files: AttachmentReceipt[] }) {
   );
 }
 
+/** Your words and the names of files an imported message carried as "[Attached x]" text blocks (core session/imported.ts), which show as chips. */
+export function userWords(m: Message): { text: string; files: string[] } {
+  return isImportedMessage(m) ? splitAttached(m.content) : { text: msgText(m), files: [] };
+}
+
 export function imagesOf(m: Message): string[] {
   return m.content.filter((b): b is Extract<ContentBlock, { type: 'image' }> => b.type === 'image').map((b) => b.url ?? `data:${b.mediaType};base64,${b.data}`);
 }
