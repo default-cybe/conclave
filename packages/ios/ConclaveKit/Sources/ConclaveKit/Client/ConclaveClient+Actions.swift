@@ -35,11 +35,18 @@ public struct SessionPlacePatch: Sendable, Hashable {
     public var agent: String?
     public var device: String?
     public var cwd: String?
+    /// Move to Code (Android continueAsSession): the chat becomes an agent session.
+    public var kind: SessionKind?
+    public var permissionMode: PermissionMode?
+    public var title: String?
 
-    public init(agent: String? = nil, device: String? = nil, cwd: String? = nil) {
+    public init(agent: String? = nil, device: String? = nil, cwd: String? = nil, kind: SessionKind? = nil, permissionMode: PermissionMode? = nil, title: String? = nil) {
         self.agent = agent
         self.device = device
         self.cwd = cwd
+        self.kind = kind
+        self.permissionMode = permissionMode
+        self.title = title
     }
 
     var json: JSONObject {
@@ -47,6 +54,9 @@ public struct SessionPlacePatch: Sendable, Hashable {
         if let agent { o["agent"] = .string(agent) }
         if let device { o["device"] = .string(device) }
         if let cwd { o["cwd"] = .string(cwd) }
+        if let kind { o["kind"] = .string(kind.rawValue) }
+        if let permissionMode { o["permissionMode"] = .string(permissionMode.rawValue) }
+        if let title { o["title"] = .string(title) }
         return o
     }
 }

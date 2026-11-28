@@ -74,6 +74,16 @@ struct HubSettingsSections: View {
                 Segmented(options: [("warn", "Warn"), ("ask", "Ask")], selection: Binding(get: { ConfigPath.value(c, "permissions.onFileConflict")?.string ?? "warn" }, set: { v in Task { await set("permissions.onFileConflict", .string(v)) } }))
             }
         }
+        // which notices the hub sends (notifications.on; web NOTIFY_EVENTS, every one on by default)
+        CardSection(title: "Notifications", note: "The hub sends them to your devices. While you use Conclave on another device, the hub holds the rest.") {
+            ForEach([("approvalNeeded", "Approvals and questions"), ("errors", "Failures"), ("stuck", "Stuck sessions"), ("fileConflict", "File conflicts"),
+                     ("limitReset", "Limit resets"), ("routineDone", "Routine finished"), ("updates", "Updates"), ("sessionDone", "Session finished"), ("friendMessage", "Friends")], id: \.0) { key, label in
+                CardRow(label: label) {
+                    Toggle(label, isOn: Binding(get: { ConfigPath.value(c, "notifications.on.\(key)")?.bool ?? true }, set: { v in Task { await set("notifications.on.\(key)", .bool(v)) } }))
+                        .labelsHidden().tint(Tone.signal)
+                }
+            }
+        }
         CardSection(title: "Memory") {
             toggle(c, "Use memory", "memory.enabled", def: true, help: "Off means sessions neither read nor write notes.")
             toggle(c, "Give relevant notes", "memory.autoInject", def: true, help: "Before each turn, the notes that match the message ride along.")

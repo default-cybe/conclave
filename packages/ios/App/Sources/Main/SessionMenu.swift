@@ -45,6 +45,8 @@ struct SessionMenu: View {
         }
         if !session.isChat {
             Button("Checkpoints", systemImage: "clock.arrow.circlepath") { sheets.checkpointsFor = session.id }
+        } else {
+            Button("Move to Code", systemImage: "chevron.left.forwardslash.chevron.right") { sheets.moveToCode(session, then: opened) }
         }
         Button("Share as Markdown", systemImage: "square.and.arrow.up") { Task { await sheets.export(session.id, hub: hub) } }
         let groups = ModelPicks.groups(hub.models)
@@ -110,7 +112,15 @@ final class SessionSheets {
     var checkpointsFor: String?
     /// The Markdown of an export, for the share sheet.
     var exported: ExportedText?
+    /// The chat Move to Code is open for.
+    var moving: Session?
     @ObservationIgnored private var afterDelete: ((String?) -> Void)?
+    @ObservationIgnored var afterMove: ((String?) -> Void)?
+
+    func moveToCode(_ s: Session, then: @escaping (String?) -> Void) {
+        afterMove = then
+        moving = s
+    }
 
     var noticeShown: Bool {
         get { notice != nil }
@@ -329,6 +339,9 @@ private struct SessionActionSheets: ViewModifier {
                 CheckpointsSheet(hub: hub, sessionId: s.text, sheets: sheets)
             }
             .sheet(item: $sheets.exported) { e in ShareSheet(items: [e.text]).presentationDetents([.medium, .large]) }
+            .sheet(item: $sheets.moving) { s in
+                MoveToCodeSheet(hub: hub, chat: s) { id in sheets.afterMove?(id) }
+            }
             .alert("That did not work", isPresented: $sheets.errorShown) {
                 Button("OK", role: .cancel) {}
             } message: {
