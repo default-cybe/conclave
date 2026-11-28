@@ -33,7 +33,6 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.conclave.app.ui.common.ConfirmDialog
 import dev.conclave.app.ui.common.LocalAppContainer
-import dev.conclave.app.ui.common.SectionHeader
 import dev.conclave.app.ui.common.TopBar
 import dev.conclave.app.ui.common.errorText
 import dev.conclave.app.ui.common.outlineButtonBorder
@@ -124,17 +123,17 @@ fun ProvidersScreen(onBack: () -> Unit, onOpenSubscriptions: () -> Unit) {
             NavRow("Sign in to an AI plan", "Claude, ChatGPT or Gemini, with your plan instead of a key", onClick = onOpenSubscriptions)
             if (isOwner) {
                 val rows = Providers.keyedRows(withKeys, configured) + added.filter { it !in Providers.keyedRows(withKeys, configured) }
-                SectionHeader("API keys")
+                Group("API keys")
                 if (rows.isEmpty()) Note("No keys yet. Add one below, or sign in to an AI plan above.")
                 rows.forEach { id ->
-                    val name = Providers.info(id)?.name ?: id
+                    val name = Providers.name(id)
                     val words = tests[id] ?: if (id in withKeys) "Key saved" to true else "Not set" to false
                     NavRow(name, words.first, onClick = { editing = id })
                 }
                 NavRow("Add a provider", null, onClick = { adding = true })
                 Note("Keys live on the hub only, encrypted with the hub key. Phones and other computers never receive them. Each key is checked when this page opens: a list of models, never a paid request.")
             } else {
-                SectionHeader("Providers")
+                Group("Providers")
                 Note("Your keys stay on the hub in your own file. Nobody else's calls use them.")
                 me?.providers.orEmpty().forEach { p ->
                     val (word, _, detail) = Providers.accessWords(p) { Format.relative(it) }
@@ -166,7 +165,7 @@ fun ProvidersScreen(onBack: () -> Unit, onOpenSubscriptions: () -> Unit) {
     }
 
     editing?.let { id ->
-        val name = Providers.info(id)?.name ?: id
+        val name = Providers.name(id)
         val own = if (isOwner) id in withKeys else me?.providers?.firstOrNull { it.provider == id }?.ownKey == true
         var key by remember(id) { mutableStateOf("") }
         androidx.compose.material3.AlertDialog(
@@ -203,7 +202,7 @@ fun ProvidersScreen(onBack: () -> Unit, onOpenSubscriptions: () -> Unit) {
     }
 
     removing?.let { id ->
-        val name = Providers.info(id)?.name ?: id
+        val name = Providers.name(id)
         ConfirmDialog(
             title = "Remove the $name key?",
             text = "Sessions on $name models stop until you add a key again.",
@@ -299,7 +298,7 @@ fun SubscriptionsScreen(onBack: () -> Unit) {
 
             val f = flow
             if (f != null) {
-                SectionHeader("Signing in to $flowName")
+                Group("Signing in to $flowName")
                 val paste = Providers.needsPaste(f, forced = true)
                 Note(Providers.waitingLine(f, flowName, paste))
                 f.userCode?.let { Text(it, style = CodeStyle, color = c.fg, modifier = Modifier.padding(horizontal = 20.dp, vertical = 6.dp)) }
@@ -337,9 +336,9 @@ fun SubscriptionsScreen(onBack: () -> Unit) {
                 }
             }
 
-            SectionHeader("Plans")
+            Group("Plans")
             Providers.rows(s, more).forEach { p ->
-                NavRow(p.name, "${p.plan.ifBlank { p.name }}. ${Providers.who(s, p)}", chevron = false, onClick = {
+                NavRow(p.name, "${p.plan.ifBlank { p.name }}. ${Providers.who(s, p)}", onClick = {
                     if (!busy && flow == null && Providers.usable(s)) signIn(p.id, p.name)
                 })
             }
@@ -347,7 +346,7 @@ fun SubscriptionsScreen(onBack: () -> Unit) {
             Note("Tap a plan to sign in, or to add another account. Tokens stay on the hub.")
 
             if (s.accounts.isNotEmpty()) {
-                SectionHeader("Accounts")
+                Group("Accounts")
                 s.accounts.forEach { a ->
                     val (w, _) = Providers.accountWord(a.state)
                     NavRow(Providers.accountLabel(a), listOfNotNull(a.providerName, w, a.detail).joinToString(". "), chevron = false, onClick = { removing = a.name })

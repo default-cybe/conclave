@@ -34,6 +34,13 @@ object Providers {
 
     fun info(id: String): KeyProvider? = KEYED.firstOrNull { it.id == id }
 
+    /** A row's name: the catalog's, the local ones by their product names, else the id. */
+    fun name(id: String): String = info(id)?.name ?: when (id) {
+        "ollama" -> "Ollama"
+        "lmstudio" -> "LM Studio"
+        else -> id
+    }
+
     /** "Paste a key that starts with sk-or-", or "Paste a key". */
     fun placeholder(id: String): String = info(id)?.keyPrefix?.let { "Paste a key that starts with $it" } ?: "Paste a key"
 

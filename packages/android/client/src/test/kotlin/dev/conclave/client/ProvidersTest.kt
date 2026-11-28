@@ -78,6 +78,8 @@ class ProvidersTest {
         assertEquals("Not set" to false, Providers.testWords(ProviderTestResult(false, "No key set")))
         assertEquals("Paste a key that starts with sk-or-", Providers.placeholder("openrouter"))
         assertEquals("Paste a key", Providers.placeholder("zai"))
+        assertEquals("Ollama", Providers.name("ollama"))
+        assertEquals("mine", Providers.name("mine"))
         val rows = Providers.keyedRows(setOf("openai", "mine", "cliproxy"), setOf("anthropic", "mine", "cliproxy"))
         assertEquals(listOf("anthropic", "openai", "mine"), rows)
         assertFalse(Providers.addable(rows).any { it.id == "openai" })
