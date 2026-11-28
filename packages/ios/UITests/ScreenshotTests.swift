@@ -114,6 +114,8 @@ final class ScreenshotTests: XCTestCase {
     @MainActor func testProvidersDark() throws { try page("providers", "dark", ["-openPage", "providers"]) { Self.text($0, "Rejected, 401") } }
     @MainActor func testSubscriptionsLight() throws { try page("subscriptions", "light", ["-openPage", "subscriptions"]) { Self.text($0, "work account") } }
     @MainActor func testSubscriptionsDark() throws { try page("subscriptions", "dark", ["-openPage", "subscriptions"]) { Self.text($0, "work account") } }
+    @MainActor func testRepoLight() throws { try page("repo", "light", ["-openChat", "s2"]) { Self.text($0, "fix-login-ab12") } }
+    @MainActor func testRepoDark() throws { try page("repo", "dark", ["-openChat", "s2"]) { Self.text($0, "fix-login-ab12") } }
     @MainActor func testReflectLight() throws { try page("reflect", "light", ["-openPage", "reflect"]) { Self.text($0, "no, use pnpm here") } }
     @MainActor func testRemoteLight() throws { try page("remote", "light", ["-openPage", "remote"]) { Self.text($0, "Wi-Fi 192.168.1.20") } }
     @MainActor func testPeopleLight() throws { try page("people", "light", ["-openPage", "people"]) { Self.text($0, "Sam Lee") } }
@@ -140,11 +142,14 @@ final class ScreenshotTests: XCTestCase {
     /// "/" typed in the composer: /btw, then the hub's commands.
     @MainActor
     private func slash(_ appearance: String) throws {
-        try page("slash", appearance, ["-openChat", "s2"]) { app in
+        // s7 has no saved draft, so "/" is the whole box
+        try page("slash", appearance, ["-openChat", "s7"]) { app in
             let box = app.textViews["composer"]
-            // the chat keeps a saved draft and the caret lands before it: select it all, "/" replaces it
-            if box.waitForExistence(timeout: 12) { sleep(1); box.tap(); box.typeKey("a", modifierFlags: .command); box.typeText("/") }
-            return Self.text(app, "Use /compact")
+            if box.waitForExistence(timeout: 12) { sleep(1); box.tap(); box.typeText("/") }
+            let row = Self.text(app, "Use /compact")
+            // the keyboard slides in and the composer rides up with it: let both settle before the shot
+            if row.waitForExistence(timeout: 8) { sleep(2) }
+            return row
         }
     }
 

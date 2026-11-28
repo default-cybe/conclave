@@ -27,7 +27,7 @@ struct RemoteView: View {
                                 Image(systemName: s.mode == m ? "largecircle.fill.circle" : "circle")
                                     .foregroundStyle(s.mode == m ? Tone.signal : Tone.fg3).padding(.top, 2)
                                 VStack(alignment: .leading, spacing: 2) {
-                                    Text(RemoteWords.label(m) + (m == "quick" ? "  suggested" : "")).font(.sans(14)).foregroundStyle(Tone.fg)
+                                    (Text(RemoteWords.label(m)).foregroundStyle(Tone.fg) + Text(m == "quick" ? "  suggested" : "").foregroundStyle(Tone.fg3)).font(.sans(14))
                                     Text(m == "stable" && s.stable != nil ? "\(s.stable!.hostname). Change it on the web." : RemoteWords.help(m))
                                         .font(.sans(12)).foregroundStyle(Tone.fg3).fixedSize(horizontal: false, vertical: true)
                                 }
@@ -51,7 +51,7 @@ struct RemoteView: View {
                     }
                 }
                 CardSection(title: "Same network") {
-                    CardRow(label: "Devices on this network", detail: s.lan.fixedHost.map { "The hub listens only on \($0) (server.host), so the network cannot reach it." } ?? "Off: only this computer and the remote address reach the hub.") {
+                    CardRow(label: "Devices on this network", detail: s.lan.fixedHost.map { "The hub listens only on \($0) (server.host), so the network cannot reach it." } ?? (s.lan.on ? "On: phones and computers on this network reach the hub at its local address." : "Off: only this computer and the remote address reach the hub.")) {
                         Toggle("Devices on this network", isOn: Binding(get: { s.lan.on }, set: { v in Task { await run { try await hub.client.setRemote(lan: v) } } }))
                             .labelsHidden().tint(Tone.signal).disabled(busy)
                     }

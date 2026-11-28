@@ -50,7 +50,7 @@ struct PeopleView: View {
         var bits: [String] = []
         if p.name != p.shownName { bits.append(p.name) }
         bits.append(PeopleWords.signIn(p, now: now))
-        bits.append("\(p.apps) apps, \(p.devices) computers")
+        bits.append("\(p.apps) \(p.apps == 1 ? "app" : "apps"), \(p.devices) \(p.devices == 1 ? "computer" : "computers")")
         bits += PeopleWords.spend(p)
         return bits.joined(separator: ". ")
     }

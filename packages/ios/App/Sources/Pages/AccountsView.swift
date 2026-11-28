@@ -57,9 +57,9 @@ struct AccountsView: View {
             Spacer(minLength: 8)
             if busy == a.id { ProgressView().controlSize(.small) }
             Button { Task { await move(a, -1, order, vendor) } } label: { Image(systemName: "chevron.up").frame(width: 32, height: 32) }
-                .buttonStyle(QuietPress()).disabled(rank == 1 || busy != nil).accessibilityLabel("Move \(a.label) up")
+                .buttonStyle(QuietPress()).disabled(rank == 1 || busy != nil).opacity(rank == 1 ? 0.3 : 1).accessibilityLabel("Move \(a.label) up")
             Button { Task { await move(a, 1, order, vendor) } } label: { Image(systemName: "chevron.down").frame(width: 32, height: 32) }
-                .buttonStyle(QuietPress()).disabled(rank == order.count || busy != nil).accessibilityLabel("Move \(a.label) down")
+                .buttonStyle(QuietPress()).disabled(rank == order.count || busy != nil).opacity(rank == order.count ? 0.3 : 1).accessibilityLabel("Move \(a.label) down")
             Menu {
                 Button(a.enabled ? "Pause" : "Resume", systemImage: a.enabled ? "pause" : "play") {
                     Task { await run(a.id, a.enabled ? "\(a.label) is paused." : "\(a.label) is back in the order.") { try await hub.client.updateAccount(a.id, ["enabled": .bool(!a.enabled)]) } }

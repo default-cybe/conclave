@@ -61,6 +61,7 @@ struct ReflectView: View {
             }
             .disabled(busy != nil)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 14).padding(.vertical, 10)
     }
 
