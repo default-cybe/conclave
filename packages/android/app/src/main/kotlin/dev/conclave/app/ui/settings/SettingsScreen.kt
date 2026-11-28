@@ -39,6 +39,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -51,6 +52,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -65,6 +67,7 @@ import dev.conclave.app.notify.Notifications
 import dev.conclave.app.ui.common.ConfirmDialog
 import dev.conclave.app.ui.common.LocalAppContainer
 import dev.conclave.app.ui.common.ModelName
+import dev.conclave.app.ui.common.ModelPickerSheet
 import dev.conclave.app.ui.common.TopBar
 import dev.conclave.app.ui.common.errorText
 import dev.conclave.app.ui.common.rememberInboxCount
@@ -81,11 +84,17 @@ import dev.conclave.client.HubKeys
 import dev.conclave.client.logic.HubAddresses
 import dev.conclave.client.logic.Start
 import dev.conclave.client.model.MePatch
+import dev.conclave.client.model.PasswordStatus
 import dev.conclave.client.updateMe
 import dev.conclave.client.logic.RemoteWords
 import dev.conclave.client.logic.TextSize
 import kotlinx.coroutines.launch
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.put
 
 /** A page Settings opens. The side panel keeps only the conversations, so every other page is here. */
@@ -156,11 +165,39 @@ fun SettingsScreen(
         refreshTick++
         scope.launch { app.syncBackground() }
     }
+    // the hub's own settings: PATCH /api/config, /api/update and the password are the owner's
+    val meNow by hub.me.collectAsStateWithLifecycle()
+    val isOwner = meNow?.isOwner == true
+    val models by hub.models.collectAsStateWithLifecycle()
+    var hubConfig by remember { mutableStateOf<JsonObject?>(null) }
+    var hubUpdate by remember { mutableStateOf<JsonObject?>(null) }
+    var password by remember { mutableStateOf<PasswordStatus?>(null) }
+    var pickingDefault by remember { mutableStateOf(false) }
+    var editingPassword by remember { mutableStateOf(false) }
+    LaunchedEffect(isOwner) {
+        if (!isOwner) return@LaunchedEffect
+        hubConfig = runCatching { hub.api { it.config() }.config }.getOrNull()
+        hubUpdate = runCatching { hub.api { it.hubUpdate() } }.getOrNull()
+        password = runCatching { hub.api { it.passwordStatus() } }.getOrNull()
+    }
     val c = Conclave.colors
     val s = settings ?: return
 
     fun say(text: String) {
         scope.launch { snackbar.showSnackbar(text) }
+    }
+
+    /** One hub setting at [keys], then the config again, so the row shows what the hub kept (it range-checks every value). */
+    fun setHub(value: JsonElement, vararg keys: String) {
+        val patch = patchAt(value, *keys)
+        scope.launch {
+            try {
+                hub.api { it.updateConfig(patch) }
+                hubConfig = hub.api { it.config() }.config
+            } catch (e: Exception) {
+                say(errorText(e))
+            }
+        }
     }
 
     Scaffold(
@@ -192,6 +229,20 @@ fun SettingsScreen(
             }
             InfoRow("Address", HubAddresses.host(paired?.url).ifBlank { paired?.url.orEmpty() })
             info?.version?.takeIf { it.isNotBlank() }?.let { InfoRow("Version", it) }
+            // the hub's own update (web Settings > About), next to its version
+            val latest = ((hubUpdate?.get("latest") as? JsonObject)?.get("version") as? JsonPrimitive)?.contentOrNull
+            if (isOwner && hubUpdate?.flag(false, "available") == true && latest != null) {
+                NavRow("Hub update available", "Conclave $latest. Update now; the hub restarts on its own.", chevron = false, onClick = {
+                    scope.launch {
+                        try {
+                            hubUpdate = hub.api { it.applyHubUpdate(latest) }
+                            say("Updating the hub to $latest.")
+                        } catch (e: Exception) {
+                            say(errorText(e))
+                        }
+                    }
+                })
+            }
             // the hub's identity, to compare with Settings on the hub
             info?.fingerprint?.takeIf { it.isNotBlank() }?.let { InfoRow("Fingerprint", HubKeys.groups(it)) }
             info?.defaultModel?.takeIf { it.isNotBlank() }?.let { m ->
@@ -210,6 +261,17 @@ fun SettingsScreen(
             NavRow("Scan a new code", "Another hub, or a new address", onClick = onScanCode)
             NavRow("Refresh", null, chevron = false, onClick = { scope.launch { hub.refreshAll() } })
             NavRow("Sign out", null, chevron = false, danger = true, onClick = { confirmRepair = true })
+
+            // ---------------------------------------------------------------- hub defaults (web Settings > Defaults)
+            val cfg = hubConfig
+            if (isOwner && cfg != null) {
+                Group("Hub defaults")
+                NavRow("Default model", (cfg.path("defaultModel") as? JsonPrimitive)?.contentOrNull ?: "Not set", onClick = { pickingDefault = true })
+                ToggleRow(title = "Use memory", help = "Off: sessions neither read nor save notes.", checked = cfg.flag(true, "memory", "enabled"), onChange = { on -> setHub(JsonPrimitive(on), "memory", "enabled") })
+                ToggleRow(title = "Give relevant notes", help = "Notes that match your message ride along with it.", checked = cfg.flag(true, "memory", "autoInject"), onChange = { on -> setHub(JsonPrimitive(on), "memory", "autoInject") })
+                ToggleRow(title = "Save what sessions learn", help = "After a turn, new facts about you are saved as notes.", checked = cfg.flag(true, "memory", "autoExtract"), onChange = { on -> setHub(JsonPrimitive(on), "memory", "autoExtract") })
+                Note("Model tiers, limits, plan fallback and workflow caps are in the web app under Settings, Defaults.")
+            }
 
             // ---------------------------------------------------------------- notifications
             Group("Notifications")
@@ -252,7 +314,15 @@ fun SettingsScreen(
             NavRow("Send a test", null, chevron = false, onClick = {
                 if (Notifications.showTest(context)) say("Sent. Check the notification shade.") else say("Allow notifications for Conclave first.")
             })
-            Note("Which notices you get is set on the hub, in the web app under Settings, Notifications. While you use Conclave on another device, the hub holds the rest.")
+            // which notices the hub sends (notifications.on; web NOTIFY_EVENTS, every one on by default)
+            if (isOwner && cfg != null) {
+                NOTIFY_EVENTS.forEach { (key, label) ->
+                    ToggleRow(title = label, help = "The hub sends it to your devices.", checked = cfg.flag(true, "notifications", "on", key), onChange = { on -> setHub(JsonPrimitive(on), "notifications", "on", key) })
+                }
+                Note("While you use Conclave on another device, the hub holds the rest.")
+            } else {
+                Note("Which notices you get is set on the hub, in the web app under Settings, Notifications. While you use Conclave on another device, the hub holds the rest.")
+            }
 
             // ---------------------------------------------------------------- security
             Group("Security")
@@ -280,6 +350,10 @@ fun SettingsScreen(
                 checked = s.secureScreen,
                 onChange = { on -> scope.launch { settingsStore.setSecureScreen(on) } },
             )
+            // the backup to a pairing code (web Settings > Remote access > Password)
+            if (isOwner) {
+                NavRow("Hub password", if (password?.set == true) "Set. Sign in with it when a code is out of reach." else "Not set", onClick = { editingPassword = true })
+            }
             Note("The hub token is encrypted with a key kept in the Android Keystore and is never included in backups.")
 
             // ---------------------------------------------------------------- appearance
@@ -413,6 +487,65 @@ fun SettingsScreen(
         )
     }
 
+    if (pickingDefault) {
+        ModelPickerSheet(
+            title = "Default model",
+            groups = models,
+            current = (hubConfig?.path("defaultModel") as? JsonPrimitive)?.contentOrNull,
+            onPick = { ref ->
+                pickingDefault = false
+                setHub(JsonPrimitive(ref), "defaultModel")
+            },
+            onDismiss = { pickingDefault = false },
+        )
+    }
+
+    if (editingPassword) {
+        var pw by remember { mutableStateOf("") }
+        AlertDialog(
+            onDismissRequest = { editingPassword = false },
+            title = { Text("Hub password") },
+            text = {
+                Column {
+                    Text("A backup to pairing codes. 12 characters or more.", style = ConclaveType.meta, color = c.fg3)
+                    Spacer(Modifier.size(8.dp))
+                    OutlinedTextField(value = pw, onValueChange = { pw = it }, singleLine = true, visualTransformation = PasswordVisualTransformation())
+                }
+            },
+            confirmButton = {
+                TextButton(enabled = pw.length >= 12, onClick = {
+                    editingPassword = false
+                    scope.launch {
+                        try {
+                            password = hub.api { it.setPassword(pw) }
+                            say("Saved.")
+                        } catch (e: Exception) {
+                            say(errorText(e))
+                        }
+                    }
+                }) { Text("Save") }
+            },
+            dismissButton = {
+                Row {
+                    if (password?.set == true) {
+                        TextButton(onClick = {
+                            editingPassword = false
+                            scope.launch {
+                                try {
+                                    password = hub.api { it.clearPassword() }
+                                    say("Password sign-in is off.")
+                                } catch (e: Exception) {
+                                    say(errorText(e))
+                                }
+                            }
+                        }) { Text("Turn off") }
+                    }
+                    TextButton(onClick = { editingPassword = false }) { Text("Cancel") }
+                }
+            },
+        )
+    }
+
     if (pickingTextSize) {
         AlertDialog(
             onDismissRequest = { pickingTextSize = false },
@@ -460,6 +593,31 @@ fun SettingsScreen(
 }
 
 private val RowText = TextStyle(fontSize = 16.sp)
+
+/** The notices the hub can send, as the web's NOTIFY_EVENTS (notifications.tsx): config key and label. */
+private val NOTIFY_EVENTS = listOf(
+    "approvalNeeded" to "Approvals and questions",
+    "errors" to "Failures",
+    "stuck" to "Stuck sessions",
+    "fileConflict" to "File conflicts",
+    "limitReset" to "Limit resets",
+    "routineDone" to "Routine finished",
+    "updates" to "Updates",
+    "sessionDone" to "Session finished",
+    "friendMessage" to "Friends",
+)
+
+private fun JsonObject.path(vararg keys: String): JsonElement? {
+    var e: JsonElement? = this
+    for (k in keys) e = (e as? JsonObject)?.get(k)
+    return e
+}
+
+private fun JsonObject.flag(default: Boolean, vararg keys: String): Boolean = (path(*keys) as? JsonPrimitive)?.booleanOrNull ?: default
+
+/** {"a": {"b": value}} for keys a, b: a PATCH /api/config merges it. */
+private fun patchAt(value: JsonElement, vararg keys: String): JsonObject =
+    keys.foldRight(value) { k, acc -> JsonObject(mapOf(k to acc)) } as JsonObject
 
 /** A group's label; every group after the [first] has a separator above it. */
 @Composable

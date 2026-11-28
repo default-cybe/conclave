@@ -93,10 +93,14 @@ describe("the index's groups and search", () => {
     const src = readFileSync(join(import.meta.dir, '../src/features/settings/SettingsPage.tsx'), 'utf8');
     for (const id of ids) expect(src).toContain(`id: '${id}',`);
     expect(SETTINGS_GROUPS.filter((g) => g.folded).map((g) => g.label)).toEqual(['Advanced']);
-    expect(SETTINGS_GROUPS.find((g) => g.label === 'Advanced')!.ids).toEqual(['accounts', 'refusal', 'usage', 'security', 'gateway', 'secrets', 'workflows', 'logs']);
+    expect(SETTINGS_GROUPS.find((g) => g.label === 'Advanced')!.ids).toEqual(['refusal', 'limit-fallback', 'security', 'gateway', 'workflows', 'logs']);
+    // Plan order and limits and Secrets sit next to Subscriptions and Providers; Modes has its own row under You
+    expect(SETTINGS_GROUPS.find((g) => g.label === 'AI connections')!.ids).toEqual(['subscriptions', 'accounts', 'providers', 'secrets', 'defaults', 'permissions']);
+    expect(SETTINGS_GROUPS.find((g) => g.label === 'You')!.ids).toEqual(['account', 'appearance', 'modes', 'notifications']);
     expect(groupSections([{ id: 'logs' }]).map((g) => [g.label, g.folded])).toEqual([['Advanced', true]]);
-    // usage keeps its id and address; its name says what it does
+    // limit-fallback no longer clashes with /usage; the old address still goes there
     expect(src).toContain("label: 'Limit fallback'");
+    expect(settingsRedirect('usage', undefined, ['account'], false, '')).toBe('/settings/limit-fallback');
   });
 
   test('the old group names and the new ones still find their sections', () => {
@@ -113,7 +117,11 @@ describe("the index's groups and search", () => {
     expect(src).toContain('aria-expanded={open(g)}');
     // a search shows every match, so the header is plain text then, not a toggle that does nothing
     expect(src).toContain('{g.folded && !q ? (');
-    expect(src).toContain("g.folded && !advanced\n          ? [{ label: 'Show advanced settings'");
+    expect(src).toContain("g.folded && !advanced\n              ? [{ label: 'Show advanced settings'");
+    // the phone index has the same search, and remembers the fold on this device
+    expect(src).toContain('const found = searchSections(sections, q);');
+    expect(src).toContain("localStorage.setItem(ADVANCED_KEY, v ? '1' : '0')");
+    expect(src).toContain("label: 'Hide advanced settings'");
   });
 
   test('search matches names, lines and the words people use', () => {
@@ -203,7 +211,9 @@ describe('the pages', () => {
     expect(src).toContain("{ label: 'Advanced', rows: PHONE_ADVANCED }");
   });
   test("the sidebar's More menu has the pages without a row, then Agents, Map and Side by side under Advanced", () => {
-    expect(MORE_PAGES.map((p) => p.label)).toEqual(['Workflows', 'Memory', 'Extensions', 'Usage', 'Devices']);
+    expect(MORE_PAGES.map((p) => p.label)).toEqual(['Workflows', 'Memory', 'Reflect', 'Extensions', 'Usage', 'Devices', 'Shares', 'Shared projects']);
+    // Shares and Shared projects are the owner's: a member's More leaves them out
+    expect(MORE_PAGES.filter((p) => !OWNER_PAGES.has(p.to)).map((p) => p.label)).toEqual(['Workflows', 'Memory', 'Reflect', 'Usage', 'Devices']);
     expect(MORE_ADVANCED.map((p) => p.label)).toEqual(['Agents', 'Map', 'Side by side']);
     expect(MORE_ADVANCED.find((p) => p.label === 'Side by side')?.to).toBe('/sessions/split');
     expect(MORE_PAGES.filter((p) => !OWNER_PAGES.has(p.to)).map((p) => p.label)).not.toContain('Extensions');

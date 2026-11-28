@@ -324,6 +324,8 @@ function Now() {
   // a member's limits never fall back on the owner's lists (core limitFallback), and the settings page is the owner's
   const owner = useIsOwner();
   const route = limitFallbackRoute(config?.models as Parameters<typeof limitFallbackRoute>[0]);
+  const defaultModel = config?.defaultModel as string | undefined;
+  const defaultFirst = defaultModel ? (config?.limits as { fallbacks?: Record<string, string[]> } | undefined)?.fallbacks?.[defaultModel]?.[0] : undefined;
   const list = status?.now ?? [];
   if (!status || list.length === 0) return null;
   const fallback =
@@ -364,7 +366,15 @@ function Now() {
         })}
         {owner && (
           <div className="flex items-baseline justify-between gap-3 py-3 text-[12px] text-fg-3 phone:text-[13px]">
-            <p className="m-0 min-w-0">{fallback ? <>Hub default fallback: at its limit on every account, a model goes to {fallback}.</> : 'Hub default fallback: at its limit on every account, no other model takes over, since no fallback list is set.'}</p>
+            <p className="m-0 min-w-0">
+              {/* limits.fallbacks (Settings > Defaults, When a plan runs out) wins over the list below (core session/limits.ts) */}
+              {defaultFirst && (
+                <>
+                  First, <ModelName model={defaultModel!} logo={false} className="text-fg-2" /> goes to <ModelName model={defaultFirst} logo={false} className="text-fg-2" /> (Defaults).{' '}
+                </>
+              )}
+              {fallback ? <>Hub default fallback: at its limit on every account, a model goes to {fallback}.</> : 'Hub default fallback: at its limit on every account, no other model takes over, since no fallback list is set.'}
+            </p>
             <TextAction label="Change" onClick={() => navigate('/settings/limit-fallback')} />
           </div>
         )}
@@ -914,7 +924,11 @@ function Limits({ wave }: { wave: boolean }) {
       </SectionHeading>
       {limits.length > 0 && accountLimits.length > 0 ? (
         <>
-          <p className="m-0 mt-3 text-[12px] text-fg-3 phone:text-[13px]">By account, in the order the hub uses them</p>
+          <div className="mt-3 flex items-baseline justify-between gap-3 text-[12px] text-fg-3 phone:text-[13px]">
+            <p className="m-0 min-w-0">By account, in the order the hub uses them</p>
+            {/* Settings > Plan order and limits: a member's own plans on the same page */}
+            <TextAction label="Change order" onClick={() => navigate('/settings/accounts')} />
+          </div>
           <div className="rows">{accountLimits.map(group)}</div>
           {otherLimits.length > 0 && <p className="m-0 mt-4 text-[12px] text-fg-3 phone:text-[13px]">Other plans and keys</p>}
           <div className="rows">{otherLimits.map(group)}</div>

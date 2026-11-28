@@ -578,29 +578,62 @@ function PhoneGroups({ groups }: { groups: Array<{ label: string; rows: PhoneRow
   );
 }
 
-/** The index: the Inbox and More (the pages) first, then the sections in their groups. */
+const ADVANCED_KEY = 'conclave.settings.advanced';
+
+function readAdvanced(): boolean {
+  try {
+    return localStorage.getItem(ADVANCED_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
+/** The index: a search, the Inbox and More (the pages) first, then the sections in their groups. */
 function PhoneIndex({ sections }: { sections: SectionDef[] }) {
   const inbox = useInboxCount();
-  const [advanced, setAdvanced] = useState(false);
-  const groups: Array<{ label: string; rows: PhoneRow[] }> = [
-    {
-      label: '',
-      rows: [
-        { label: 'Inbox', to: '/approvals', value: inbox ? <span className="num font-medium text-warn">{inbox}</span> : undefined },
-        { label: 'More', to: '/settings/more', value: <span className="text-fg-3">Workflows, Memory, Usage</span> },
-      ],
-    },
-    ...groupSections(sections).map((g) => ({
-      label: g.label,
-      rows:
-        g.folded && !advanced
-          ? [{ label: 'Show advanced settings', run: () => setAdvanced(true), value: <span className="num text-fg-3">{g.items.length}</span> }]
-          : g.items.map((x) => ({ label: x.label, to: `/settings/${x.id}` })),
-    })),
-  ];
+  const [q, setQ] = useState('');
+  // the Advanced fold stays as it was left, on this device
+  const [advanced, setAdvancedState] = useState(() => readAdvanced());
+  const setAdvanced = (v: boolean) => {
+    setAdvancedState(v);
+    try {
+      localStorage.setItem(ADVANCED_KEY, v ? '1' : '0');
+    } catch {
+      // private mode: the fold just is not remembered
+    }
+  };
+  const found = searchSections(sections, q);
+  const groups: Array<{ label: string; rows: PhoneRow[] }> = q.trim()
+    ? found.length
+      ? [{ label: '', rows: found.map((x) => ({ label: x.label, to: `/settings/${x.id}` })) }]
+      : []
+    : [
+        {
+          label: '',
+          rows: [
+            { label: 'Inbox', to: '/approvals', value: inbox ? <span className="num font-medium text-warn">{inbox}</span> : undefined },
+            { label: 'More', to: '/settings/more', value: <span className="text-fg-3">Workflows, Memory, Usage</span> },
+          ],
+        },
+        ...groupSections(sections).map((g) => ({
+          label: g.label,
+          rows:
+            g.folded && !advanced
+              ? [{ label: 'Show advanced settings', run: () => setAdvanced(true), value: <span className="num text-fg-3">{g.items.length}</span> }]
+              : [...g.items.map((x) => ({ label: x.label, to: `/settings/${x.id}` })), ...(g.folded ? [{ label: 'Hide advanced settings', run: () => setAdvanced(false) }] : [])],
+        })),
+      ];
   return (
     <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
       <h1 className="sr-only">Settings</h1>
+      {/* the same search as a computer's sidebar (nav.ts searchSections) */}
+      <div className="px-5 pt-3">
+        <label className="flex h-11 items-center gap-2 rounded-[12px] bg-raise px-3.5 light:border light:border-rule">
+          <Search className="size-4 shrink-0 text-fg-3" strokeWidth={1.75} aria-hidden />
+          <input type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search settings" aria-label="Search settings" className="min-w-0 flex-1 bg-transparent text-[16px] text-fg outline-none placeholder:text-fg-3" />
+        </label>
+      </div>
+      {q.trim() && !found.length && <p className="m-0 px-9 pt-4 text-[15px] text-fg-3">No setting matches "{q}".</p>}
       <PhoneGroups groups={groups} />
     </div>
   );

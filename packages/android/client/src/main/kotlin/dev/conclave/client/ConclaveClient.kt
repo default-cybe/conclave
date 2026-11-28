@@ -825,6 +825,13 @@ class ConclaveClient(
 
     suspend fun updateConfig(patch: JsonObject) = sendUnit("PATCH", p("api", "config"), patch)
 
+    /** GET /api/update (owner only): the running hub, the newest release and `available` (core client UpdateStatusDto). */
+    suspend fun hubUpdate(): JsonObject = get(p("api", "update"), JsonObject.serializer())
+
+    /** POST /api/update/apply (owner only): install [version] now; the hub restarts on its own. */
+    suspend fun applyHubUpdate(version: String): JsonObject =
+        sendJson("POST", p("api", "update", "apply"), buildJsonObject { put("version", version) }, JsonObject.serializer())
+
     suspend fun notifyChannels(): List<NotifyChannel> = get(p("api", "notify", "channels"), ListSerializer(NotifyChannel.serializer()))
 
     /** Sends a test through a hub channel. Only browsers get these; the app shows its own test notification. */

@@ -14,6 +14,7 @@ import { EmptyState, LoadingRows } from '@/components/ui/EmptyState';
 import { Notice } from '@/components/ui/Section';
 import { Elapsed } from '@/components/motion';
 import { useHub } from '@/store/store';
+import { useIsOwner } from '@/lib/people';
 import { compact, relTime, usd } from '@/lib/format';
 import { useIsMobile, useNow } from '@/lib/hooks';
 import { useLibrary, useRuns } from './data';
@@ -32,9 +33,23 @@ export default function WorkflowsPage() {
   return <Library />;
 }
 
+/** Settings > Workflows and subagents: the caps a run waits on. The hub's config is the owner's. */
+export const WORKFLOW_LIMITS_HREF = '/settings/workflows';
+
 function Header({ tab, sub }: { tab: 'library' | 'runs'; sub?: React.ReactNode }) {
+  const owner = useIsOwner();
   return (
-    <PageHeader title="Workflows" sub={sub}>
+    <PageHeader
+      title="Workflows"
+      sub={sub}
+      actions={
+        owner && (
+          <Link href={WORKFLOW_LIMITS_HREF} className="link text-[13px] phone:text-[15px]">
+            Limits
+          </Link>
+        )
+      }
+    >
       <Tabs
         label="Workflows"
         className="mt-3"

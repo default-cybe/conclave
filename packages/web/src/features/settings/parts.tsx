@@ -13,7 +13,7 @@ import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Field';
 import { reloadConfig, toast, updateConfig, useHub } from '@/store/store';
 import { api } from '@/lib/api';
-import { isOwnerNow } from '@/lib/people';
+import { isOwnerNow, useIsOwner } from '@/lib/people';
 import { SectionHeading, type SectionAction } from '@/components/ui/Section';
 
 /** "just now", "4m ago", "3h ago", "2d ago", then the date ("17 Aug"). */
@@ -156,10 +156,13 @@ export function numberValue(raw: string, r: { min: number; max: number; fraction
 /**
  * One number setting at a config path (core CONFIG_NUMBERS holds its default
  * and range; the hub checks it again). Save shows once it changes, Reset
- * once a saved value differs from the default.
+ * once a saved value differs from the default. The hub's config is the
+ * owner's (PATCH /api/config): a member sees nothing.
  */
 export function NumberSetting({ path, label, help, unit, zero }: { path: string; label: string; help: ReactNode; unit?: string; zero?: string }) {
   const config = useHub((s) => s.config);
+  const owner = useIsOwner();
+  if (!owner) return null;
   const raw = configAt(config, path);
   const saved = typeof raw === 'number' ? raw : undefined;
   // keyed on the saved value: a config that loads late or changes elsewhere replaces what the field shows
@@ -214,10 +217,12 @@ function NumberField({ path, label, help, unit, zero, saved }: { path: string; l
 /**
  * One text setting at a config path (a folder, a program, an address). Save
  * shows once it changes; an empty field saves null, back to the default.
- * `extra` sits next to Save (a Test button).
+ * `extra` sits next to Save (a Test button). Owner only, like NumberSetting.
  */
 export function TextSetting({ path, label, help, placeholder, mono = true, extra }: { path: string; label: string; help: ReactNode; placeholder: string; mono?: boolean; extra?: (saved: string) => ReactNode }) {
   const config = useHub((s) => s.config);
+  const owner = useIsOwner();
+  if (!owner) return null;
   const raw = configAt(config, path);
   const saved = typeof raw === 'string' ? raw : '';
   return <TextField key={`${path}:${saved}`} path={path} label={label} help={help} placeholder={placeholder} mono={mono} saved={saved} extra={extra} />;

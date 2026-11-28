@@ -7,6 +7,19 @@ from the section of its version (`scripts/releases/notes.ts`); a release
 without one fails. At tag time, rename `[Unreleased]` to the version and date,
 like `## [0.4.16] - 2026-10-24`.
 
+## [Unreleased]
+
+### Added
+
+- Settings that needed config.json now have rows in the app, range-checked by the hub (PATCH /api/config refuses a value out of range): model tiers, vision model, limits, prompt cache and When a plan runs out in Defaults; permission and notification timings; workflow caps including auto-approve tokens; GitHub clone and check timings; browser and log settings. A member sees none of the hub-wide rows.
+- A phone's Settings index has a search, like a computer's, and remembers whether Advanced is open. Ctrl K finds Modes, Plan order and limits, Secrets, the fallbacks, Security roles, Logs, Reflect, Shares and Shared projects.
+- The owner's account menu and the "Something went wrong" screen have Report a problem, which opens Settings > Logs. The Workflows page has a Limits link, and a run waiting for a limit links to the caps. Usage has Change order next to the account limits and shows the default model's own fallback first.
+- Android Settings: Hub defaults (Default model opens the model picker; memory switches), one switch per notification category, Hub update available with Update now next to the hub's version, and Hub password in Security. All owner-only.
+
+### Changed
+
+- Modes has its own Settings row under You. Plan order and limits and Secrets moved next to Subscriptions and Providers. Limit fallback is at /settings/limit-fallback (the old /settings/usage address still opens it). Reflect is a page next to Memory in More, and the Memory page has a Settings tab with the memory switches.
+
 ## [0.4.111] - 2026-11-28
 
 ### Added

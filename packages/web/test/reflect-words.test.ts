@@ -3,7 +3,8 @@
  * Settings, and its words for the last run, the time and the model.
  */
 import { describe, expect, test } from 'bun:test';
-import { groupSections, searchSections, SETTINGS_GROUPS } from '../src/features/settings/nav';
+import { settingsRedirect, SETTINGS_GROUPS } from '../src/features/settings/nav';
+import { MORE_PAGES, PHONE_PAGES } from '../src/components/nav';
 import { bigNumbers, dayWords, excludedWords, fallbackWords, heatLevel, lastRunWords, lateLine, learningsWaitWords, madeWords, modelChoice, reportRange, REFLECT_LINE, rhythmWords, TIME, timeWords } from '../src/features/settings/reflectWords';
 
 const at = (h: number, m: number) => {
@@ -12,16 +13,14 @@ const at = (h: number, m: number) => {
   return d.getTime();
 };
 
-describe('Settings > Reflect', () => {
-  test('sits in the Assistant group after Assistant, and search finds it', () => {
-    const settings = SETTINGS_GROUPS.find((g) => g.label === 'Assistant')!;
-    expect(settings.ids.indexOf('reflect')).toBe(settings.ids.indexOf('assistant') + 1);
-    const sections = [
-      { id: 'assistant', label: 'Assistant', desc: 'What the assistant brings up on its own.' },
-      { id: 'reflect', label: 'Reflect', desc: 'What the assistant learns each night.' },
-    ];
-    expect(groupSections(sections)[0].items.map((s) => s.id)).toEqual(['assistant', 'reflect']);
-    expect(searchSections(sections, 'reflection notes').map((s) => s.id)).toEqual(['reflect']);
+describe('Reflect', () => {
+  test('is a page next to Memory in More, not a settings section; the old link goes to it', () => {
+    expect(SETTINGS_GROUPS.flatMap((g) => g.ids)).not.toContain('reflect');
+    for (const list of [MORE_PAGES, PHONE_PAGES]) {
+      const to = list.map((p) => p.to);
+      expect(to.indexOf('/reflect')).toBe(to.indexOf('/memory') + 1);
+    }
+    expect(settingsRedirect('reflect', undefined, ['assistant'], false, '')).toBe('/reflect');
   });
 
   test('the last run in words', () => {

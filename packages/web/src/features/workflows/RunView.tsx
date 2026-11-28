@@ -20,6 +20,7 @@ import { LoadingRows } from '@/components/ui/EmptyState';
 import { MorphLabel, Pet, Roll, Steps } from '@/components/motion';
 import { api } from '@/lib/api';
 import { attempt, useHub } from '@/store/store';
+import { useIsOwner } from '@/lib/people';
 import { compact, folderName, hhmm, usd } from '@/lib/format';
 import { modelName } from '@/lib/models';
 import { useIsMobile } from '@/lib/hooks';
@@ -36,6 +37,7 @@ import { byPhase, isLive, petFor, runSummary, statusParts } from './words';
 
 export function RunView({ id }: { id: string }) {
   const phone = useIsMobile();
+  const owner = useIsOwner();
   // Canvas off: the summary stays, without the link
   const canvas = useModeOn('canvas');
   const { data, error, progress, lastActivity, reload } = useRunDetail(id);
@@ -138,7 +140,20 @@ export function RunView({ id }: { id: string }) {
                   , <Roll value={run.counts.failed} /> failed
                 </span>
               )}
-              {run.counts.parked > 0 && <span className="text-warn">, {run.counts.parked} waiting for a limit</span>}. <Roll value={compact(run.inputTokens + run.outputTokens)} /> tokens, <Roll value={usd(run.costUsd)} />.
+              {run.counts.parked > 0 && (
+                <span className="text-warn">
+                  , {run.counts.parked} waiting for a{' '}
+                  {/* the caps it waits on (Settings > Workflows and subagents), the owner's */}
+                  {owner ? (
+                    <Link href="/settings/workflows" className="underline decoration-rule-2 underline-offset-[3px] hover:text-fg">
+                      limit
+                    </Link>
+                  ) : (
+                    'limit'
+                  )}
+                </span>
+              )}
+              . <Roll value={compact(run.inputTokens + run.outputTokens)} /> tokens, <Roll value={usd(run.costUsd)} />.
             </p>
           </div>
           {live && activity && (
