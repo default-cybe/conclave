@@ -110,6 +110,19 @@ final class ScreenshotTests: XCTestCase {
     @MainActor func testLaunchDark() throws { try page("launch", "dark", ["-openPage", "workflows", "-openWorkflow", "review-changes"]) { Self.text($0, "ios branch") } }
     @MainActor func testFindingsLight() throws { try page("findings", "light", ["-openPage", "workflows", "-openRun", "wfr_review"]) { Self.text($0, "Refuters dropped") } }
     @MainActor func testFindingsDark() throws { try page("findings", "dark", ["-openPage", "workflows", "-openRun", "wfr_review"]) { Self.text($0, "Refuters dropped") } }
+    @MainActor func testHubSettingsLight() throws { try hubSettings("light") }
+    @MainActor func testHubSettingsDark() throws { try hubSettings("dark") }
+
+    /// Settings scrolled to the v0.4.112 hub rows: tiers, limits, steps.
+    @MainActor
+    private func hubSettings(_ appearance: String) throws {
+        try page("hubsettings", appearance, ["-openPage", "settings"]) { app in
+            let tiers = app.staticTexts["Model tiers"]
+            for _ in 0..<6 where !(tiers.exists && tiers.isHittable) { app.swipeUp() }
+            return app.staticTexts["Spend and time limits"]
+        }
+    }
+
     @MainActor func testSlashLight() throws { try slash("light") }
     @MainActor func testSlashDark() throws { try slash("dark") }
     @MainActor func testCheckpointsLight() throws { try checkpoints("light") }

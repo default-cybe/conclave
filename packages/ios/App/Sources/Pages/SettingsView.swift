@@ -31,6 +31,8 @@ struct SettingsView: View {
                     modelMenu
                 }
             }
+            // the hub's own settings: a member sees none of them (v0.4.112)
+            if me?.isMember == false { HubSettingsSections(hub: hub) }
             CardSection(title: "Appearance") {
                 CardRow(label: "Theme") {
                     Segmented(options: [("system", "System"), ("light", "Light"), ("dark", "Dark")], selection: $theme)

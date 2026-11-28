@@ -77,7 +77,10 @@ enum MockHub {
         // the owner's real shape: sign-in name "owner", the name to show set apart, several people
         if path == "/api/me" { return (200, method == "PATCH" ? #"{"ok":true}"# : #"{"id":"owner","name":"owner","displayName":"Kai","role":"owner","email":"kai@dymnitguys.com","people":true,"preferences":{"defaultModel":"anthropic/claude-opus-5-5"}}"#) }
         if path == "/api/info" { return (200, #"{"name":"conclave","version":"0.4.107","defaultModel":"anthropic/claude-sonnet-5-5"}"#) }
-        if path == "/api/config" { return (200, #"{"config":{"ui":{"name":"Kai"}},"user":{},"secrets":{}}"#) }
+        if path == "/api/config" {
+            if method == "PATCH" { return (200, #"{"ok":true}"#) }
+            return (200, #"{"config":{"ui":{"name":"Kai"},"smallModel":"anthropic/claude-haiku-5","models":{"tiers":{"deep":"anthropic/claude-opus-5-5"},"sameModel":true},"limits":{"autoResume":true,"maxSteps":250,"subagentMaxSteps":100,"stuck":{"minutes":5},"routine":{"tokens":1000000,"minutes":120},"session":{"costUsd":2.5}},"cache":{"ttl":"auto"},"permissions":{"onFileConflict":"warn"},"memory":{"enabled":true}},"user":{},"secrets":{}}"#)
+        }
         if path == "/api/logs/client" { return (200, #"{"accepted":1}"#) }
         if path == "/api/approvals" { return (200, approvals) }
         if path == "/api/questions" { return (200, questions) }
