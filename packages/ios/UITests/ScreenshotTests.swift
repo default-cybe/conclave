@@ -136,7 +136,9 @@ final class ScreenshotTests: XCTestCase {
 
     @MainActor func testMapLight() throws { try page("map", "light", ["-openPage", "map"]) { Self.text($0, "bun test auth") } }
     @MainActor func testMapDark() throws { try page("map", "dark", ["-openPage", "map"]) { Self.text($0, "bun test auth") } }
-    @MainActor func testFilesLight() throws { try page("files", "light", ["-openPage", "files"]) { Self.text($0, "Up") } }
+    // "files" is the inspector's tab (testFilesLight above): the Files page is "browse"
+    @MainActor func testBrowseLight() throws { try page("browse", "light", ["-openPage", "files"]) { Self.text($0, "Up") } }
+    @MainActor func testBrowseDark() throws { try page("browse", "dark", ["-openPage", "files"]) { Self.text($0, "Up") } }
     @MainActor func testMemoryMapLight() throws { try memoryMap("light") }
     @MainActor func testMemoryMapDark() throws { try memoryMap("dark") }
 

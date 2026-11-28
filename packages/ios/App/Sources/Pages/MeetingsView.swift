@@ -54,7 +54,8 @@ struct MeetingsView: View {
         return HStack(alignment: .firstTextBaseline, spacing: 10) {
             VStack(alignment: .leading, spacing: 3) {
                 Text(m.title.isEmpty ? "Meeting" : m.title).font(.sans(14, .medium)).foregroundStyle(Tone.fg).lineLimit(2)
-                if !meta.isEmpty { Text(meta).font(.sans(12)).foregroundStyle(Tone.fg3).lineLimit(1) }
+                // wraps: on a phone one line cut the folder ("fse-pa...")
+                if !meta.isEmpty { Text(meta).font(.sans(12)).foregroundStyle(Tone.fg3).lineLimit(2).fixedSize(horizontal: false, vertical: true) }
                 if m.status == "scheduled" || m.status == "ready" {
                     let p = MeetingWords.prep(m)
                     Text(p.0).font(.sans(12)).foregroundStyle(meetingTone(p.1))
