@@ -152,8 +152,9 @@ export const CATALOG: CatalogEntry[] = [
   e('moonshot', 'kimi-k2.5', 'Kimi K2.5', 262_144, 64 * K, 'vtr', [0.6, 3, 0.1, 0], 'smart'),
 
   // Alibaba Qwen (DashScope international)
-  e('qwen', 'qwen3.8-max', 'Qwen3.8 Max', 991_808, 131_072, 'vtr', [2, 6, 0.25, 0], 'smart'),
-  e('qwen', 'qwen3.8-flash', 'Qwen3.8 Flash', 991_808, 131_072, 'vtr', [0.15, 0.47, 0.016, 0.2], 'fast'),
+  // max output "128k" on alibabacloud.com/help/en/model-studio/text-generation-model (2026-11-28), read as 128,000: 131,072 could be over it
+  e('qwen', 'qwen3.8-max', 'Qwen3.8 Max', 991_808, 128 * K, 'vtr', [2, 6, 0.25, 0], 'smart'),
+  e('qwen', 'qwen3.8-flash', 'Qwen3.8 Flash', 991_808, 128 * K, 'vtr', [0.15, 0.47, 0.016, 0.2], 'fast'),
   e('qwen', 'qwen3.7-max', 'Qwen3.7 Max', 991_808, 65_536, 'tr', [2.5, 7.5, 0.5, 0], 'smart'),
   // Prices not in LiteLLM; plausible values, verify.
   e('qwen', 'qwen3-coder-plus', 'Qwen3 Coder Plus', 997_952, 65_536, 'tr', [1, 5, 0.1, 0], 'smart'),

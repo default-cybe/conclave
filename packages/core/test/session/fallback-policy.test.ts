@@ -9,7 +9,7 @@
 import { describe, expect, test } from 'bun:test';
 import { checkFallback, fallbackPolicyFor, recordAutoSwitch } from '../../src/session/limit-tree';
 import { RefusalWalk, usable, type FallbackTarget } from '../../src/session/refusal-fallback';
-import { streamCompletion, completeText } from '../../src/session/stream';
+import { streamCompletion, completeText, outputCap } from '../../src/session/stream';
 import { ProviderError } from '../../src/providers/types';
 import { firstUserText, startTestEngine, toolResults, type TestEngine } from '../engine/harness';
 
@@ -56,8 +56,8 @@ describe('the fallback policy', () => {
       // a pay-per-token key (no signed in plans on it) is a paid destination
       policy({ paid: false });
       expect(checkFallback(t.engine, t.engine.getSession(sid)!, 'mock2/claude-sonnet-5-5', 1000)).toMatchObject({ ok: false, paid: true });
-      // the ceiling counts the tree's spend plus the switch's estimate
-      policy({ costUsd: 0.5 });
+      // the ceiling counts the tree's spend plus the switch's estimate (its output at the model's full cap)
+      policy({ costUsd: 2 });
       expect(checkFallback(t.engine, t.engine.getSession(sid)!, 'mock/claude-sonnet-5-5', 1000)).toMatchObject({ ok: true, estimateUsd: expect.any(Number) });
       const dear = checkFallback(t.engine, t.engine.getSession(sid)!, 'mock/claude-sonnet-5-5', 1_000_000);
       expect(dear.ok).toBe(false);
@@ -78,6 +78,12 @@ describe('the fallback policy', () => {
       const s = await t.engine.createSession({ title: 't', cwd: t.cwd, agent: 'general-purpose' });
       sid = s.id;
       expect(checkFallback(t.engine, s, s.model, 10)).toMatchObject({ ok: true, paid: true, estimateUsd: expect.any(Number) });
+      // with no output bound the estimate counts the cap the request will ask for (outputCap: the model's maxOutput), not 32K
+      const info = t.engine.providers.resolve(s.model).info;
+      const cost = (out: number) => t.engine.providers.costOf(info, { inputTokens: 10, outputTokens: out, cacheReadTokens: 0, cacheWriteTokens: 0 });
+      expect(info.maxOutput).toBeGreaterThan(32_000);
+      expect(checkFallback(t.engine, s, s.model, 10).estimateUsd).toBeCloseTo(cost(outputCap(info, undefined, 10)), 10);
+      expect(checkFallback(t.engine, s, s.model, 10).estimateUsd).toBeGreaterThan(cost(32_000));
       for (const costUsd of [0, -1, NaN, Infinity]) {
         policy({ costUsd });
         expect(checkFallback(t.engine, t.engine.getSession(sid)!, s.model, 10).ok).toBe(false);

@@ -2275,7 +2275,8 @@ export function turnErrorText(engine: Engine, err: unknown): string {
   const raw = err instanceof Error ? err.message : String(err);
   if (!(err instanceof ProviderError) || !err.provider) return raw;
   // a member's access and budget on the hub's keys: the message says it all (people/access.ts)
-  if (err.kind === 'auth' && (err.code === 'access' || err.code === 'budget')) return raw;
+  // a plan's expired sign-in (session/stream.ts) already says where to sign in again
+  if (err.kind === 'auth' && (err.code === 'access' || err.code === 'budget' || err.code === 'sign_in')) return raw;
   const label = engine.providerLabel(err.provider);
   const name = label === err.provider ? label.charAt(0).toUpperCase() + label.slice(1) : label;
   if (err.kind === 'auth') {
