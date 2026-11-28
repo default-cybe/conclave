@@ -94,7 +94,8 @@ enum MockHub {
             let n = Int64(Date().timeIntervalSince1970 * 1000)
             return (200, #"{"meetings":[{"id":"mt1","title":"Capstone sync","agenda":"Where the verifier stands, what is left for the demo.","status":"ready","createdAt":1,"scheduledAt":\#(n + 2_700_000),"durationMin":30,"cwd":"/home/kai/capstone","prepState":"done"},{"id":"mt2","title":"Advisor 1:1","status":"scheduled","createdAt":1,"scheduledAt":\#(n + 100_800_000),"durationMin":45,"cwd":"/home/kai/fse-paper","prepState":"running","prepProgress":{"phase":"map","done":34,"total":120}},{"id":"mt3","title":"Lab meeting","status":"ended","createdAt":1,"startedAt":\#(n - 90_000_000),"endedAt":\#(n - 87_000_000),"scheduledAt":\#(n - 90_000_000),"durationMin":60,"prepState":"done"}]}"#)
         }
-        if path == "/api/meetings/mt3/notes" { return (200, ##"{"summary":"","markdown":"## Decisions\n\n- Ship the verifier demo Friday.\n- Kai writes the threats section."}"##) }
+        // ### delimiters: the Markdown heading puts "## inside the string
+        if path == "/api/meetings/mt3/notes" { return (200, ###"{"summary":"","markdown":"## Decisions\n\n- Ship the verifier demo Friday.\n- Kai writes the threats section."}"###) }
         if path == "/api/friends" {
             return (200, #"[{"id":"f1","name":"Ria's hub","status":"pending","direction":"in","safetyCode":"","createdAt":1},{"id":"f2","name":"Sam's hub","status":"active","verified":true,"safetyCode":"40219 88310 11742 90563","unread":2,"createdAt":1},{"id":"f3","name":"Lab server","status":"active","verified":false,"lastError":"Their hub did not answer","createdAt":1}]"#)
         }
