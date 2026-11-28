@@ -87,6 +87,8 @@ struct TasksView: View {
                 }
             }
         }
+        // the board runs past the page's 760 pt column to the window's edge, as the web's board does
+        .scrollClipDisabled()
     }
 
     /// Phone: the non-empty columns in order, each a card of rows.
