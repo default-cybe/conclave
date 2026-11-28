@@ -2,7 +2,7 @@
  * A conversation's sheet on a phone (docs/design/MOBILE-V2.md 5), from its
  * title: who answers and where (agent, model, device, folder), what it cost
  * (tokens, cost) and when it started. Then Stop, Move to main list for
- * delegated work, Rename, Send to friend, Archive and Move to Code or Chat;
+ * delegated work, Rename, Compact, Pin, Send to friend, Archive and Move to Code or Chat;
  * a session also opens its details (plan, files, context), and Delete is
  * last. The transcript keeps none of these
  * numbers.
@@ -20,7 +20,7 @@ import { modelName } from '@/lib/models';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Field';
 import { ConfirmDialog, Dialog, Sheet } from '@/components/ui/Overlay';
-import { keepSession, patchChat, stopChat } from '@/features/conversation/actions';
+import { compactChat, keepSession, patchChat, stopChat } from '@/features/conversation/actions';
 import { openContinue } from '@/features/conversation/state';
 import { ContextPanel } from './ContextPanel';
 import { SendToFriendAction, SendToFriendDialog } from '@/features/friends/SendToFriend';
@@ -105,6 +105,8 @@ export function ConversationSheet({ session, open, onClose, onPeople, peopleLabe
           {isDelegated(session) && <Action onClick={() => (onClose(), void moveToMainList(session.id))}>{MOVE_TO_MAIN}</Action>}
           <Action onClick={later(() => setRenaming(true))}>Rename</Action>
           <Action onClick={later(addNote)}>Add a note</Action>
+          {session.stats.messages > 0 && <Action onClick={() => (onClose(), void compactChat(session.id))}>Compact</Action>}
+          <Action onClick={() => (onClose(), void patchChat(session.id, { pinned: !session.pinned }))}>{session.pinned ? 'Unpin' : 'Pin to the top'}</Action>
           <RepoSheetActions session={session} onClose={onClose} Action={Action} />
           {/* Send to friend (FRIENDS.md phase 2): pick friends, review what goes, send */}
           <SendToFriendAction session={session} onOpen={later(() => setSend(true))} />

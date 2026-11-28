@@ -469,6 +469,8 @@ function ChangesCard({ session }: { session: Session }) {
   const [openFile, setOpenFile] = useState<DiffFile | null>(null);
   const [restore, setRestore] = useState<Checkpoint | null>(null);
   const [restoreFiles, setRestoreFiles] = useState(true);
+  // files back to a checkpoint, every message stays (POST .../checkpoints/:id/restore)
+  const [filesOnly, setFilesOnly] = useState<Checkpoint | null>(null);
   const repoMeta = sessionRepo(session);
   const { repo, reload } = useRepoSession(session);
   const pr = useRepoActions(session, repo, reload);
@@ -539,7 +541,15 @@ function ChangesCard({ session }: { session: Session }) {
         <div className="mt-3 border-t border-rule pt-2.5">
           <div className="pb-1 text-[12px] text-fg-3">Checkpoints</div>
           {[...checkpoints].reverse().map((c) => (
-            <Line key={c.id} right={<TextAction label="Restore" onClick={() => setRestore(c)} />}>
+            <Line
+              key={c.id}
+              right={
+                <span className="flex items-center gap-3">
+                  <TextAction label="Files only" onClick={() => setFilesOnly(c)} />
+                  <TextAction label="Restore" onClick={() => setRestore(c)} />
+                </span>
+              }
+            >
               <span className="block truncate text-fg">
                 {checkpointLabel(c, messages)}, <span className="num text-fg-3">{hhmm(c.createdAt)}</span>
               </span>
@@ -578,6 +588,22 @@ function ChangesCard({ session }: { session: Session }) {
       >
         <Checkbox className="mt-3" checked={restoreFiles} onChange={setRestoreFiles} label="Restore files too" description={`Put the ${restore?.files ?? 0 ? `${restore?.files} changed files` : 'files'} back as they were.`} />
       </ConfirmDialog>
+
+      <ConfirmDialog
+        open={!!filesOnly}
+        onClose={() => setFilesOnly(null)}
+        tone="danger"
+        width={480}
+        title={filesOnly ? `Restore files to ${hhmm(filesOnly.createdAt)}?` : 'Restore files?'}
+        body={filesOnly ? `${checkpointLabel(filesOnly, messages)}. The files go back as they were then. Every message stays.` : undefined}
+        confirm="Restore files"
+        busy="Restoring"
+        onConfirm={async () => {
+          if (!filesOnly) return;
+          const ok = await attempt(() => api().restoreCheckpoint(session.id, filesOnly.id), 'Restored the files. The chat is unchanged.');
+          if (ok) diff.reload();
+        }}
+      />
     </Card>
   );
 }

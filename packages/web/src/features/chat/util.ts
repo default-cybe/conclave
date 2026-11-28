@@ -183,8 +183,8 @@ export function fallbackModel(session: Session, groups: ModelGroup[], config?: H
   return undefined;
 }
 
-export async function downloadExport(session: Session, format: 'md' | 'json') {
-  const r = await attempt(() => api().exportSession(session.id, format));
+export async function downloadExport(session: Session, format: 'md' | 'json', opts: { thinking?: boolean } = {}) {
+  const r = await attempt(() => api().exportSession(session.id, format, opts.thinking ? { thinking: true } : {}));
   if (!r) return;
   await saveFile(r.filename, new Blob([r.content], { type: format === 'json' ? 'application/json' : 'text/markdown' }));
 }

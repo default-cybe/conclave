@@ -28,7 +28,7 @@ import type { Session } from '@conclave/core/types';
 import { askBtw, useHub } from '@/store/store';
 import { onPasteFiles } from '@/lib/pasteFiles';
 import { BtwCards } from '@/features/chat/Pending';
-import { btwQuestion } from '@/features/chat/slash';
+import { btwQuestion, CHAT_COMMANDS, findSlash } from '@/features/chat/slash';
 import { cn, fuzzyFilter } from '@/lib/text';
 import { useIsMobile } from '@/lib/hooks';
 import { effortForModel, effortOf, type EffortSetting } from '@/lib/effort';
@@ -36,12 +36,12 @@ import { Kbd } from '@/components/ui/Kbd';
 import type { MenuItem } from '@/components/ui/Overlay';
 import { Tooltip } from '@/components/ui/Tooltip';
 import { Rim, SendStopButton, type RimState } from '@/components/motion';
-import { isReminder } from '@/features/chat/util';
+import { downloadExport, isReminder } from '@/features/chat/util';
 import { useDraft } from '@/features/chat/useDraft';
 import { canDictate, DictateButton } from './Dictate';
-import { AttachmentStrip, ContextRing, memoryModeOf, memoryPatch, ModelEffort, OptionsChip, PlusMenu, QuietRow, readPickedFor, type EffortFollow } from './ComposerParts';
+import { AskAside, AttachmentStrip, ContextRing, memoryModeOf, memoryPatch, ModelEffort, OptionsChip, PlusMenu, QuietRow, readPickedFor, type EffortFollow } from './ComposerParts';
 import { AddButton, fitField, PHONE_FIELD, PhoneBox, PhoneSend, sizeField } from './PhoneBox';
-import { patchChat, sendTo, startChat, stopChat, type Outgoing } from './actions';
+import { branchChat, compactChat, patchChat, rewindLast, sendTo, startChat, stopChat, type Outgoing } from './actions';
 import { DEFAULTS_EVENT, readDefaults, saveDefaults, setEditing, setRestore, useChatUi, type Thinking } from './state';
 import { useSharedChat } from '@/features/chat/shared';
 import { ModelName } from '@/components/logo';
@@ -130,7 +130,11 @@ const fileDrafts = new Map<string, FileItem[]>();
  */
 let focusUntil = 0;
 
-const WEB_HELP = 'Look things up and cite sources';
+/** A chat's slash menu, as the hub's commands list it (slash.ts CHAT_COMMANDS). */
+const CHAT_MENU: SlashCommand[] = CHAT_COMMANDS.map((c) => ({ name: c.name, description: c.description, argumentHint: c.arg }));
+
+/** Click a chip of the quiet row (the model picker, the context ring) for a command that opens it. */
+const openChip = (chip: string) => document.querySelector<HTMLButtonElement>(`[data-chip="${chip}"]`)?.click();
 
 /** The switches of a chat, or of the next new chat (the last ones used on this device). */
 function useSwitches(session: Session | undefined): [Switches, (p: Partial<Switches>) => void] {
@@ -286,10 +290,12 @@ export function ChatComposer({
     el.style.overflowY = content > max + 1 ? 'auto' : 'hidden';
   }, [text, mobile, minRows]);
 
-  // "/" and part of a name lists the hub's commands (Session mode on Home): arrows, Enter or Tab, Esc
+  // "/" and part of a name lists the hub's commands (Session mode on Home), or a chat's own: arrows, Enter or Tab, Esc
   const listId = useId();
-  const query = target?.commands ? /^\/(\S*)$/.exec(text)?.[1] : undefined;
-  const commands = useMemo(() => (query !== undefined && target?.commands ? fuzzyFilter(target.commands, query, (c) => c.name).slice(0, 8) : []), [query, target?.commands]);
+  // a chat's commands act on the chat, so only its owner gets them, once it exists
+  const menuCommands = target ? target.commands : session && !mine ? CHAT_MENU : undefined;
+  const query = menuCommands ? /^\/(\S*)$/.exec(text)?.[1] : undefined;
+  const commands = useMemo(() => (query !== undefined && menuCommands ? fuzzyFilter(menuCommands, query, (c) => c.name).slice(0, 8) : []), [query, menuCommands]);
   const [sel, setSel] = useState(0);
   const [menuOff, setMenuOff] = useState(false);
   const menuOpen = commands.length > 0 && !menuOff;
@@ -300,9 +306,38 @@ export function ChatComposer({
   const pickCommand = (i: number) => {
     const c = commands[i];
     if (!c) return;
-    setText(`/${c.name} `);
     setMenuOff(true);
     box.current?.focus();
+    // a chat's command that needs nothing more runs at once; one that needs words waits for them
+    if (!target && !c.argumentHint?.startsWith('<')) {
+      setText('');
+      return void runChatCommand(c.name, '');
+    }
+    setText(`/${c.name} `);
+  };
+
+  /** A chat's built-in command (slash.ts CHAT_COMMANDS), with what followed its name. */
+  const runChatCommand = async (name: string, arg: string): Promise<unknown> => {
+    if (!session) return;
+    switch (name) {
+      case 'btw':
+        return arg ? askBtw(session.id, arg) : setText('/btw ');
+      case 'compact':
+        return compactChat(session.id, arg);
+      case 'rewind':
+        return rewindLast(session);
+      case 'fork':
+        return branchChat(session, undefined, navigate);
+      case 'export':
+        return downloadExport(session, arg === 'json' ? 'json' : 'md');
+      case 'new':
+        return navigate('/chat');
+      case 'model':
+        return arg ? change({ model: arg }) : openChip('model');
+      case 'cost':
+      case 'status':
+        return openChip('context');
+    }
   };
 
   const addFiles = async (list: FileList | File[]) => {
@@ -331,6 +366,13 @@ export function ChatComposer({
     if (btw && session) {
       setText('');
       return void askBtw(session.id, btw);
+    }
+    // a chat's own command runs here instead of going to the model as text; any other "/..." is a message
+    const cmd = !target && session && !mine && !files.length ? /^\/(\S+)\s*([\s\S]*)$/.exec(out.text) : null;
+    const known = cmd ? findSlash(CHAT_COMMANDS, cmd[1]) : undefined;
+    if (cmd && known) {
+      setText('');
+      return void runChatCommand(known.name, cmd[2].trim());
     }
     if (target?.prepare && !target.prepare(out)) return;
     // the composer clears in the same frame; a refusal puts the text back
@@ -441,7 +483,7 @@ export function ChatComposer({
   // a limit has no light (spec 1.3): the reply's grey stub and its countdown say it
   const rim: RimState = onYou ? 'waiting' : running || busy ? 'live' : status === 'error' ? 'failed' : status === 'waiting_reset' ? 'idle' : session ? 'done' : 'idle';
 
-  const placeholder = placeholderProp ?? target?.placeholder ?? (!session ? 'Ask anything' : shared && justTalk ? 'Message everyone, no AI reply' : running ? 'Reply, it will be sent when this one finishes' : 'Reply');
+  const placeholder = placeholderProp ?? target?.placeholder ?? (!session ? 'Ask anything' : shared && justTalk ? 'Message everyone, no AI reply' : running ? 'Reply, it will be sent when this one finishes' : mine ? 'Reply' : 'Reply, or type / for commands');
   // "Just talk": your words go to the others and start no AI turn (SHARED-WITH-MEMBERS.md 10.1)
   const talk = shared && (
     <Tooltip content={justTalk ? 'On: sends to everyone, no AI reply' : 'Send to everyone without an AI reply'}>
@@ -477,13 +519,15 @@ export function ChatComposer({
         {target?.note}
       </div>
     ) : null;
+  // while a reply runs: ask something on the side, the running reply never sees it (/btw)
+  const askAside = running && session && !target && !mine && !btwQuestion(text) && <AskAside onClick={() => (setText((t) => `/btw ${t.trimStart()}`), box.current?.focus())} />;
   const commandList = menuOpen && (
     <ul
       id={listId}
       role="listbox"
       aria-label="Commands"
-      // phones: above the box, so the keyboard does not cover it
-      className={cn('absolute left-0 z-30 w-[min(420px,100%)] rounded-[var(--r-2)] border border-rule-2 bg-raise p-1 shadow-[var(--shadow-pop)] anim-pop', mobile ? 'bottom-[calc(100%+4px)]' : 'top-[calc(100%+4px)]')}
+      // phones and an open chat (its box sits at the bottom): above the box, so the keyboard or the window edge does not cover it
+      className={cn('absolute left-0 z-30 w-[min(420px,100%)] rounded-[var(--r-2)] border border-rule-2 bg-raise p-1 shadow-[var(--shadow-pop)] anim-pop', mobile || !target ? 'bottom-[calc(100%+4px)]' : 'top-[calc(100%+4px)]')}
     >
       {commands.map((c, i) => (
         <li
@@ -512,7 +556,7 @@ export function ChatComposer({
       rows={1}
       value={text}
       aria-label="Message"
-      aria-autocomplete={target?.commands ? 'list' : undefined}
+      aria-autocomplete={menuCommands ? 'list' : undefined}
       aria-controls={menuOpen ? listId : undefined}
       aria-activedescendant={menuOpen ? `${listId}-${sel}` : undefined}
       onChange={(e) => setText(e.target.value)}
@@ -524,8 +568,8 @@ export function ChatComposer({
     />
   );
 
-  // "+" holds the files and what a chat adds (web search) or the target's add-ons; memory, agent and style are in Options
-  const plus: MenuItem[] = target ? (target.plus ?? []) : [{ label: 'Search the web', detail: WEB_HELP, checked: sw.webSearch, keep: true, onSelect: () => change({ webSearch: !sw.webSearch }) }];
+  // "+" holds the files or the target's add-ons; web search, memory, agent and style are in Options, so "No web" shows on the chip
+  const plus: MenuItem[] = target ? (target.plus ?? []) : [];
   // a new chat's memory is the toggle's while incognito (the header holds it); a chat's is its own switches
   const memoryMode: MemoryMode = session ? memoryModeOf(session.chat) : priv.memory;
   const pickMemory = (m: MemoryMode) => {
@@ -534,7 +578,7 @@ export function ChatComposer({
     void patchChat(session.id, { chat: memoryPatch(m) });
   };
   // a target that has no chips of its own (an Assistant start) still offers Cyber access where the model takes it
-  const chips = target ? (target.chips || <OptionsChip turn={turn} />) : <OptionsChip memory={!session && priv.incognito ? undefined : { value: memoryMode, onChange: pickMemory }} turn={turn} />;
+  const chips = target ? (target.chips || <OptionsChip turn={turn} />) : <OptionsChip web={{ on: sw.webSearch, onChange: (on) => change({ webSearch: on }) }} memory={!session && priv.incognito ? undefined : { value: memoryMode, onChange: pickMemory }} turn={turn} />;
   const modelEffort = target ? (
     <ModelEffort model={target.model} value={target.effort} follow={target.follow} onModel={target.onModel} onEffort={target.onEffort} harnesses={target.harnesses} sameModel={!!same.sameModel} onSameModel={same.onSameModel} />
   ) : (
@@ -585,6 +629,7 @@ export function ChatComposer({
             {!mine && <PlusMenu items={plus} onFiles={(list) => void addFiles(list)} />}
             {talk}
             <span className="flex-1" />
+            {askAside}
             {canDictate() && <DictateButton onText={(t) => setText((x) => (x.trim() ? `${x.trimEnd()} ${t}` : t))} className="size-[30px] [&_svg]:size-[18px]" />}
             <Tooltip content={running && !hasText ? (<span className="inline-flex items-center gap-1.5">Stop <Kbd>esc</Kbd></span>) : running ? 'Send when this reply ends' : sendLabel}>
               <SendStopButton
