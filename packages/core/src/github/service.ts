@@ -42,7 +42,7 @@ import { trimSlash } from '../projects/store';
 import { addWorktree, mergeBranch, WorktreeError } from '../workflows/worktrees';
 import { logger } from '../util/log';
 import { DEFAULT_API_URL, DEFAULT_GIT_URL, GithubApi, GithubError, parseRepoName, type FailedCheck, type GithubUser, type IssueComment, type IssueInfo, type RepoInfo } from './api';
-import { cloneScript, fetchScript, git, gitError, pushOutcome, pushScript, remoteFor, scrub, shq, validBranch, validSha, committedBy, withCommittedBy, withToken, type Remote } from './git';
+import { cloneScript, fetchScript, git, gitError, pushOutcome, pushScript, remoteFor, scrub, shq, validBranch, validSha, committedBy, withCommittedBy, withToken, WINDOWS_ABS, type Remote } from './git';
 import { RepoStore, type RepoSessionRow } from './store';
 import { pullRequestTool, PULL_REQUEST_TOOL } from './tool';
 import { OWNER_ID, currentAccount, isMember, runAs } from '../people/context';
@@ -157,8 +157,16 @@ function onGithub(row: RepoSessionRow): boolean {
   return row.source !== 'folder' || !!row.url;
 }
 
-/** A Windows drive (D:\x, C:/x) or UNC (\\server\share) path. */
-const WINDOWS_ABS = /^(?:[A-Za-z]:[\\/]|\\\\[^\\/])/;
+/** The path module of a device: path.win32 on Windows, else path.posix. */
+function pathsOf(platform: string | undefined): typeof posix {
+  return platform === 'win32' ? win32 : posix;
+}
+
+/** Two paths of one device name the same folder: git for Windows prints C:/x for C:\x, and its drive letters and names ignore case. */
+export function samePath(P: typeof posix, a: string, b: string): boolean {
+  const n = (p: string) => trimSlash(P.normalize(p));
+  return P === win32 ? n(a).toLowerCase() === n(b).toLowerCase() : n(a) === n(b);
+}
 
 /** An absolute folder as a device prints it: POSIX, or git for Windows' D:/x. */
 export function isAbsoluteFolder(p: string): boolean {
@@ -472,6 +480,10 @@ export class GithubService {
     throw new EngineError(409, `${this.deviceName(id)} is offline. Repo sessions need the device online for git.`);
   }
 
+  private async paths(machine: Machine): Promise<typeof posix> {
+    return pathsOf((await machine.info()).platform);
+  }
+
   private async home(machine: Machine): Promise<string> {
     const h = await this.engine.machineHome(machine);
     if (!h) throw new EngineError(502, `Could not read the home folder on ${machine.name}.`);
@@ -491,11 +503,12 @@ export class GithubService {
     const st = await machine.stat(path).catch(() => null);
     if (!st) return 'missing';
     if (st.type !== 'dir') return 'no';
+    const P = await this.paths(machine);
     const top = await git(machine, path, 'rev-parse --show-toplevel', 20_000).catch(() => undefined);
-    if (!top?.ok || trimSlash(top.out) !== trimSlash(path)) {
+    if (!top?.ok || !samePath(P, top.out, path)) {
       // a symlinked path: compare the real folders
       const real = await machine.exec(`cd ${shq(path)} && pwd -P`, { cwd: '/', timeoutMs: 10_000 }).catch(() => undefined);
-      if (!top?.ok || !real || trimSlash(real.stdout.trim()) !== trimSlash(top.out)) return 'no';
+      if (!top?.ok || !real || !samePath(P, real.stdout.trim(), top.out)) return 'no';
     }
     const remotes = await git(machine, path, 'remote -v', 20_000).catch(() => undefined);
     const wanted = this.wantedRemotes(remote, info);
@@ -525,7 +538,12 @@ export class GithubService {
         return known;
       }
       const home = await this.home(machine);
-      const worktrees = posix.join(home, '.conclave', 'worktrees');
+      const P = await this.paths(machine);
+      const worktrees = P.join(home, '.conclave', 'worktrees');
+      const inWorktrees = (p: string) => {
+        const rel = P.relative(worktrees, p);
+        return rel === '' || (rel !== '..' && !rel.startsWith(`..${P.sep}`) && !P.isAbsolute(rel));
+      };
       // a folder the projects service already knows for this repository on this device
       const projects = projectsOf(this.engine);
       if (projects) {
@@ -533,7 +551,7 @@ export class GithubService {
         for (const p of projects.store.list()) {
           if (!p.identity.remotes.some((r) => wanted.has(r.toLowerCase()))) continue;
           for (const loc of projects.store.locations(p.id)) {
-            if (loc.device !== device || loc.path === worktrees || loc.path.startsWith(`${worktrees}/`)) continue;
+            if (loc.device !== device || inWorktrees(loc.path)) continue;
             if ((await this.isCloneOf(machine, loc.path, remote, info)) === 'yes') {
               this.store.saveClone(device, info.fullName, loc.path);
               return loc.path;
@@ -542,8 +560,8 @@ export class GithubService {
         }
       }
       const rootDir = this.config().reposRoot;
-      const reposRoot = rootDir === '~' ? home : rootDir.startsWith('~/') ? posix.join(home, rootDir.slice(2)) : rootDir;
-      const dest = posix.join(reposRoot, info.owner, info.name);
+      const reposRoot = rootDir === '~' ? home : /^~[\\/]/.test(rootDir) ? P.join(home, rootDir.slice(2)) : rootDir;
+      const dest = P.join(reposRoot, info.owner, info.name);
       const there = await this.isCloneOf(machine, dest, remote, info);
       if (there === 'yes') {
         this.store.saveClone(device, info.fullName, dest);
@@ -565,7 +583,7 @@ export class GithubService {
   private async objectsDir(machine: Machine, root: string): Promise<string> {
     const r = await git(machine, root, 'rev-parse --path-format=absolute --git-common-dir', 20_000);
     if (!r.ok || !isAbsoluteFolder(r.out)) throw new EngineError(502, `Could not read the git folder of ${root}: ${gitError(r)}`);
-    return posix.join(trimSlash(r.out), 'objects');
+    return (await this.paths(machine)).join(trimSlash(r.out), 'objects');
   }
 
   /** Commits the clone has, so a fetch brings only what is new. */
@@ -630,7 +648,7 @@ export class GithubService {
     return this.startIn(machine, input, {
       device,
       root,
-      dir: posix.join(home, '.conclave', 'worktrees', 'gh', info.owner, info.name),
+      dir: (await this.paths(machine)).join(home, '.conclave', 'worktrees', 'gh', info.owner, info.name),
       row: { repo: info.fullName, base, baseSha, defaultBranch, url: info.url },
       reminder: (wt, branch, model) =>
         `This session works in a git worktree of ${info.fullName} at ${wt}, on the branch ${branch}, made from ${base} at ${baseSha.slice(0, 7)}. Commit your work on this branch, authored by the owner's git identity only, with no Co-authored-by line for an AI. End each commit message with the trailer line "${committedBy(model)}", or your model id from your environment if it changed. When it is done and checked, the PullRequest tool pushes the branch and can open a pull request; the owner approves each call. Do not push yourself, do not switch branches, and never push to ${defaultBranch}.`,
@@ -653,7 +671,7 @@ export class GithubService {
 
   private async expand(machine: Machine, folder: string): Promise<string> {
     const f = folder.trim() || '~';
-    if (f === '~' || f.startsWith('~/')) return trimSlash(posix.join(await this.home(machine), f.slice(2)));
+    if (f === '~' || f.startsWith('~/')) return trimSlash((await this.paths(machine)).join(await this.home(machine), f.slice(2)));
     // a Windows device names its folders D:\x, D:/x or \\server\share\x
     if (WINDOWS_ABS.test(f) && (await machine.info()).platform === 'win32') {
       const n = win32.normalize(f);
@@ -680,13 +698,14 @@ export class GithubService {
     const head = await git(machine, root, 'rev-parse --verify -q HEAD', 20_000);
     if (!head.ok || !validSha(head.out)) throw new EngineError(409, `${root} has no commits yet. Make a first commit, then start the session.`);
     const home = await this.home(machine);
-    const name = posix.basename(root) || 'repo';
+    const P = await this.paths(machine);
+    const name = P.basename(root) || 'repo';
     const hash = createHash('sha256').update(root).digest('hex').slice(0, 8);
     const gh = where.github;
     return this.startIn(machine, input, {
       device,
       root,
-      dir: posix.join(home, '.conclave', 'worktrees', 'dir', `${name.replace(/[^\w.-]/g, '-')}-${hash}`),
+      dir: P.join(home, '.conclave', 'worktrees', 'dir', `${name.replace(/[^\w.-]/g, '-')}-${hash}`),
       row: { repo: gh ?? name, base, baseSha: head.out, defaultBranch: base, url: gh ? `https://github.com/${gh}` : '', source: 'folder' },
       reminder: (wt, branch, model) =>
         `This session works in its own git worktree of ${root} at ${wt}, on the branch ${branch}, made from ${base} at ${head.out.slice(0, 7)}. Other sessions may work in the same repository at once, each in its own worktree. Work and commit only here, on this branch, authored by the owner's git identity only, with no Co-authored-by line for an AI. End each commit message with the trailer line "${committedBy(model)}", or your model id from your environment if it changed. The owner merges the branch into ${base} or discards it from the session header. Do not switch branches, do not merge into ${base}, do not push, and do not edit the main checkout at ${root}.`,
@@ -718,7 +737,7 @@ export class GithubService {
       if (!taken) branch = b;
     }
     if (!branch || !validBranch(branch)) throw new EngineError(500, 'Could not pick a branch name.');
-    const wt = posix.join(w.dir, branch.slice('conclave/'.length).replace(/\//g, '-'));
+    const wt = (await this.paths(machine)).join(w.dir, branch.slice('conclave/'.length).replace(/\//g, '-'));
     try {
       await addWorktree(machine, { root, path: wt, branch, base: baseSha });
     } catch (err) {
@@ -972,7 +991,7 @@ export class GithubService {
         .join('\n')
         .trim();
     }
-    answer = answer.split(`${row.worktree}/`).join('').split(row.worktree).join('.').trim();
+    answer = answer.split(`${row.worktree}/`).join('').split(`${row.worktree}\\`).join('').split(row.worktree).join('.').trim();
     if (answer.length > 1500) answer = `${answer.slice(0, 1500).replace(/\s+\S*$/, '')}…`;
     const parts = [answer, commits.length ? `## Commits\n\n${commits.map((c) => `- ${c.subject} (${c.sha.slice(0, 7)})`).join('\n')}` : '', `Made in the Conclave session "${titled || row.branch}".`].filter(Boolean);
     return { title, body: parts.join('\n\n'), base: row.base, head: row.branch, commits };
@@ -1191,10 +1210,11 @@ export class GithubService {
       // git deletes the folder first; its .git/worktrees entry can then fail ("Directory not empty") while
       // a detached auto-maintenance from the agent's last commit still writes there. Prune finishes the job.
       if (!r.ok && (await machine.stat(row.worktree).catch(() => null))) throw new EngineError(502, `git worktree remove failed: ${gitError(r)}`);
+      const P = await this.paths(machine);
       for (let i = 0; !r.ok && i < 5; i++) {
         await git(machine, row.clonePath, 'worktree prune', 60_000);
         const list = await git(machine, row.clonePath, 'worktree list --porcelain', 20_000);
-        if (list.ok && !list.out.split('\n').includes(`worktree ${row.worktree}`)) break;
+        if (list.ok && !list.out.split('\n').some((l) => l.startsWith('worktree ') && samePath(P, l.slice('worktree '.length), row.worktree))) break;
         await Bun.sleep(200);
       }
     } else {

@@ -6,12 +6,12 @@
  */
 import { afterEach, describe, expect, test } from 'bun:test';
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, win32 } from 'node:path';
 import { startTestEngine, type Step, type TestEngine } from '../engine/harness';
 import { attach, HomeMachine, sh, twoDevices, type TwoDevices } from '../projects/machines';
 import { githubOf } from '../../src/github';
 import { githubName, isAbsoluteFolder, type GithubService } from '../../src/github/service';
-import type { ExecOptions, ExecResult } from '../../src/machine/types';
+import type { ExecOptions, ExecResult, SpawnOptions } from '../../src/machine/types';
 import type { MachineInfo } from '../../src/types';
 import { projectsOf } from '../../src/projects/registry';
 import { FakeGithub } from './fake-github';
@@ -53,6 +53,40 @@ async function setup() {
   writeFileSync(join(repo, 'README.md'), 'hello\n');
   sh(`git init -q -b main && ${GIT} add -A && ${GIT} commit -qm first`, repo);
   return { t, d, fake, svc, repo };
+}
+
+/**
+ * A win32 device (BINARY-101, home C:\Users\nihir) over the local disk: each
+ * Windows prefix maps to a real folder, in paths, cwds and command text, and
+ * real folders come back in output as git for Windows prints them (C:/x).
+ */
+function winDevice(t: TestEngine, base: string, map: Array<[win: string, real: string]>) {
+  const esc = (s: string) => s.replace(/[\\/]/g, '[\\\\/]').replace(/[.:]/g, '\\$&');
+  const toReal = (text: string) => map.reduce((s, [w, r]) => s.replace(new RegExp(`${esc(w)}((?:[\\\\/][^'"\\s]*)?)`, 'gi'), (_m, rest: string) => r + rest.replace(/\\/g, '/')), text);
+  const toWin = (text: string) => map.reduce((s, [w, r]) => s.split(r).join(w.replace(/\\/g, '/')), text);
+  class WinMachine extends HomeMachine {
+    override infoNow(): MachineInfo {
+      return { ...super.infoNow(), platform: 'win32', home: 'C:\\Users\\nihir' };
+    }
+    override async stat(path: string) {
+      return super.stat(toReal(path));
+    }
+    override async mkdir(path: string) {
+      return super.mkdir(toReal(path));
+    }
+    override async exec(command: string, opts: ExecOptions): Promise<ExecResult> {
+      this.execs.push(command);
+      const r = await super.exec(toReal(command), { ...opts, cwd: toReal(opts.cwd) });
+      return { ...r, stdout: toWin(r.stdout) };
+    }
+    override spawn(command: string, args: string[], opts: SpawnOptions) {
+      return super.spawn(command, args.map(toReal), { ...opts, cwd: toReal(opts.cwd) });
+    }
+  }
+  const win = new WinMachine('win', 'BINARY-101', base);
+  t.engine.repos.devices.insert({ id: win.id, name: win.name, tokenHash: 'test', roots: [] });
+  attach(t.engine, win);
+  return { win, toReal };
 }
 
 /** The scripted model writes a file in its worktree and commits it. */
@@ -215,22 +249,7 @@ describe('Run in a worktree on a git folder', () => {
     const svc = githubOf(t.engine) as GithubService;
     // a win32 device whose D:\Coding is the temp repo's parent folder
     const real = join(d.pc.home, 'code');
-    const toReal = (p: string) => p.replace(/^D:[\\/]Coding/i, real).replace(/\\/g, '/');
-    class WinMachine extends HomeMachine {
-      override infoNow(): MachineInfo {
-        return { ...super.infoNow(), platform: 'win32', home: 'C:\\Users\\nihir' };
-      }
-      override async stat(path: string) {
-        return super.stat(toReal(path));
-      }
-      override async exec(command: string, opts: ExecOptions): Promise<ExecResult> {
-        const r = await super.exec(command, { ...opts, cwd: toReal(opts.cwd) });
-        return { ...r, stdout: r.stdout.split(real).join('D:/Coding') };
-      }
-    }
-    const win = new WinMachine('win', 'BINARY-101', d.pc.home);
-    t.engine.repos.devices.insert({ id: win.id, name: win.name, tokenHash: 'test', roots: [] });
-    attach(t.engine, win);
+    winDevice(t, d.pc.home, [['D:\\Coding', real]]);
     expect(repo.startsWith(real)).toBe(true);
     for (const f of ['D:\\Coding\\app', 'D:/Coding/app/src', 'D:\\Coding\\app\\'])
       expect(await svc.folderGit('win', f)).toEqual({ git: true, root: 'D:/Coding/app', branch: 'main' });
@@ -241,4 +260,67 @@ describe('Run in a worktree on a git folder', () => {
     await expect(svc.folderGit('pc', 'D:\\Coding\\app')).rejects.toThrow(/absolute path/);
     expect(isAbsoluteFolder('D:/x') && isAbsoluteFolder('/x') && isAbsoluteFolder('\\\\srv\\share') && !isAbsoluteFolder('x/y') && !isAbsoluteFolder('D:x')).toBe(true);
   }, 30_000);
+
+  test('a Windows device: the clone, worktrees, session cwd and clean up use C:\\ paths, and the clone is found again', async () => {
+    const { t, d, fake, svc, repo } = await setup();
+    await svc.connect(TOKEN);
+    const home = join(d.base, 'win-home');
+    mkdirSync(home, { recursive: true });
+    const { win, toReal } = winDevice(t, home, [['C:\\Users\\nihir', home], ['D:\\Coding', join(d.pc.home, 'code')]]);
+
+    // a GitHub repo session: the clone under %USERPROFILE%\repos, the worktree under %USERPROFILE%\.conclave
+    const s1 = await svc.startSession({ repo: 'acme/widgets', device: 'win', title: 'Fix login' });
+    const r1 = svc.row(s1.id)!;
+    expect(r1.clonePath).toBe('C:\\Users\\nihir\\repos\\acme\\widgets');
+    expect(r1.worktree).toBe(`C:\\Users\\nihir\\.conclave\\worktrees\\gh\\acme\\widgets\\${r1.branch.slice('conclave/'.length)}`);
+    expect(s1).toMatchObject({ device: 'win', cwd: r1.worktree });
+    expect(existsSync(join(home, 'repos', 'acme', 'widgets', '.git'))).toBe(true);
+    expect(sh('git symbolic-ref --short HEAD', toReal(r1.worktree))).toBe(r1.branch);
+    // the clone script makes the C:\ parent folder, not "."
+    expect(win.execs.find((c) => c.includes(' clone '))).toContain(`mkdir -p 'C:\\Users\\nihir\\repos\\acme'`);
+
+    // git prints C:/Users/nihir/repos/acme/widgets: the second session still finds the same clone
+    const s2 = await svc.startSession({ repo: 'acme/widgets', device: 'win' });
+    const r2 = svc.row(s2.id)!;
+    expect(r2.clonePath).toBe(r1.clonePath);
+    expect(r2.worktree).not.toBe(r1.worktree);
+    expect(fake.pulls.length).toBe(0);
+
+    // clean up when git removed the folder but not its entry: the prune loop matches C:/x to C:\x
+    const exec = win.exec.bind(win);
+    win.exec = (async (cmd: string, opts: ExecOptions) => {
+      if (!cmd.includes('worktree remove')) return exec(cmd, opts);
+      sh(`rm -rf ${toReal(r1.worktree)}`, '/');
+      return { exitCode: 255, stdout: '', stderr: `error: failed to delete '.git/worktrees/x': Directory not empty` };
+    }) as typeof win.exec;
+    expect(await svc.cleanup(s1.id, { discard: true })).toMatchObject({ cleaned: true });
+    win.exec = exec;
+    expect(existsSync(toReal(r1.worktree))).toBe(false);
+    expect(sh('git worktree list --porcelain', toReal(r1.clonePath))).not.toContain(toReal(r1.worktree));
+    expect(() => sh(`git rev-parse --verify -q refs/heads/${r1.branch}`, toReal(r1.clonePath))).toThrow();
+    expect(await svc.cleanup(s2.id, { discard: true })).toMatchObject({ cleaned: true });
+    expect(existsSync(toReal(r2.worktree))).toBe(false);
+
+    // Run in a worktree on D:\Coding\app: the worktree under C:\Users\nihir\.conclave\worktrees\dir
+    const f = await svc.startFolderSession({ folder: 'D:\\Coding\\app', device: 'win' });
+    const rf = svc.row(f.id)!;
+    expect(rf.clonePath).toBe('D:/Coding/app');
+    expect(rf.worktree).toMatch(/^C:\\Users\\nihir\\\.conclave\\worktrees\\dir\\app-[0-9a-f]{8}\\[a-z0-9-]+$/);
+    expect(f.cwd).toBe(rf.worktree);
+    expect(sh('git worktree list --porcelain', repo)).toContain(toReal(rf.worktree));
+    expect(await svc.cleanup(f.id, { discard: true })).toMatchObject({ cleaned: true });
+    expect(existsSync(toReal(rf.worktree))).toBe(false);
+  }, 60_000);
+});
+
+describe('paths of a Windows device', () => {
+  test('samePath matches git for Windows output to the native path; posix stays exact', async () => {
+    const { samePath } = await import('../../src/github/service');
+    const { posix } = await import('node:path');
+    expect(samePath(win32, 'C:/Users/nihir/repos/acme/widgets', 'C:\\Users\\nihir\\repos\\acme\\widgets\\')).toBe(true);
+    expect(samePath(win32, 'c:/users/NIHIR/x', 'C:\\Users\\nihir\\x')).toBe(true);
+    expect(samePath(win32, 'C:/Users/nihir/x', 'C:\\Users\\nihir\\y')).toBe(false);
+    expect(samePath(posix, '/home/a/x/', '/home/a/x')).toBe(true);
+    expect(samePath(posix, '/home/a/X', '/home/a/x')).toBe(false);
+  });
 });
