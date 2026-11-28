@@ -95,7 +95,8 @@ final class ScreenshotTests: XCTestCase {
         guard prefix == "ipad" else { throw XCTSkip("iPad only") }
         // the mode as a launch argument, not a tap: a tap would be saved and every later shot would open in it
         try page(name.lowercased(), appearance, ["-openChat", name == "Code" ? "s2" : "a1", "-sideMode", name.lowercased()]) { app in
-            app.staticTexts[name == "Code" ? "Kener status page theme" : "History"]
+            // a session row is a Button with its title as the label, not a StaticText
+            name == "Code" ? app.buttons["Kener status page theme"] : app.staticTexts["History"]
         }
     }
 
