@@ -118,6 +118,11 @@ final class HubModel {
     }
 
     func apply(_ e: EngineEvent) {
+        // a failed turn posts once, when the status turns to error, not on each later update
+        let againError: Bool = if case .sessionUpdated(let s) = e { s.status == .error && session(s.id)?.status == .error } else { false }
+        if !againError {
+            DeviceNotices.shared.post(e) { [weak self] id in self?.session(id).map(Panel.title).flatMap { $0.isEmpty ? nil : $0 } ?? "Conclave" }
+        }
         switch e {
         case .sessionCreated(let s), .sessionUpdated(let s):
             if let i = sessions.firstIndex(where: { $0.id == s.id }) { sessions[i] = s } else if s.parentId == nil { sessions.append(s) }

@@ -12,6 +12,8 @@ struct SettingsView: View {
     @AppStorage("reduceMotion") private var reduceMotion = false
     @AppStorage("privacy.lock") private var lock = false
     @AppStorage("privacy.hide") private var hide = false
+    @AppStorage(DeviceNotices.key) private var notify = false
+    @State private var notifyDenied = false
     @State private var error: String?
     @State private var confirmForget = false
 
@@ -51,6 +53,14 @@ struct SettingsView: View {
                 }
                 CardRow(label: "Reduce motion", detail: "Cards and messages appear without moving. The system setting also turns it on.") {
                     Toggle("", isOn: $reduceMotion).labelsHidden().tint(Tone.signal)
+                }
+            }
+            CardSection(title: "This device", note: notifyDenied ? "iOS has notifications off for Conclave. Turn them on in the Settings app, Notifications, Conclave." : nil) {
+                CardRow(label: "Notify on this device", detail: "Approvals, questions and failed turns, while Conclave is open on another chat or page. A free Apple ID cannot get push, so the Inbox keeps the rest.") {
+                    Toggle("Notify on this device", isOn: Binding(get: { notify }, set: { on in
+                        guard on else { notify = false; return }
+                        Task { let ok = await DeviceNotices.shared.requestPermission(); notify = ok; notifyDenied = !ok }
+                    })).labelsHidden().tint(Tone.signal)
                 }
             }
             CardSection(title: "Privacy", note: "The hub token is kept in the iOS Keychain on this device only and is never in a backup.") {

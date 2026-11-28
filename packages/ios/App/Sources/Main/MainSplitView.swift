@@ -90,7 +90,12 @@ struct MainSplitView: View {
             #endif
             // chrome icons in fg-2 as the web's (no accent on the sidebar toggles); content sets signal where it means focus
             .tint(Tone.fg2)
-            .onChange(of: selection, initial: true) { _, s in if s != nil { page = nil; column = .detail } }
+            .onChange(of: selection, initial: true) { _, s in
+                if s != nil { page = nil; column = .detail }
+                DeviceNotices.shared.visible = page == nil ? s : nil
+            }
+            // a tapped banner opens its chat
+            .onAppear { DeviceNotices.shared.onOpen = { open($0) } }
             .onChange(of: page, initial: true) { _, p in if p != nil { column = .detail } }
             // back to the list: forget the pick, so tapping the same chat or page opens it again
             .onChange(of: column) { _, c in if c == .sidebar { selection = nil; page = nil } }

@@ -29,6 +29,7 @@ struct ConclaveApp: App {
 
     @MainActor
     private static func makeModel() -> AppModel {
+        DeviceNotices.shared.install()
         #if DEBUG
         // CI screenshots: a scripted hub with fixtures, no network (MockHub.swift)
         if ProcessInfo.processInfo.arguments.contains("-mockHub") { return MockHub.appModel() }
