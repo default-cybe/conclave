@@ -38,6 +38,11 @@ struct SettingsView: View {
                 }
             }
             SignedInSection(hub: hub)
+            if me?.isMember == false {
+                CardSection(title: "People") {
+                    link("People", "Members, invites, passwords and which hub keys each may use", .people)
+                }
+            }
             CardSection(title: "Models and plans") {
                 if me?.isMember == false {
                     link("Providers", "API keys for Anthropic, OpenAI, Z.ai and others", .providers)

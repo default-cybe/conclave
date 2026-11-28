@@ -83,6 +83,23 @@ struct ProvidersTests {
         #expect(AccountWords.state("unknown").0 == "Ready")
     }
 
+    @Test func peopleWordsAndAdd() async throws {
+        let now: Int64 = 1_000_000_000_000
+        let list = try JSONDecoder().decode([Person].self, from: Data(#"[{"id":"m1","name":"sam","displayName":"Sam Lee","role":"member","passwordSet":true,"providers":{"anthropic":{"monthlyUsd":10},"zai":{}},"spend":[{"provider":"anthropic","name":"Anthropic","monthlyUsd":10,"spentUsd":3.2}]},{"id":"m2","name":"ria","inviteExpiresAt":1000518400000}]"#.utf8))
+        #expect(list[0].shownName == "Sam Lee" && list[0].providers["anthropic"] == .some(10) && list[0].providers["zai"] == .some(nil))
+        #expect(PeopleWords.spend(list[0]) == ["$3.20 of $10.00 this month on Anthropic"])
+        #expect(PeopleWords.signIn(list[0], now: now) == "Password set")
+        #expect(PeopleWords.signIn(list[1], now: now) == "Invite waits, 6d left")
+        #expect(PeopleWords.nameOK("sam.lee") && !PeopleWords.nameOK("Sam Lee"))
+        #expect(!PeopleWords.passwordOK("short") && PeopleWords.passwordOK("twelve chars"))
+        let hub = MockHub()
+        let c = hub.client()
+        hub.enqueue(#"{"person":{"id":"m3","name":"jo"},"invite":{"url":"https://hub/invite/x","secret":"x","expiresAt":9}}"#)
+        let r = try await c.addPerson(name: "jo", displayName: "", email: nil, password: nil)
+        #expect(r.invite?.url == "https://hub/invite/x")
+        #expect(hub.take()?.json == .object(["name": .string("jo"), "invite": .bool(true)]))
+    }
+
     @Test func routes() async throws {
         let hub = MockHub()
         let c = hub.client()
