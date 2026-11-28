@@ -109,6 +109,7 @@ fun FriendsScreen(
     val reach by vm.reach.collectAsStateWithLifecycle()
     val remote by hub.remote.collectAsStateWithLifecycle()
     val busy by vm.busy.collectAsStateWithLifecycle()
+    val me by hub.me.collectAsStateWithLifecycle()
     val snackbar = rememberToasts()
     MessagesEffect(vm.messages, snackbar)
     // again when remote access changes: what friends reach moves with it
@@ -209,7 +210,8 @@ fun FriendsScreen(
                     scanRound++
                     scanning = true
                 })
-                AddByAddressBlock(vm)
+                // adding by address and the requests-by-address switch are the hub's (POST /api/friends/add is admin only)
+                if (me?.isOwner == true) AddByAddressBlock(vm)
             }
         }
     }

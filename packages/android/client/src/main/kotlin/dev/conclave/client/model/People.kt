@@ -44,6 +44,10 @@ data class MePreferences(
     val defaultModel: String? = null,
     val smallModel: String? = null,
     val defaultAgent: String? = null,
+    /** A member's own (Settings, Defaults); the owner's are the hub's config. */
+    val defaultDevice: String? = null,
+    val reviewer: String? = null,
+    val memory: MemberMemory? = null,
     val importWatch: Boolean = false,
     /** Models pinned at the top of the model picker, on every device of this account (the hub leaves it out when empty). */
     val pinnedModels: List<String> = emptyList(),
@@ -79,12 +83,30 @@ data class Me(
     val ref: AccountRef get() = AccountRef(id, name, role)
 }
 
+/** A member's own memory switches (core people.ts MemberMemory); a missing one follows the hub. */
+@Serializable
+data class MemberMemory(
+    val enabled: Boolean? = null,
+    val autoInject: Boolean? = null,
+    /** 1 to 50; the hub refuses anything else. */
+    val injectLimit: Int? = null,
+    val recallEpisodes: Boolean? = null,
+    val autoExtract: Boolean? = null,
+)
+
 /** PATCH /api/me. Null fields are left out; an empty string clears a default. */
 @Serializable
 data class MePatch(
     val name: String? = null,
     val email: String? = null,
     val defaultModel: String? = null,
+    /** A member's own defaults (core people/member-defaults.ts): the hub refuses these from the owner, whose defaults are /api/config. */
+    val smallModel: String? = null,
+    val defaultAgent: String? = null,
+    val defaultDevice: String? = null,
+    val reviewer: String? = null,
+    /** Merged into the saved switches. */
+    val memory: MemberMemory? = null,
     /** The whole pinned list, at most 50 refs; an empty list clears it. Null leaves it as it is. */
     val pinnedModels: List<String>? = null,
     /** Show or hide Security and Canvas. Null leaves them as they are. */

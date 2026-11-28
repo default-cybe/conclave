@@ -160,6 +160,12 @@ object Routes {
     const val DEVICES = "devices"
     const val SETTINGS = "settings"
     const val REMOTE = "remote"
+    const val PROVIDERS = "providers"
+    const val SUBSCRIPTIONS = "subscriptions"
+
+    /** Settings, Defaults; with ?memory=true only its memory rows (the Memory page's Settings). */
+    const val DEFAULTS = "defaults?memory={memory}"
+    fun defaults(memory: Boolean = false) = if (memory) "defaults?memory=true" else "defaults"
 
     /** Workflow runs, newest first; with ?session= only that session's runs. */
     const val WORKFLOW_RUNS = "workflow-runs?session={session}"
@@ -559,7 +565,7 @@ private fun AppNavHost(nav: NavHostController, modifier: Modifier) {
         },
     )
     // a Workflow row anywhere opens its run, a subagent's its session
-    CompositionLocalProvider(LocalOpenWorkflowRun provides openRun, LocalOpenSession provides openChat) {
+    CompositionLocalProvider(LocalOpenWorkflowRun provides openRun, LocalOpenSession provides openChat, dev.conclave.app.ui.common.LocalAddModel provides { push(Routes.PROVIDERS) }) {
         // quiet and fast: screens fade in 180ms and out 120ms, no slides (no motion at all when animations are off)
         NavHost(
             navController = nav,
@@ -671,6 +677,7 @@ private fun AppNavHost(nav: NavHostController, modifier: Modifier) {
                     onBack = back,
                     onImport = { nav.navigate(Routes.IMPORT) },
                     onMap = { nav.navigate(Routes.memoryMap()) { launchSingleTop = true } },
+                    onSettings = { push(Routes.defaults(memory = true)) },
                     focus = focus,
                     onFocused = { entry.savedStateHandle["focus"] = null },
                 )
@@ -752,8 +759,16 @@ private fun AppNavHost(nav: NavHostController, modifier: Modifier) {
                     onScanCode = { nav.navigate(Routes.PAIR) },
                     onOpenFriends = { nav.navigate(Routes.friends()) },
                     onOpenPage = { page -> openPage(page, top = { r -> navigateTop(nav, r) }, push = push) },
+                    onOpenProviders = { push(Routes.PROVIDERS) },
+                    onOpenSubscriptions = { push(Routes.SUBSCRIPTIONS) },
+                    onOpenDefaults = { push(Routes.defaults()) },
                 )
             }
+            composable(Routes.DEFAULTS, arguments = listOf(navArgument("memory") { type = NavType.BoolType; defaultValue = false })) { entry ->
+                dev.conclave.app.ui.settings.DefaultsScreen(onBack = back, memoryOnly = entry.arguments?.getBoolean("memory") == true)
+            }
+            composable(Routes.PROVIDERS) { dev.conclave.app.ui.settings.ProvidersScreen(onBack = back, onOpenSubscriptions = { push(Routes.SUBSCRIPTIONS) }) }
+            composable(Routes.SUBSCRIPTIONS) { dev.conclave.app.ui.settings.SubscriptionsScreen(onBack = back) }
             composable(Routes.REMOTE) { RemoteScreen(onBack = back) }
             composable(Routes.PAIR) { PairingScreen(onDone = back) }
             composable(Routes.MAP) {

@@ -6,6 +6,7 @@ serialization = "1.11.0"
 okhttp = "5.5.0"
 composeBom = "2026.09.00"
 activity = "1.13.0"
+browser = "1.8.0"
 fragment = "1.9.1"
 appcompat = "1.8.0"
 navigation = "2.10.2"
@@ -34,6 +35,7 @@ junit4 = { module = "junit:junit", version.ref = "junit4" }
 # :app (Android)
 androidx-core-ktx = { module = "androidx.core:core-ktx", version.ref = "coreKtx" }
 androidx-activity-compose = { module = "androidx.activity:activity-compose", version.ref = "activity" }
+androidx-browser = { module = "androidx.browser:browser", version.ref = "browser" }
 androidx-appcompat = { module = "androidx.appcompat:appcompat", version.ref = "appcompat" }
 androidx-fragment-ktx = { module = "androidx.fragment:fragment-ktx", version.ref = "fragment" }
 androidx-navigation-compose = { module = "androidx.navigation:navigation-compose", version.ref = "navigation" }

@@ -391,6 +391,9 @@ class AgentOption(val value: String?, val agents: List<Pair<String, String?>>, v
 /** The memory part of Options: Use and save, Use only, Off. */
 class MemoryOption(val value: MemoryMode, val onChange: (MemoryMode) -> Unit)
 
+/** Web search for this chat, on or off: a row in Options, and "No web" on the chip while off. */
+class WebOption(val on: Boolean, val onChange: (Boolean) -> Unit)
+
 /**
  * The conversation's switches, in Options since they left the model picker
  * (design review #7). Same model for all work and Security show only with
@@ -420,8 +423,8 @@ class TurnOption(
  * those is on; a toggle by hand lasts until the sheet closes.
  */
 @Composable
-fun OptionsChip(style: StyleOption? = null, agent: AgentOption? = null, memory: MemoryOption? = null, enabled: Boolean = true, turn: TurnOption? = null) {
-    if (style == null && agent == null && memory == null && turn?.offered != true) return
+fun OptionsChip(style: StyleOption? = null, agent: AgentOption? = null, memory: MemoryOption? = null, enabled: Boolean = true, turn: TurnOption? = null, web: WebOption? = null) {
+    if (style == null && agent == null && memory == null && web == null && turn?.offered != true) return
     val c = Conclave.colors
     var open by remember { mutableStateOf(false) }
     var fold by remember { mutableStateOf<Boolean?>(null) }
@@ -431,7 +434,7 @@ fun OptionsChip(style: StyleOption? = null, agent: AgentOption? = null, memory: 
         security = turn?.onSecurity != null && turn.security,
         sameModel = turn?.onSameModel != null && turn.sameModel,
         cyber = turn?.cyber?.takeIf { turn.cyberChoices.isNotEmpty() }?.let { CyberAccess.label(it) },
-    )
+    ) + listOfNotNull(if (web != null && !web.on) "No web" else null) // web search off shows on the chip (web ComposerParts)
     val close = {
         open = false
         fold = null
@@ -499,8 +502,9 @@ fun OptionsChip(style: StyleOption? = null, agent: AgentOption? = null, memory: 
         }
         val same = turn?.onSameModel
         val sec = turn?.onSecurity
-        if (same != null || sec != null) {
+        if (same != null || sec != null || web != null) {
             section("This conversation", style != null || agent != null || memory != null)
+            if (web != null) SwitchRow("Search the web", WEB_HELP, web.on, web.onChange)
             if (same != null) SwitchRow("Same model for all work", SAME_MODEL_HELP, turn.sameModel, same)
             if (sec != null) SwitchRow("Security", SECURITY_HELP, turn.security, sec)
         }

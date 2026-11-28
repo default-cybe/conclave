@@ -120,6 +120,8 @@ fun MemoryScreen(
     onBack: () -> Unit,
     onImport: () -> Unit = {},
     onMap: () -> Unit = {},
+    /** The memory switches (web /memory/settings): the hub's for the owner, a member's own. */
+    onSettings: () -> Unit = {},
     /** "<memory id>\u0000<its text>" from the map's Open in Notes: found by its text, then opened. */
     focus: String? = null,
     onFocused: () -> Unit = {},
@@ -149,6 +151,7 @@ fun MemoryScreen(
             TopBar("Memory", onBack = onBack, actions = {
                 TextButton(onClick = onMap) { Text("Map", color = Conclave.colors.fg2) }
                 TextButton(onClick = onImport) { Text("Import", color = Conclave.colors.fg2) }
+                TextButton(onClick = onSettings) { Text("Settings", color = Conclave.colors.fg2) }
             })
         },
         floatingActionButton = {

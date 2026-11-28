@@ -633,6 +633,11 @@ class HubRepository(
         _client.value?.let { refreshAll(it) }
     }
 
+    /** After a key or plan change (Settings, Providers and Subscriptions): the models, agents and who I am again. */
+    suspend fun refreshCatalog() {
+        _client.value?.let { refreshCatalog(it) }
+    }
+
     private suspend fun refreshAll(c: ConclaveClient) = coroutineScope {
         launch {
             load {
