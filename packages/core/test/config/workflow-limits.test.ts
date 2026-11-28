@@ -9,8 +9,9 @@ describe('workflowsProblem', () => {
     expect(workflowsProblem({})).toBeUndefined();
     expect(workflowsProblem({ concurrency: 1, perProvider: 32, hubMax: 64, maxAgents: 10_000 })).toBeUndefined();
     expect(workflowsProblem({ hubMax: null })).toBeUndefined();
-    // keys it does not check pass through
     expect(workflowsProblem({ autoApproveTokens: 5_000_000 })).toBeUndefined();
+    // keys it does not check pass through
+    expect(workflowsProblem({ other: -1 })).toBeUndefined();
   });
 
   test('refuses 0, negatives, fractions, strings and values over the cap, naming the key and range', () => {
@@ -23,6 +24,7 @@ describe('workflowsProblem', () => {
     expect(workflowsProblem({ hubMax: 65 })).toContain('workflows.hubMax');
     expect(workflowsProblem({ maxAgents: 10_001 })).toContain('workflows.maxAgents');
     expect(workflowsProblem({ hubMax: Number.NaN })).toContain('workflows.hubMax');
+    expect(workflowsProblem({ autoApproveTokens: 100_000_001 })).toContain('workflows.autoApproveTokens');
     expect(workflowsProblem(5)).toBe('workflows must be an object.');
   });
 
