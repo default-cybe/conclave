@@ -26,6 +26,7 @@ import { workflowsOf } from '../workflows/attached';
 import { isUnattended } from './runner';
 import { underParent } from './delegated';
 import { accountsOf } from '../accounts/attached';
+import { outputCap } from './stream';
 
 export type { LimitSpec };
 export type LimitKind = 'tokens' | 'costUsd' | 'turns' | 'minutes';
@@ -311,7 +312,8 @@ export function checkFallback(
   if (resolved.acp) return { ok: true, harness: true, paid, costUnknown: true };
   const priced = [resolved.info.inputPrice, resolved.info.outputPrice].every((p) => Number.isFinite(p) && p >= 0)
     && (resolved.info.inputPrice > 0 || resolved.info.outputPrice > 0);
-  const out = outputTokens ?? Math.min(resolved.info.maxOutput, 32_000);
+  // the same cap the request will ask for (session/stream.ts outputCap), not a fixed 32K
+  const out = outputTokens ?? outputCap(resolved.info, undefined, inputTokens ?? 0);
   const known = !paid || (priced && inputTokens !== undefined && Number.isFinite(inputTokens) && inputTokens >= 0 && Number.isFinite(out) && out >= 0);
   const estimateUsd = !paid ? 0 : known ? engine.providers.costOf(resolved.info, { inputTokens: inputTokens!, outputTokens: out, cacheReadTokens: 0, cacheWriteTokens: 0 }) : undefined;
   const extra = { paid, estimateUsd, costUnknown: !known };

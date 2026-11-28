@@ -85,6 +85,8 @@ const limited = (headers: Record<string, string> = {}, body = shortBody) => new 
 const script = new Map<string, number>();
 const hits = new Map<string, number>();
 let headersFor: (model: string) => Record<string, string> = () => ({});
+/** A reply in place of the script's (an auth_unavailable 503). */
+let replyFor: (model: string) => Response | undefined = () => undefined;
 let keyCalls = 0;
 
 const cpa = Bun.serve({
@@ -94,6 +96,8 @@ const cpa = Bun.serve({
     const model = String(body.model ?? '');
     const n = (hits.get(model) ?? 0) + 1;
     hits.set(model, n);
+    const own = replyFor(model);
+    if (own) return own;
     if (n <= (script.get(model) ?? 0)) return limited(headersFor(model));
     return sse(`from the plan: ${model}`);
   },
@@ -177,6 +181,7 @@ beforeEach(() => {
   notices.length = 0;
   cleared.length = 0;
   headersFor = () => ({});
+  replyFor = () => undefined;
   accountsOf(engine)!.setCliproxy({ provider: 'cliproxy', management: true, refreshedAt: Date.now() - 1000, credentials: [cred([oauth('5h', 40), oauth('7d', 30)])] });
 });
 
@@ -268,6 +273,43 @@ describe('a per-minute limit on the call', () => {
       engine.config.update({ providers: { anthropic: { enabled: false } }, models: { accounts: [] } } as never);
     }
   }, 10_000);
+});
+
+/** CLIProxyAPI when the plan's login for the model expired or is gone (sdk/cliproxy/auth/conductor.go). */
+const AUTH_UNAVAILABLE = 'auth_unavailable: no auth available (providers=claude, model=claude-opus-5-5; last upstream error: token expired)';
+const noAuth = () => new Response(JSON.stringify({ error: { type: 'api_error', message: AUTH_UNAVAILABLE } }), { status: 503, headers: { 'content-type': 'application/json' } });
+
+describe('an expired plan sign-in (auth_unavailable)', () => {
+  test('classified as a sign-in problem, not overloaded', () => {
+    const e = classifyHttpError('cliproxy', 503, {}, JSON.stringify({ error: { type: 'api_error', message: AUTH_UNAVAILABLE } }), NOW);
+    expect([e.kind, e.code, e.retryable]).toEqual(['auth', 'sign_in', false]);
+    // a plain 503 is still a busy server
+    expect(classifyHttpError('cliproxy', 503, {}, JSON.stringify({ error: { type: 'api_error', message: 'upstream busy' } }), NOW).kind).toBe('overloaded');
+  });
+
+  test('no retries, and a clear message naming the plan and where to sign in', async () => {
+    replyFor = (m) => (m === 'claude-opus-5-5' ? noAuth() : undefined);
+    const err = (await call('claude-opus-5-5').catch((e) => e)) as ProviderError;
+    expect([err.kind, err.code]).toEqual(['auth', 'sign_in']);
+    expect(err.message).toMatch(/^Claude sign-in for .+ expired or is missing\. Sign in again in Settings > Models > Subscriptions\./);
+    expect(hits.get('claude-opus-5-5')).toBe(1);
+  });
+
+  test('with an API key for the model, the call fails over at once with the notice', async () => {
+    engine.config.update({ providers: { anthropic: { enabled: true } }, models: { accounts: [{ id: 'api-anthropic', vendor: 'anthropic', kind: 'api', provider: 'anthropic' }] } } as never);
+    try {
+      replyFor = (m) => (m === 'claude-opus-5-5' ? noAuth() : undefined);
+      const s = await engine.createSession({ cwd, title: 'signin' });
+      const before = keyCalls;
+      const r = await call('claude-opus-5-5', s.id);
+      expect(text(r)).toBe('from the key');
+      expect(keyCalls).toBe(before + 1);
+      expect(hits.get('claude-opus-5-5')).toBe(1);
+      expect(notices.some((n) => /^Claude sign-in for .+ expired or is missing\. Sign in again in Settings > Models > Subscriptions\. Using .+ for this call\.$/.test(n))).toBe(true);
+    } finally {
+      engine.config.update({ providers: { anthropic: { enabled: false } }, models: { accounts: [] } } as never);
+    }
+  });
 });
 
 describe('memory extraction', () => {

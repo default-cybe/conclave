@@ -14,7 +14,7 @@ import { catalogCost } from '../usage/value';
 import { checkFallback, recordAutoSwitch, reserveFallback } from './limit-tree';
 import { servedNotice, type CyberProgram } from '../providers/access-programs';
 import { splitAccount } from '../providers/split';
-import { vendorOfModel } from '../accounts/vendors';
+import { vendorName, vendorOfModel } from '../accounts/vendors';
 
 /** Drop replayed thinking another vendor's account signed: its signature fails on this one (a 400). Unmarked thinking stays. */
 export function dropForeignThinking(messages: ProviderMessage[], vendor: string | undefined): ProviderMessage[] {
@@ -272,7 +272,8 @@ async function streamCall(
     if (plan) {
       // the task's fallback policy (ideas item 8): a destination it does not allow ends the failover, so the caller parks or errors instead
       const dest = `${resolved.provider}/${resolved.model}`;
-      const check = checkFallback(engine, session, resolved, estimateInput(req), req.maxTokens);
+      const input = estimateInput(req);
+      const check = checkFallback(engine, session, resolved, input, outputCap(resolved.info, req.maxTokens, input));
       if (!check.ok) {
         log.info(`${from}/${base}: plan failover to ${dest} denied by policy: ${check.why}`);
         return false;
@@ -289,7 +290,8 @@ async function streamCall(
     if (!next || !p) return false;
     // the task's fallback policy (ideas item 8): allowed destinations, paid rule, cost ceiling
     const destination = registry.resolveAt(next, base);
-    const check = checkFallback(engine, session, destination, estimateInput(req), req.maxTokens);
+    const input = estimateInput(req);
+    const check = checkFallback(engine, session, destination, input, outputCap(destination.info, req.maxTokens, input));
     if (!check.ok) {
       log.info(`${from}/${base}: fallback to ${next} denied by policy: ${check.why}`);
       return false;
@@ -535,8 +537,17 @@ async function streamCall(
       const refused = paidBy === 'hub' && accounts ? modelRefusal(e) : undefined;
       // the plan it went to, when the call named one (a pin, a prefixed id); a bare id's plan CLIProxyAPI's cooldown names
       if (refused) accounts!.noteRefusal(resolved.provider, resolved.model, refused, (target.pin?.provider === resolved.provider ? target.pin.account : undefined) ?? (splitAccount(resolved.model).account ? accounts!.accountFor(resolved.provider, resolved.model) : undefined));
+      // CLIProxyAPI has no signed-in credential for the model (auth_unavailable): name the plan and where to sign in again
+      let signInWords: string | undefined;
+      if (e.code === 'sign_in') {
+        const acct = (target.pin?.provider === resolved.provider ? target.pin.account : undefined) ?? accounts?.accountFor(resolved.provider, resolved.model, target.sessionId);
+        const plan = (acct ? accounts?.account(acct)?.label : undefined) ?? engine.providerLabel(resolved.provider);
+        const vendor = signer();
+        signInWords = `${vendor ? vendorName(vendor) : 'The'} sign-in for ${plan} expired or is missing. Sign in again in Settings > Models > Subscriptions.`;
+        e.message = `${signInWords} (${e.message})`;
+      }
       // a plan signed out, or a key refused: the next route in the owner's order takes the call (providers/merge.ts)
-      if (e.kind === 'auth' && paidBy === 'hub' && accounts && !begun && fallback(resolved.provider, `${engine.providerLabel(resolved.provider)} refused the sign in.`)) {
+      if (e.kind === 'auth' && paidBy === 'hub' && accounts && !begun && fallback(resolved.provider, signInWords ?? `${engine.providerLabel(resolved.provider)} refused the sign in.`)) {
         fullRef = `${resolved.provider}/${resolved.model}`;
         attempt = 0;
         continue;

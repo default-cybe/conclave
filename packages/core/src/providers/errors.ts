@@ -479,6 +479,7 @@ export function classifyHttpError(
   const typeKind = kindFromType(info.type) ?? kindFromType(info.code) ?? kindFromType(info.status);
   const zcode = zaiCode(info);
   const spendCap = isSpendCapError(status, bodyText);
+  const signIn = !spendCap && !zcode && isSignInMissingText(message);
 
   let kind: ProviderErrorKind;
   // a spend cap is a quota: retrying in seconds cannot help, another account can
@@ -486,6 +487,8 @@ export function classifyHttpError(
   else if (zcode) kind = ZAI_CODES[zcode];
   else if (status === 401 || status === 403) kind = 'auth';
   else if (status === 402) kind = 'quota';
+  // CLIProxyAPI's 503 when no signed-in credential is left for the model (an expired or missing plan login): not a busy server
+  else if (signIn) kind = 'auth';
   else if (status === 529 || status === 503) kind = 'overloaded';
   // Gemini says "exceeded your current quota" for per-minute limits too; the details decide.
   else if (status === 429 && info.status === 'RESOURCE_EXHAUSTED') kind = 'rate_limit';
@@ -515,7 +518,7 @@ export function classifyHttpError(
 
   let retryAfterMs = parseRetryAfter(headers, now);
   let resetAt: number | undefined;
-  let code: ProviderErrorCode | undefined = spendCap ? 'spend_cap' : badImage ? 'image_unreadable' : badPdf ? 'pdf_unreadable' : bound ? 'thinking_bound' : undefined;
+  let code: ProviderErrorCode | undefined = spendCap ? 'spend_cap' : signIn ? 'sign_in' : badImage ? 'image_unreadable' : badPdf ? 'pdf_unreadable' : bound ? 'thinking_bound' : undefined;
 
   if (kind === 'rate_limit' || kind === 'quota' || kind === 'overloaded') {
     const gem = geminiRetry(info);
@@ -585,6 +588,13 @@ export function classifyHttpError(
     body: bodyText.slice(0, 4000),
     ...(code ? { code } : {}),
   });
+}
+
+/** CLIProxyAPI's "auth_unavailable: no auth available (providers=claude, model=...)": no signed-in credential for the model, e.g. an expired plan login. */
+const SIGN_IN_MISSING_RE = /\bauth_unavailable\b|no auth available/i;
+
+export function isSignInMissingText(text: string): boolean {
+  return SIGN_IN_MISSING_RE.test(text);
 }
 
 /**
