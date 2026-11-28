@@ -13,6 +13,11 @@ extension ConclaveClient {
         try await get(["api", "devices", device, "files"], query: [("path", path)])
     }
 
+    /// A text file on the device; `truncated` when the hub sent only its start.
+    public func readDeviceFile(device: String, path: String) async throws -> DeviceFile {
+        try await get(["api", "devices", device, "file"], query: [("path", path)])
+    }
+
     /// Whether a folder is at `path` ("~" is the device's home), and its absolute path.
     public func folderCheck(device: String, path: String) async throws -> FolderCheck {
         try await get(["api", "devices", device, "folder"], query: [("path", path)])

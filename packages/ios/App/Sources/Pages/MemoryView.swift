@@ -10,9 +10,15 @@ struct MemoryView: View {
     @State private var query = ""
     @State private var kind: MemoryKind?
     @State private var editing: MemoryEdit?
+    @State private var mapShown = false
 
     var body: some View {
+        if mapShown { MemoryMapView(hub: hub) { mapShown = false } } else { list }
+    }
+
+    private var list: some View {
         Page(title: "Memory", sub: entries.map { MemoryWords.count($0.count) }) {
+            Button("Map") { mapShown = true }.buttonStyle(CVButton(look: .outline)).accessibilityIdentifier("memory-map")
             Button("Add") { editing = MemoryEdit(entry: nil) }
                 .buttonStyle(CVButton(look: .solid))
                 .accessibilityIdentifier("memory-add")

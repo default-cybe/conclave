@@ -90,6 +90,13 @@ enum MockHub {
             let now = Int64(Date().timeIntervalSince1970 * 1000)
             return (200, #"{"values":[{"name":"github-token","prefix":"ghp_","setAt":\#(now - 3 * 86_400_000)},{"name":"notion-key","prefix":"secr","setAt":\#(now - 7_200_000)},{"name":"telegram.bot","managedBy":"Settings > Notifications"}]}"#)
         }
+        if path == "/api/map" {
+            let n = Int64(Date().timeIntervalSince1970 * 1000)
+            return (200, #"{"at":\#(n),"live":true,"devices":[{"id":"local","name":"conclave","online":true},{"id":"d1","name":"MacBook","online":true}],"nodes":[{"id":"s2","kind":"session","title":"Fix login redirect after passkey","state":"running","agent":"coder","device":"local","startedAt":\#(n - 300000),"tool":{"name":"Running","target":"bun test auth"}},{"id":"s2a","kind":"subagent","title":"Explore auth flow","state":"running","device":"local","parentId":"s2","startedAt":\#(n - 100000)},{"id":"s3","kind":"session","title":"Backup script for PBS","state":"waiting","device":"d1","startedAt":\#(n - 900000)},{"id":"s1","kind":"chat","title":"Native iPad client plan","state":"idle","device":"local","startedAt":\#(n - 2000000)}]}"#)
+        }
+        if path == "/api/memory/graph" {
+            return (200, #"{"nodes":[{"id":"a","kind":"profile","title":"Kai, security researcher","degree":4},{"id":"b","kind":"fact","title":"Uses pnpm","degree":2},{"id":"c","kind":"fact","title":"Prefers short answers","degree":2},{"id":"d","kind":"procedure","title":"Deploy with make release","degree":1},{"id":"e","kind":"episode","title":"FSE paper meeting","degree":2},{"id":"f","kind":"session","title":"Fix the build","degree":1},{"id":"g","kind":"fact","title":"Staging is staging.dymnitguys.com","degree":1}],"edges":[[0,1,0],[0,2,0],[0,4,1],[1,5,2],[2,4,1],[3,6,0],[0,3,0]],"labels":["about","from","seen in"]}"#)
+        }
         if path == "/api/meetings" {
             let n = Int64(Date().timeIntervalSince1970 * 1000)
             return (200, #"{"meetings":[{"id":"mt1","title":"Capstone sync","agenda":"Where the verifier stands, what is left for the demo.","status":"ready","createdAt":1,"scheduledAt":\#(n + 2_700_000),"durationMin":30,"cwd":"/home/kai/capstone","prepState":"done"},{"id":"mt2","title":"Advisor 1:1","status":"scheduled","createdAt":1,"scheduledAt":\#(n + 100_800_000),"durationMin":45,"cwd":"/home/kai/fse-paper","prepState":"running","prepProgress":{"phase":"map","done":34,"total":120}},{"id":"mt3","title":"Lab meeting","status":"ended","createdAt":1,"startedAt":\#(n - 90_000_000),"endedAt":\#(n - 87_000_000),"scheduledAt":\#(n - 90_000_000),"durationMin":60,"prepState":"done"}]}"#)

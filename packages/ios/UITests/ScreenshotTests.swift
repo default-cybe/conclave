@@ -134,6 +134,22 @@ final class ScreenshotTests: XCTestCase {
         }
     }
 
+    @MainActor func testMapLight() throws { try page("map", "light", ["-openPage", "map"]) { Self.text($0, "bun test auth") } }
+    @MainActor func testMapDark() throws { try page("map", "dark", ["-openPage", "map"]) { Self.text($0, "bun test auth") } }
+    @MainActor func testFilesLight() throws { try page("files", "light", ["-openPage", "files"]) { Self.text($0, "Up") } }
+    @MainActor func testMemoryMapLight() throws { try memoryMap("light") }
+    @MainActor func testMemoryMapDark() throws { try memoryMap("dark") }
+
+    /// Memory, then its Map button: the rings.
+    @MainActor
+    private func memoryMap(_ appearance: String) throws {
+        try page("memorymap", appearance, ["-openPage", "memory"]) { app in
+            let b = app.buttons["memory-map"]
+            if b.waitForExistence(timeout: 12) { b.tap() }
+            return Self.text(app, "7 items")
+        }
+    }
+
     @MainActor func testMeetingsLight() throws { try page("meetings", "light", ["-openPage", "meetings"]) { Self.text($0, "Capstone sync") } }
     @MainActor func testMeetingsDark() throws { try page("meetings", "dark", ["-openPage", "meetings"]) { Self.text($0, "Capstone sync") } }
     @MainActor func testFriendsLight() throws { try page("friends", "light", ["-openPage", "friends"]) { Self.text($0, "Sam's hub") } }

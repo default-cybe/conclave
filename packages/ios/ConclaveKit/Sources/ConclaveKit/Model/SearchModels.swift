@@ -73,6 +73,19 @@ public struct FolderCheck: Sendable, Hashable, Codable {
     }
 }
 
+/// GET /api/devices/:id/file: a text file's content, only its start when `truncated`.
+public struct DeviceFile: Sendable, Hashable, Decodable {
+    public var content = ""
+    public var truncated = false
+
+    private enum K: String, CodingKey { case content, truncated }
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: K.self)
+        content = try c.or(.content, "")
+        truncated = try c.or(.truncated, false)
+    }
+}
+
 /// Where a project's folder is on one device.
 public struct ProjectLocation: Sendable, Hashable, Codable {
     public var device = ""

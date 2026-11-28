@@ -28,6 +28,9 @@ extension MockHub {
                 return #"{"name":"\#(n)","path":"\#(full)",\#(tail)}"#
             }
             return (200, "[" + entries.joined(separator: ",") + "]")
+        case "file":
+            // ## delimiters: the Markdown heading puts "# inside the string
+            return (200, ##"{"content":"# Conclave\n\nOne hub for your chats, code, memory and schedule.\n","truncated":false}"##)
         default:
             return nil
         }
