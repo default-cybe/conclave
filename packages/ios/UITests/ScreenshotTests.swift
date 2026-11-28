@@ -127,7 +127,8 @@ final class ScreenshotTests: XCTestCase {
     private func sessionMenu(_ appearance: String) throws {
         try page("sessionmenu", appearance, ["-openChat", "s1"]) { app in
             let b = app.buttons["session-menu"]
-            if b.waitForExistence(timeout: 12) { sleep(1); b.tap() }
+            // a toolbar Menu refuses the AX scroll-to-visible of tap(); a coordinate tap opens it
+            if b.waitForExistence(timeout: 12) { sleep(1); b.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap() }
             return app.buttons["Fork"]
         }
     }
