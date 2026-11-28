@@ -10,7 +10,7 @@
  * the git commands that reach GitHub (git.ts). Never in a session's shell,
  * a file in the worktree, a transcript or a log.
  */
-import { posix } from 'node:path';
+import { posix, win32 } from 'node:path';
 import { createHash, randomBytes } from 'node:crypto';
 import type { Engine } from '../engine/engine';
 import type { Machine } from '../machine/types';
@@ -155,6 +155,14 @@ export function issuePrompt(repo: string, issue: Pick<IssueInfo, 'number' | 'tit
 /** A GitHub repo session, or a folder worktree whose origin is on GitHub: Push and pull requests can work. */
 function onGithub(row: RepoSessionRow): boolean {
   return row.source !== 'folder' || !!row.url;
+}
+
+/** A Windows drive (D:\x, C:/x) or UNC (\\server\share) path. */
+const WINDOWS_ABS = /^(?:[A-Za-z]:[\\/]|\\\\[^\\/])/;
+
+/** An absolute folder as a device prints it: POSIX, or git for Windows' D:/x. */
+export function isAbsoluteFolder(p: string): boolean {
+  return p.startsWith('/') || WINDOWS_ABS.test(p);
 }
 
 /** owner/name of a remote on github.com, else undefined. */
@@ -556,7 +564,7 @@ export class GithubService {
   /** The clone's object store, which fetch and push borrow. */
   private async objectsDir(machine: Machine, root: string): Promise<string> {
     const r = await git(machine, root, 'rev-parse --path-format=absolute --git-common-dir', 20_000);
-    if (!r.ok || !r.out.startsWith('/')) throw new EngineError(502, `Could not read the git folder of ${root}: ${gitError(r)}`);
+    if (!r.ok || !isAbsoluteFolder(r.out)) throw new EngineError(502, `Could not read the git folder of ${root}: ${gitError(r)}`);
     return posix.join(trimSlash(r.out), 'objects');
   }
 
@@ -636,7 +644,7 @@ export class GithubService {
     const path = await this.expand(machine, folder);
     if (!(await machine.stat(path).catch(() => null))) return { git: false };
     const top = await git(machine, path, 'rev-parse --show-toplevel', 20_000).catch(() => undefined);
-    if (!top?.ok || !top.out.startsWith('/')) return { git: false };
+    if (!top?.ok || !isAbsoluteFolder(top.out)) return { git: false };
     const root = trimSlash(top.out);
     const [cur, origin] = await Promise.all([git(machine, root, 'symbolic-ref --short -q HEAD', 20_000), git(machine, root, 'remote get-url origin', 20_000)]);
     const gh = origin.ok ? githubName(origin.out) : undefined;
@@ -646,6 +654,11 @@ export class GithubService {
   private async expand(machine: Machine, folder: string): Promise<string> {
     const f = folder.trim() || '~';
     if (f === '~' || f.startsWith('~/')) return trimSlash(posix.join(await this.home(machine), f.slice(2)));
+    // a Windows device names its folders D:\x, D:/x or \\server\share\x
+    if (WINDOWS_ABS.test(f) && (await machine.info()).platform === 'win32') {
+      const n = win32.normalize(f);
+      return n.length > 3 ? n.replace(/\\+$/, '') : n;
+    }
     if (!f.startsWith('/')) throw new EngineError(400, 'folder must be an absolute path or start with ~/');
     return trimSlash(posix.normalize(f)) || '/';
   }

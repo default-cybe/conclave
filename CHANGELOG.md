@@ -7,6 +7,13 @@ from the section of its version (`scripts/releases/notes.ts`); a release
 without one fails. At tag time, rename `[Unreleased]` to the version and date,
 like `## [0.4.16] - 2026-10-24`.
 
+## [Unreleased]
+
+### Fixed
+
+- Opening a Code session no longer freezes the app when the session holds a huge message of yours. An imported message's "[Attached x]" files now show as chips in a session too, as on the Chat page, and a message over 20,000 characters shows as plain text instead of going through markdown (a 1.2 MB imported paste froze the desktop app for minutes).
+- A Windows device's folders (D:\x, C:/x, \\server\share) can be checked for git and run in a worktree. `GET /api/worktrees/folder` refused them with "folder must be an absolute path or start with ~/", and git for Windows' D:/x top folder was read as not a repository.
+
 ## [0.4.112] - 2026-11-28
 
 ### Added
