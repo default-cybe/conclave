@@ -16,6 +16,7 @@ like `## [0.4.16] - 2026-10-24`.
 - Android: Home's Chat, Assistant, Code switch no longer cuts "Code" to "Co" when the Incognito and Inbox buttons sit beside it. It uses the room between the bar's buttons when the centred space is too narrow.
 - The demo hub turns Canvas on for its owner, since a fresh hub starts with it off, so the Canvas screenshots show it again. It also turns off the stuck watchdog, so its workflow run keeps one agent working instead of showing it stopped after 5 minutes.
 - The Windows screenshots job builds again: it makes the target folders ort-sys needs, as CI and the release already do.
+- The Windows screenshots open the session through Search (Ctrl K) instead of fixed click spots from an older layout, so the session shot shows the session and not Home.
 - The Android screenshots script follows the current app: it closes the panel after picking a mode, opens the Inbox from the top bar, and finds a tool line by its file name.
 
 ## [0.4.115] - 2026-11-28
