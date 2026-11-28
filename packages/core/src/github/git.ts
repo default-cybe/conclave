@@ -96,7 +96,7 @@ const UNSET = [
  * `get` for the expected host, with the one line on fd 3.
  */
 export function secureConfig(remote: Remote): string {
-  const helper = `!f() { [ "$1" = get ] || exit 0; ok=; while IFS= read -r l; do [ -z "$l" ] && break; [ "$l" = "host=${remote.host}" ] && ok=1; done; [ -n "$ok" ] || exit 0; IFS= read -r p <&3 || [ -n "$p" ] || exit 0; printf 'username=x-access-token\\npassword=%s\\n' "$p"; }; f`;
+  const helper = `!f() { [ "$1" = get ] || exit 0; ok=; while IFS= read -r l; do [ -z "$l" ] && break; [ "$l" = "host=${remote.host}" ] && ok=1; done; [ -n "$ok" ] || exit 0; if [ -n "\${CONCLAVE_GIT_TOKEN-}" ]; then p=$CONCLAVE_GIT_TOKEN; else IFS= read -r p <&3 || [ -n "$p" ] || exit 0; fi; printf 'username=x-access-token\\npassword=%s\\n' "$p"; }; f`;
   return [
     '-c credential.helper=',
     `-c ${shq(`credential.helper=${helper}`)}`,
@@ -114,6 +114,8 @@ export function secureConfig(remote: Remote): string {
 const PRELUDE = [
   // stdin carries the token: it moves to fd 3 and every command gets /dev/null
   'exec 3<&0 </dev/null',
+  // git for Windows starts the credential helper without fd 3, so there (only) the token line goes to the helper in the environment
+  'case "$(uname -s 2>/dev/null)" in MINGW*|MSYS*|CYGWIN*) IFS= read -r CONCLAVE_GIT_TOKEN <&3; export CONCLAVE_GIT_TOKEN ;; *) unset CONCLAVE_GIT_TOKEN ;; esac',
   `unset ${UNSET.join(' ')}`,
   'export GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null GIT_TERMINAL_PROMPT=0 GIT_ASKPASS=false GIT_TRACE_REDACT=1 LC_ALL=C',
 ];
