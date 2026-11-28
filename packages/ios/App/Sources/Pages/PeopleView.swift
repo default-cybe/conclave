@@ -48,7 +48,8 @@ struct PeopleView: View {
 
     private static func detail(_ p: Person, now: Int64) -> String {
         var bits: [String] = []
-        if p.name != p.shownName { bits.append(p.name) }
+        // the owner's sign-in name is "owner", which the row's label already says
+        if p.name != p.shownName, !(p.isOwner && p.name == "owner") { bits.append(p.name) }
         bits.append(PeopleWords.signIn(p, now: now))
         bits.append("\(p.apps) \(p.apps == 1 ? "app" : "apps"), \(p.devices) \(p.devices == 1 ? "computer" : "computers")")
         bits += PeopleWords.spend(p)

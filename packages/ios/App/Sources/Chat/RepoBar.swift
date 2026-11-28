@@ -27,7 +27,8 @@ struct RepoBar: View {
                 HStack(alignment: .firstTextBaseline, spacing: 10) {
                     Image(systemName: "arrow.triangle.branch").font(.system(size: 12)).foregroundStyle(Tone.fg3)
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(RepoWords.whereLine(r)).font(.sans(13, .medium)).foregroundStyle(Tone.fg).lineLimit(1)
+                        // the branch is what tells sessions apart: cut the repo's middle, never the branch
+                        Text(RepoWords.whereLine(r)).font(.sans(13, .medium)).foregroundStyle(Tone.fg).lineLimit(1).truncationMode(.middle)
                         Text(line ?? r.line).font(.sans(12)).foregroundStyle(color(RepoWords.tone(r))).lineLimit(2)
                     }
                     Spacer(minLength: 6)

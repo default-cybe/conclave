@@ -134,6 +134,10 @@ final class ScreenshotTests: XCTestCase {
         }
     }
 
+    @MainActor func testMeetingsLight() throws { try page("meetings", "light", ["-openPage", "meetings"]) { Self.text($0, "Capstone sync") } }
+    @MainActor func testMeetingsDark() throws { try page("meetings", "dark", ["-openPage", "meetings"]) { Self.text($0, "Capstone sync") } }
+    @MainActor func testFriendsLight() throws { try page("friends", "light", ["-openPage", "friends"]) { Self.text($0, "Sam's hub") } }
+    @MainActor func testFriendsDark() throws { try page("friends", "dark", ["-openPage", "friends"]) { Self.text($0, "Sam's hub") } }
     @MainActor func testSignedInLight() throws { try settingsAt("signedin", "light", "Pixel 8") }
     @MainActor func testPrivacyLight() throws { try settingsAt("privacy", "light", "Lock with Face ID") }
     @MainActor func testPrivacyDark() throws { try settingsAt("privacy", "dark", "Lock with Face ID") }

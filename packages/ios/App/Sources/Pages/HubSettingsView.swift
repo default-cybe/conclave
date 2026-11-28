@@ -27,7 +27,7 @@ struct HubSettingsSections: View {
         if let error { Text(error).font(.sans(12.5)).foregroundStyle(Tone.fault) }
         CardSection(title: "New sessions") {
             model(c, "Small model", "smallModel", help: "Titles, summaries and memory notes. Pick something fast and cheap.", empty: "Not set")
-            model(c, "Model that reads images", "models.vision", help: "Turns pictures and PDFs into text for a model that cannot see them, such as GLM. Empty: the first of the small and default models that can see.", empty: "Small or default model", clears: true)
+            model(c, "Model that reads images", "models.vision", help: "Turns pictures and PDFs into text for a model that cannot see them, such as GLM. Empty: the first of the small and default models that can see.", empty: "Automatic", clears: true)
             model(c, "Second opinions", "modes.reviewer", help: "The model that reviews an answer when you ask for one.", empty: "Not set")
         }
         CardSection(title: "Model tiers", note: "Workflow steps, subagents and agents ask for a tier instead of a model. Empty: the hub picks as shown.") {

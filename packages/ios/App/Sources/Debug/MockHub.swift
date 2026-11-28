@@ -90,6 +90,14 @@ enum MockHub {
             let now = Int64(Date().timeIntervalSince1970 * 1000)
             return (200, #"{"values":[{"name":"github-token","prefix":"ghp_","setAt":\#(now - 3 * 86_400_000)},{"name":"notion-key","prefix":"secr","setAt":\#(now - 7_200_000)},{"name":"telegram.bot","managedBy":"Settings > Notifications"}]}"#)
         }
+        if path == "/api/meetings" {
+            let n = Int64(Date().timeIntervalSince1970 * 1000)
+            return (200, #"{"meetings":[{"id":"mt1","title":"Capstone sync","agenda":"Where the verifier stands, what is left for the demo.","status":"ready","createdAt":1,"scheduledAt":\#(n + 2_700_000),"durationMin":30,"cwd":"/home/kai/capstone","prepState":"done"},{"id":"mt2","title":"Advisor 1:1","status":"scheduled","createdAt":1,"scheduledAt":\#(n + 100_800_000),"durationMin":45,"cwd":"/home/kai/fse-paper","prepState":"running","prepProgress":{"phase":"map","done":34,"total":120}},{"id":"mt3","title":"Lab meeting","status":"ended","createdAt":1,"startedAt":\#(n - 90_000_000),"endedAt":\#(n - 87_000_000),"scheduledAt":\#(n - 90_000_000),"durationMin":60,"prepState":"done"}]}"#)
+        }
+        if path == "/api/meetings/mt3/notes" { return (200, ##"{"summary":"","markdown":"## Decisions\n\n- Ship the verifier demo Friday.\n- Kai writes the threats section."}"##) }
+        if path == "/api/friends" {
+            return (200, #"[{"id":"f1","name":"Ria's hub","status":"pending","direction":"in","safetyCode":"","createdAt":1},{"id":"f2","name":"Sam's hub","status":"active","verified":true,"safetyCode":"40219 88310 11742 90563","unread":2,"createdAt":1},{"id":"f3","name":"Lab server","status":"active","verified":false,"lastError":"Their hub did not answer","createdAt":1}]"#)
+        }
         if path == "/api/assistant/reflect" { return (200, #"{"enabled":true,"time":"02:40"}"#) }
         if path.hasPrefix("/api/reflect/learnings") {
             return (200, #"{"pending":2,"queued":0,"ideas":[],"items":[{"id":"l1","kind":"correction","fact":"The user wants pnpm, not npm, in this repo.","rule":"Use pnpm, not npm.","quote":"no, use pnpm here","confidence":0.9,"count":2,"sessionId":"s1","sessionTitle":"Fix the build","status":"pending","targets":[{"target":"memory","label":"Memory"},{"target":"project","label":"This project's CONCLAVE.md","ref":"~/work/app"}],"similar":[]},{"id":"l2","kind":"remember","fact":"The user's staging server is staging.dymnitguys.com.","rule":"Staging is staging.dymnitguys.com.","quote":"remember: staging is staging.dymnitguys.com","confidence":0.95,"count":1,"sessionId":"s2","status":"pending","targets":[{"target":"memory","label":"Memory"}],"similar":[]}]}"#)

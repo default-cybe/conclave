@@ -50,7 +50,7 @@ struct AccountsView: View {
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 8) {
                     Text(a.label).font(.sans(14, .medium)).foregroundStyle(Tone.fg).lineLimit(2).layoutPriority(1)
-                    Text(w.0).font(.sans(12.5)).foregroundStyle(stateColor(w.1))
+                    Text(w.0).font(.sans(12.5)).foregroundStyle(stateColor(w.1)).fixedSize()
                 }
                 if !sub.isEmpty { Text(sub).font(.sans(12)).foregroundStyle(Tone.fg3).fixedSize(horizontal: false, vertical: true) }
             }

@@ -144,6 +144,8 @@ struct SidebarView: View {
                 Button("Agents", systemImage: "person.2") { page = .agents }
                 Button("Routines", systemImage: "clock.arrow.circlepath") { page = .routines }
                 Button("Memory", systemImage: "brain") { page = .memory }
+                Button("Meetings", systemImage: "person.3") { page = .meetings }
+                Button("Friends", systemImage: "person.2.wave.2") { page = .friends }
                 Button("Usage", systemImage: "chart.bar") { page = .usage }
                 Button("Devices", systemImage: "desktopcomputer") { page = .devices }
                 if start.inFolders {
