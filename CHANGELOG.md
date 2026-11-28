@@ -11,6 +11,14 @@ like `## [0.4.16] - 2026-10-24`.
 
 ### Added
 
+- Android: the "/" menu now lists the hub's built-in commands (/compact, /init, /clear, /export and more) and runs them on the hub. `GET /api/commands?builtins=1` returns them first, and `/init` now runs on the hub too. On Android, /export opens the share sheet.
+- Android: the session sheet has Compact, Share as Markdown and Checkpoints. Checkpoints lists each checkpoint with "Restore files only", which keeps every message. The chat sheet has Compact too.
+- Android: a meeting's notes can be selected and copied, with "Save to memory" and "Open as chat" right under them.
+- Android: the empty model picker now says where to add an API key or sign in to an AI plan.
+- Android: the session sheet has Connectors, to turn the hub's connected MCP servers on or off for that session, and in a Security session "Lane", to change the lane.
+- Android: Code's GitHub option can connect GitHub with a token when it is not connected yet, then lists the repositories.
+- Android: Friends has "Add by address", to ask a hub by its address (with an email if you like), plus the "Requests by address" switch and your hub's address to copy.
+- Android: Jury, Debate and Loop get a chip next to Options to pick the jurors, the two debaters and rounds, or the check command and the most runs.
 - Chats have a "/" menu that runs their commands in the chat: /btw, /compact, /rewind, /fork, /export, /new, /model, /cost and /status. A typed "/compact" no longer goes to the model as text.
 - Compact is in the context ring's popover, the chat ... menu and the phone chat sheet. Pin to the top is in the chat ... menu and the phone sheet.
 - "Ask aside" sits next to Stop while a turn runs, in chats and sessions, and /btw is in the first rows of the "/" menu.

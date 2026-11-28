@@ -94,6 +94,25 @@ data class FriendReachability(
 )
 
 /**
+ * POST /api/friends/add: what became of asking a hub by its address. [sent]: their hub has the
+ * request in its Inbox. Not sent: [reason] says why; with an email, [mailto] carries an invite.
+ */
+@Serializable
+data class AddFriendResult(
+    val sent: Boolean = false,
+    val friend: FriendDto? = null,
+    val reason: String? = null,
+    val mailto: String? = null,
+)
+
+/** GET and PUT /api/friends/settings: whether hubs that know only this hub's address may ask, and that address. */
+@Serializable
+data class FriendSettings(
+    val requestsByAddress: Boolean = true,
+    val address: String? = null,
+)
+
+/**
  * A message this hub sent a friend. [state]: queued, delivered, failed,
  * expired or cancelled. [via]: push (we sent it) or pull (their hub fetched it).
  */

@@ -180,7 +180,7 @@ fun ModelPickerSheet(
                 if (list.isEmpty() && extras.isEmpty()) {
                     item {
                         Text(
-                            if (q.isNotEmpty()) "No models match." else "No models yet. Add a key in Settings, Providers.",
+                            if (q.isNotEmpty()) "No models match." else "No models yet. Add an API key or sign in to an AI plan in the web app: Settings, Providers.",
                             modifier = Modifier.padding(24.dp),
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )

@@ -28,6 +28,8 @@ import dev.conclave.client.model.ApprovalResponse
 import dev.conclave.client.model.Attachment
 import dev.conclave.client.model.ChatSettingsPatch
 import dev.conclave.client.model.EngineEvent
+import dev.conclave.client.model.McpStatus
+import dev.conclave.client.model.ModeConfig
 import dev.conclave.client.model.Message
 import dev.conclave.client.model.MessageKind
 import dev.conclave.client.model.PermissionMode
@@ -299,6 +301,20 @@ class ChatViewModel(hub: HubRepository, val sessionId: String, drafts: DraftStor
         }
     }
 
+    /** The checkpoints the hub took before file edits, newest first (Checkpoints in the session sheet). */
+    val checkpoints = kotlinx.coroutines.flow.MutableStateFlow<List<dev.conclave.client.model.Checkpoint>?>(null)
+
+    fun loadCheckpoints() = action { checkpoints.value = hub.api { it.checkpoints(sessionId) }.sortedByDescending { it.createdAt } }
+
+    /** "Restore files only": the files go back to the checkpoint, every message stays (web ContextPanel). */
+    fun restoreFiles(checkpointId: String) = action("Files restored. The chat is unchanged.") { hub.api { it.restoreCheckpoint(sessionId, checkpointId) } }
+
+    /** The session as Markdown, for the share sheet (/export and Share as Markdown). */
+    fun export(onReady: (String, String) -> Unit) = action {
+        val r = hub.api { it.exportSession(sessionId, "md") }
+        onReady(r.filename.ifBlank { "session.md" }, r.content)
+    }
+
     /**
      * One of the hub's "/" commands ("/compact", "/model opus", a custom
      * one): the hub runs it, and what it says comes back as a line. On a
@@ -401,6 +417,9 @@ class ChatViewModel(hub: HubRepository, val sessionId: String, drafts: DraftStor
     fun setMode(mode: SessionMode) = patch(SessionPatch(mode = mode, modeConfig = SessionModes.config(mode, _session.value?.modeConfig)))
     fun setAgent(agent: String) = patch(SessionPatch(agent = agent))
 
+    /** The jurors, debaters or loop check of Jury, Debate and Loop (ModeSetupSheet). */
+    fun setModeConfig(cfg: ModeConfig) = patch(SessionPatch(modeConfig = cfg))
+
     /** The memory chip: Use and save, Use only, or Off (web memoryPatch). */
     fun setMemory(m: MemoryMode) = patch(SessionPatch(chat = memoryPatch(m)))
     fun setPermissionMode(mode: PermissionMode) = patch(SessionPatch(permissionMode = mode))
@@ -422,6 +441,21 @@ class ChatViewModel(hub: HubRepository, val sessionId: String, drafts: DraftStor
     fun setSecurity(on: Boolean) {
         patch(SessionPatch(chat = ChatSettingsPatch(security = on)))
     }
+
+    /** The hub's connected MCP servers for the Connectors sheet; empty when the hub refuses the list (a member). */
+    val connectors = MutableStateFlow<List<McpStatus>?>(null)
+
+    fun loadConnectors() {
+        viewModelScope.launch {
+            connectors.value = runCatching { hub.api { it.mcp() } }.getOrDefault(emptyList()).filter { it.status == "connected" }
+        }
+    }
+
+    /** Servers whose tools this session leaves out (meta.mcpOff); an empty list turns all back on. */
+    fun setMcpOff(off: List<String>) = patch(SessionPatch(mcpOff = off))
+
+    /** The Security lane (web LaneChip); the hub takes it only with Security on. */
+    fun setLane(lane: String) = patch(SessionPatch(lane = lane))
 
     /** Ultra: the agent plans and runs workflows for real tasks (docs/WORKFLOWS.md). The hub refuses it on chats. */
     fun setUltra(on: Boolean) = patch(SessionPatch(ultra = on))

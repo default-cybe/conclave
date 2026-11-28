@@ -218,13 +218,5 @@ export function sectionsOf(items: SlashItem[]): Array<{ section: SlashSection; l
   return out;
 }
 
-/** The prompt /init sends: Claude Code's /init, for AGENTS.md (Conclave, Codex and OpenCode read it; Claude Code reads CLAUDE.md). */
-export const INIT_PROMPT = `Look through this project and write an AGENTS.md at its root for coding agents that work here later. Keep it short and factual:
-
-- what the project is, in two sentences
-- how to install, build, run and test it (the exact commands)
-- the layout: the main folders and what lives in each
-- conventions the code follows that are not obvious from one file
-- anything that breaks easily
-
-If an AGENTS.md or CLAUDE.md is already there, improve it instead of starting over. Do not invent commands; run them to check.`;
+/** The prompt /init sends; the hub keeps the one copy, so /init typed on Android sends the same words. */
+export { INIT_PROMPT } from '@conclave/core/extensions/builtin-commands';

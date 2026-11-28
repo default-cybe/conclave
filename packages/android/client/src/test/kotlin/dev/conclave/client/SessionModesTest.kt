@@ -1,6 +1,9 @@
 package dev.conclave.client
 
 import dev.conclave.client.logic.SessionModes
+import dev.conclave.client.model.JuryConfig
+import dev.conclave.client.model.LoopConfig
+import dev.conclave.client.model.ModeConfig
 import dev.conclave.client.model.SessionMode
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -43,6 +46,16 @@ class SessionModesTest {
         assertEquals(null, SessionModes.sameModelRefusal(member = false, unavailable = "Plan refused", on = false, name = "Opus 5.5"))
         assertEquals(null, SessionModes.sameModelRefusal(member = true, unavailable = null, on = false, name = "Opus 5.5"))
         assertEquals(null, SessionModes.sameModelRefusal(member = true, unavailable = "Not allowed", on = true, name = "Opus 5.5"))
+    }
+
+    @Test
+    fun theSetupChipNamesTheExpertStylesSettings() {
+        assertEquals("4 jurors", SessionModes.setupWords(SessionMode.JURY, null))
+        assertEquals("Debaters, 2 rounds", SessionModes.setupWords(SessionMode.DEBATE, null))
+        assertEquals("Until bun test, max 8", SessionModes.setupWords(SessionMode.LOOP, null))
+        assertEquals("Until done, max 3", SessionModes.setupWords(SessionMode.LOOP, ModeConfig(loop = LoopConfig(untilCommand = " ", maxIterations = 3))))
+        assertEquals("1 juror", SessionModes.setupWords(SessionMode.JURY, ModeConfig(jury = JuryConfig(jurors = listOf("zai/glm-5")))))
+        assertEquals(null, SessionModes.setupWords(SessionMode.AGENT, null))
     }
 
     @Test

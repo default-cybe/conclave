@@ -98,6 +98,17 @@ object SessionModes {
     val DEFAULT_DEBATE = DebateConfig(a = "openai/gpt-5.5", b = "anthropic/claude-opus-5-5", rounds = 2)
     val DEFAULT_LOOP = LoopConfig(untilCommand = "bun test", maxIterations = 8)
 
+    /** The words of the setup chip beside the Options chip for Jury, Debate and Loop ("4 jurors"); null for the other modes. */
+    fun setupWords(mode: SessionMode, cfg: ModeConfig?): String? {
+        val now = config(mode, cfg)
+        return when (mode) {
+            SessionMode.JURY -> now.jury?.jurors?.size?.let { if (it == 1) "1 juror" else "$it jurors" }
+            SessionMode.DEBATE -> now.debate?.rounds?.let { if (it == 1) "Debaters, 1 round" else "Debaters, $it rounds" }
+            SessionMode.LOOP -> now.loop?.let { l -> "Until ${l.untilCommand?.ifBlank { null } ?: "done"}, max ${l.maxIterations}" }
+            else -> null
+        }
+    }
+
     /** A mode change's modeConfig: the session's, with that mode's defaults where it has none yet. */
     fun config(mode: SessionMode, cfg: ModeConfig?): ModeConfig {
         val now = cfg ?: ModeConfig()
