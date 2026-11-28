@@ -7,6 +7,18 @@ from the section of its version (`scripts/releases/notes.ts`); a release
 without one fails. At tag time, rename `[Unreleased]` to the version and date,
 like `## [0.4.16] - 2026-10-24`.
 
+## [Unreleased]
+
+### Added
+
+- Android: Settings has Providers (add, replace or remove an API key; a member sees whose key each provider uses and saves their own) and Subscriptions (sign in to a Claude, ChatGPT or Gemini plan through the hub's CLIProxyAPI: the provider page opens in a Custom Tab and its address is pasted back). The empty model picker has an Add a model button that opens Providers.
+- Android: web search on or off is in the chat composer's Options, and the chip says "No web" while it is off.
+- Android: Jury setup picks the judge, can hide model names from it and lets jurors read files; Debate setup picks its judge.
+
+### Fixed
+
+- Android: Add by address on Friends shows only for the owner (the hub allows it to the owner only).
+
 ## [0.4.112] - 2026-11-28
 
 ### Added
