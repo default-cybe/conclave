@@ -12,6 +12,7 @@ struct ComposerView: View {
     @State private var showFiles = false
     @State private var showCamera = false
     @State private var dropping = false
+    @State private var voice = VoiceInput()
     @Environment(\.horizontalSizeClass) private var sizeClass
     @Environment(\.colorScheme) private var scheme
     @Environment(\.accessibilityReduceMotion) private var reduce
@@ -61,7 +62,18 @@ struct ComposerView: View {
                     // the web's ChatComposer row: + then the model pick ({talk}), send at the right
                     if let session { ModelMenu(hub: hub, session: session) }
                     Spacer()
+                    if let e = voice.error { Text(e).font(.sans(11.5)).foregroundStyle(Tone.fault).lineLimit(2) }
+                    Button { Task { await voice.toggle(prefix: chat.draft) { chat.draft = $0 } } } label: {
+                        Image(systemName: voice.listening ? "mic.fill" : "mic")
+                            .font(.system(size: phone ? 17 : 15)).foregroundStyle(voice.listening ? Tone.signal : Tone.fg2)
+                            .frame(width: phone ? 40 : 32, height: phone ? 40 : 32).contentShape(Rectangle())
+                            .symbolEffect(.pulse, isActive: voice.listening && !reduce)
+                    }
+                    .buttonStyle(QuietPress())
+                    .accessibilityLabel(voice.listening ? "Stop dictation" : "Dictate")
+                    .accessibilityIdentifier("voice")
                     SendStop(stops: stops, ready: chat.canSend, phone: phone) {
+                        voice.stop()
                         Task { if stops { await chat.stop() } else { await chat.send(busy: busy) } }
                     }
                 }
@@ -79,6 +91,7 @@ struct ComposerView: View {
             return true
         }
         .task(id: chat.sessionId) { await chat.loadCommands(chat: session?.isChat ?? false) }
+        .onDisappear { voice.stop() }
         .sheet(item: Binding(get: { chat.exported.map(ExportedText.init(text:)) }, set: { chat.exported = $0?.text })) { e in
             ShareSheet(items: [e.text]).presentationDetents([.medium, .large])
         }
