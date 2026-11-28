@@ -49,7 +49,7 @@ struct AccountsView: View {
             Text("\(rank)").font(.mono(12.5)).foregroundStyle(Tone.fg3).frame(width: 16, alignment: .trailing).padding(.top, 2)
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 8) {
-                    Text(a.label).font(.sans(14, .medium)).foregroundStyle(Tone.fg).lineLimit(1)
+                    Text(a.label).font(.sans(14, .medium)).foregroundStyle(Tone.fg).lineLimit(2).layoutPriority(1)
                     Text(w.0).font(.sans(12.5)).foregroundStyle(stateColor(w.1))
                 }
                 if !sub.isEmpty { Text(sub).font(.sans(12)).foregroundStyle(Tone.fg3).fixedSize(horizontal: false, vertical: true) }

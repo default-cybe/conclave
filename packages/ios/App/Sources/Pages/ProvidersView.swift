@@ -295,9 +295,14 @@ struct SubscriptionsView: View {
 /// The way back from a page Settings opened (the page sits in the split view's detail column).
 struct SettingsBack: View {
     let back: () -> Void
+    @Environment(\.horizontalSizeClass) private var sizeClass
+
     var body: some View {
-        Button(action: back) { Label("Settings", systemImage: "chevron.left") }
-            .buttonStyle(CVButton(look: .quiet, height: 32)).accessibilityIdentifier("settings-back")
+        // a phone keeps the chevron alone: the word next to a page's own button was cut to "Settin..."
+        Button(action: back) {
+            if sizeClass == .compact { Image(systemName: "chevron.left").frame(width: 32) } else { Label("Settings", systemImage: "chevron.left") }
+        }
+        .buttonStyle(CVButton(look: .quiet, height: 32)).accessibilityLabel("Settings").accessibilityIdentifier("settings-back")
     }
 }
 

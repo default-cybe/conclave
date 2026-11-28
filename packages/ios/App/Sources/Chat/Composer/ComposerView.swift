@@ -250,8 +250,9 @@ private struct SlashMenu: View {
             }
             .padding(.vertical, 4)
         }
-        .frame(maxHeight: 264)
-        .fixedSize(horizontal: false, vertical: true)
+        // a set height, rows times 44 up to about five: fixedSize sized it to every row and the
+        // menu ran past the header with the keyboard up
+        .frame(height: min(CGFloat(matches.count) * 44 + 8, 228))
         .panel(Tone.raise, radius: Radius.r3, border: Tone.rule2)
         .accessibilityIdentifier("slash-menu")
     }

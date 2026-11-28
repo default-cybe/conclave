@@ -37,7 +37,8 @@ public struct SignedInApp: Sendable, Hashable, Decodable, Identifiable {
     public var kind: String {
         switch platform ?? "" {
         case "android": "Android"
-        case "ios": "iPhone"
+        // the iPad app reports "ios" too
+        case "ios": "iPhone or iPad"
         case "web": "Browser"
         case "desktop": "Desktop app"
         case "linux": "Terminal on Linux"

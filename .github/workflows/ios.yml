@@ -40,7 +40,7 @@ jobs:
   app:
     name: App on iPad simulator
     runs-on: macos-15
-    timeout-minutes: 75
+    timeout-minutes: 100
     defaults:
       run:
         working-directory: packages/ios
@@ -114,7 +114,8 @@ jobs:
             || { tail -60 logs/shots-ipad.log; exit 1; }
 
       - name: Screenshot the transcript on iPhone (mock hub)
-        timeout-minutes: 10
+        # 10 minutes ran out after 16 of the light shots in run 46151025703
+        timeout-minutes: 30
         run: |
           set -o pipefail
           # one simulator at a time: booting a second next to the iPad took 15 minutes
