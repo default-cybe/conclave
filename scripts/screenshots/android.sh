@@ -272,7 +272,8 @@ for t in light dark; do
   await_text Chats 10 tap && sleep 3 && shot "chats-$t.png"
   panel Code && sleep 3 && shot "code-$t.png"
   panel Inbox && sleep 3 && shot "inbox-$t.png"
-  panel Settings && sleep 3 && shot "settings-$t.png"
+  # Settings opens from the account row at the panel's foot (the demo owner is Sam), not from a panel row
+  panel Sam && sleep 3 && shot "settings-$t.png"
   # Settings' AI connections and Defaults, below the Hub rows; each page, then Back to Settings
   for page in Providers Subscriptions Defaults; do
     scroll_tap "$page" && sleep 3 && shot "$(printf '%s' "$page" | tr 'A-Z' 'a-z')-$t.png"
