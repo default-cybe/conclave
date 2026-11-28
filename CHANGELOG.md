@@ -13,6 +13,7 @@ like `## [0.4.16] - 2026-10-24`.
 
 - A Claude plan whose sign-in expired no longer looks like an overloaded server: CLIProxyAPI's `auth_unavailable: no auth available` 503 now counts as a sign-in problem, so the call is not retried four times with backoff; it moves at once to the next account or model in your order, with the notice "Claude sign-in for <plan> expired or is missing. Sign in again in Settings > Models > Subscriptions."
 - The cost estimate a task's fallback ceiling checks before a failover now counts the same output cap the request asks for (the model's own maximum since 0.4.108), not a fixed 32K.
+- The GLM PDF transcription tests no longer fail on a host that has `pdftotext` installed: they run with a stub `pdftotext`, so `bun run test` gives the same result everywhere.
 
 ## [0.4.109] - 2026-11-28
 
