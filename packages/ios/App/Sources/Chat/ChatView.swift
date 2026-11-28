@@ -197,7 +197,7 @@ struct MessageActions {
     var fork: (() -> Void)?
 }
 
-private func copy(_ text: String) {
+@MainActor private func copy(_ text: String) {
     UIPasteboard.general.string = text
     UIImpactFeedbackGenerator(style: .light).impactOccurred()
 }
