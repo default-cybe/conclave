@@ -39,7 +39,7 @@ public enum SessionLive {
         let path = s("file_path") ?? s("path") ?? s("notebook_path")
         switch u.name {
         case "WebSearch": return ("Searching the web", s("query"))
-        case "WebFetch": return ("Reading", s("url").map { HubAddress.host($0) })
+        case "WebFetch": return ("Reading", s("url").map { HubAddresses.host($0) })
         case "TodoWrite": return ("Planning", nil)
         case "Bash": return ("Running", s("command"))
         case "Read", "NotebookRead": return ("Reading", path)
@@ -48,7 +48,7 @@ public enum SessionLive {
         case "LS": return ("Searching", path)
         case "Task": return ("Subagent working on", s("description"))
         case "Delegate": return (s("to") == "assistant" ? "Assistant working on" : "Code working on", s("description") ?? s("prompt"))
-        case "Browser": return ("Fetching", s("url").map { HubAddress.host($0) } ?? s("action"))
+        case "Browser": return ("Fetching", s("url").map { HubAddresses.host($0) } ?? s("action"))
         case "Skill": return ("Running", s("skill") ?? s("name") ?? u.name)
         default:
             if u.name.hasPrefix("Memory") { return ("Checking memory", nil) }
