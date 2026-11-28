@@ -342,6 +342,52 @@ describe('the model chip', () => {
       useHub.setState({ models: before } as never);
     }
   });
+
+  test("an open chat's picker has \"Use this model for all subagents\" under Effort: On PATCHes chat.sameModel, and the chip gets its dot", async () => {
+    const { ChatComposer } = await import('../src/features/conversation/ChatComposer');
+    const sent = patches();
+    const chat = base({ kind: 'chat', model: 'anthropic/claude-sonnet-5-5', chat: { webSearch: true, memory: true } } as never);
+    const v = await mount(<ChatComposer session={chat} chatId={chat.id} />);
+    try {
+      expect(v.chip('model')!.querySelector('[data-same-model]')).toBeNull();
+      await v.act(async () => v.chip('model')!.click());
+      const row = document.querySelector('[data-part="same-model"]')!;
+      expect(row.textContent).toContain('Use this model for all subagents');
+      expect(row.textContent).toContain('Same model for all work');
+      const on = [...row.querySelectorAll<HTMLButtonElement>('[role="radio"]')].find((b) => b.textContent === 'On')!;
+      expect(on.getAttribute('aria-checked')).toBe('false');
+      await v.act(async () => (on.click(), Bun.sleep(10)));
+      expect(sent).toContainEqual({ chat: { sameModel: true } });
+    } finally {
+      await v.unmount();
+    }
+    const pinned = await mount(<ChatComposer session={{ ...chat, chat: { webSearch: true, memory: true, sameModel: true } }} chatId={chat.id} />);
+    try {
+      expect(pinned.chip('model')!.querySelector('[data-same-model]')).not.toBeNull();
+      expect(pinned.chip('model')!.getAttribute('aria-label')).toContain('same model for all work');
+    } finally {
+      await pinned.unmount();
+      // the PATCH replies went into the store: the Code start must not take them as the last session
+      useHub.setState({ sessions: {} } as never);
+    }
+  });
+
+  test("a member whose account may not use the model gets the switch off, with the hub's reason", async () => {
+    const { ModelEffort } = await import('../src/features/conversation/ComposerParts');
+    const before = useHub.getState();
+    const opus = { id: 'claude-opus-5-5', ref: 'anthropic/claude-opus-5-5', provider: 'anthropic', name: 'Claude Opus 5.5', unavailable: 'Not allowed for you on this hub.' };
+    useHub.setState({ me: { role: 'member' }, models: [{ provider: 'anthropic', name: 'Anthropic', type: 'anthropic', configured: true, enabled: true, models: [opus] }] } as never);
+    const v = await mount(<ModelEffort model={opus.ref} value={undefined} onModel={() => {}} onEffort={() => {}} onSameModel={() => {}} />);
+    try {
+      await v.act(async () => v.chip('model')!.click());
+      const row = document.querySelector('[data-part="same-model"]')!;
+      expect(row.textContent).toContain('Same model for all work needs a model your account may use; Opus 5.5 is not one.');
+      expect([...row.querySelectorAll<HTMLButtonElement>('[role="radio"]')].every((b) => b.disabled)).toBe(true);
+    } finally {
+      await v.unmount();
+      useHub.setState({ me: before.me, models: before.models } as never);
+    }
+  });
 });
 
 describe('Options holds the switches that left the model picker (design review #7)', () => {

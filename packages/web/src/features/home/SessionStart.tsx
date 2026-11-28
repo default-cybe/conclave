@@ -111,6 +111,8 @@ export function useSessionTarget(kind: SessionKind = 'code'): ComposerTarget {
   const [issuePick, setIssuePick] = useState<IssuePick>();
   // a design direction for this one session (not kept for the next); Match a reference is /design in the session, it needs a URL or a screenshot
   const [design, setDesign] = useState<DesignDirection>();
+  // Same model for all work (the model picker's switch), for this one session (not kept for the next)
+  const [sameModel, setSameModel] = useState(false);
   // Incognito (the toggle at the top right, Code only) and the memory setting, for this one session (not kept for the next)
   const [both, setMemory] = usePrivacy('save');
   // a hunt is never incognito, even with the toggle left on from Code (start.ts offersIncognito)
@@ -219,8 +221,9 @@ export function useSessionTarget(kind: SessionKind = 'code'): ComposerTarget {
       // Assistant is one thread per account: the message goes into it, no new session
       if (!code) {
         // only a model picked here switches the thread's; permission mode and effort stay the thread's own
-        const home = command ? await attempt(() => api().assistantHome()) : await sendToAssistant(out, { model: picks.assistantModel });
+        const home = command ? await attempt(() => api().assistantHome()) : await sendToAssistant(out, { model: picks.assistantModel, sameModel });
         if (!home) return false;
+        setSameModel(false);
         if (command) {
           keepSession(home);
           const r = await attempt(() => api().command(home.id, out.text.trim()));
@@ -230,7 +233,7 @@ export function useSessionTarget(kind: SessionKind = 'code'): ComposerTarget {
         return true;
       }
       // a hunt starts with the Security switch on: the hub loads the security agent and makes the hunt folder
-      const chat = { ...(thinking ? { thinking } : {}), ...(picks.cyber ? { cyber: picks.cyber } : {}), ...(priv.memory !== 'save' ? memoryChat(priv.memory) : {}), ...(hunt ? { security: true } : {}) };
+      const chat = { ...(thinking ? { thinking } : {}), ...(picks.cyber ? { cyber: picks.cyber } : {}), ...(priv.memory !== 'save' ? memoryChat(priv.memory) : {}), ...(hunt ? { security: true } : {}), ...(sameModel ? { sameModel: true } : {}) };
       const common = {
         agent: setup.agent,
         model: setup.model,
@@ -255,6 +258,7 @@ export function useSessionTarget(kind: SessionKind = 'code'): ComposerTarget {
       keepSession(s);
       setIssuePick(undefined);
       setMemory('save');
+      setSameModel(false);
       if (code && picks.ultra) {
         const on = await attempt(() => api().updateSession(s.id, { ultra: true }));
         if (on) upsertSession(on);
@@ -327,7 +331,7 @@ export function useSessionTarget(kind: SessionKind = 'code'): ComposerTarget {
       style={{ mode, onMode: setMode, ultra: !!picks.ultra, onUltra: (on) => update({ ...picks, ultra: on || undefined }) }}
       agent={hunt ? undefined : { value: setup.agent, agents: [{ name: CODE_AGENT, description: 'The default. Hands work to its subagents itself' }, ...customs.filter((a) => a.name !== CODE_AGENT)], onChange: pickAgent }}
       memory={priv.incognito ? undefined : { value: priv.memory, onChange: setMemory }}
-      turn={{ model: setup.model, cyber: picks.cyber, onCyber: pickCyber }}
+      turn={{ model: setup.model, cyber: picks.cyber, onCyber: pickCyber, sameModel, onSameModel: setSameModel }}
     />
   );
 
@@ -366,6 +370,8 @@ export function useSessionTarget(kind: SessionKind = 'code'): ComposerTarget {
     onEffort: pickEffort,
     cyber: picks.cyber,
     onCyber: pickCyber,
+    sameModel,
+    onSameModel: setSameModel,
     plus,
     chips,
     phoneLeft: permission,

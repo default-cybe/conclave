@@ -143,6 +143,20 @@ describe('incognito at the top right of a new chat', () => {
     await v.unmount();
   });
 
+  test('Same model for all work turned on in a new chat\'s model picker goes with the create call, once', async () => {
+    const made: CreateSessionInput[] = [];
+    Object.assign(api(), { createSession: async (input: CreateSessionInput) => (made.push(input), { id: 'ses_same', kind: 'chat', title: 'New chat', updatedAt: 1, stats: {} }) });
+    const v = await mountNewChat();
+    await v.act(async () => v.host.querySelector<HTMLButtonElement>('[data-chip="model"]')!.click());
+    const on = [...document.querySelectorAll<HTMLButtonElement>('[data-part="same-model"] [role="radio"]')].find((b) => b.textContent === 'On')!;
+    await v.act(async () => on.click());
+    expect(v.host.querySelector('[data-chip="model"] [data-same-model]')).not.toBeNull();
+    await v.type('Use Opus everywhere');
+    await v.act(async () => (v.send(), Bun.sleep(10)));
+    expect(made[0].chat).toMatchObject({ sameModel: true });
+    await v.unmount();
+  });
+
   test('"+" has no Incognito row; its memory rows are for a chat that is not incognito', () => {
     const rows = memoryItems('save', () => {});
     expect(rows.map((r) => r.label)).toEqual(['Memory', 'Use and save', 'Use only', 'Off']);

@@ -44,15 +44,17 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
  * way Home, Plan my day and Goals talk to the assistant: no new session per
  * message. While it works, the message waits in its queue. A model picked on
  * Home switches the thread's model first, as on Android; permission mode and
- * effort from Home are not applied. The thread, or undefined when the hub
- * refused (the toast says why).
+ * effort from Home are not applied; Same model for all work turned on there is.
+ * The thread, or undefined when the hub refused (the toast says why).
  */
-export async function sendToAssistant(out: Outgoing | { text: string }, opts: { model?: string } = {}): Promise<Session | undefined> {
+export async function sendToAssistant(out: Outgoing | { text: string }, opts: { model?: string; sameModel?: boolean } = {}): Promise<Session | undefined> {
   let home = await attempt(() => api().assistantHome());
   if (!home) return undefined;
-  if (opts.model && opts.model !== home.model) {
+  const model = opts.model && opts.model !== home.model ? opts.model : undefined;
+  const pin = opts.sameModel && !home.chat?.sameModel;
+  if (model || pin) {
     const id = home.id;
-    home = await attempt(() => api().updateSession(id, { model: opts.model }));
+    home = await attempt(() => api().updateSession(id, { ...(model ? { model } : {}), ...(pin ? { chat: { sameModel: true } } : {}) }));
     if (!home) return undefined;
   }
   const thread = home;
