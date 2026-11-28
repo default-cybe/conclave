@@ -39,7 +39,8 @@ struct SettingsView: View {
             }
             SignedInSection(hub: hub)
             if me?.isMember == false {
-                CardSection(title: "People") {
+                CardSection(title: "This hub") {
+                    link("Remote access", "How phones and computers reach the hub from anywhere", .remote)
                     link("People", "Members, invites, passwords and which hub keys each may use", .people)
                 }
             }

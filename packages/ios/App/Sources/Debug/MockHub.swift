@@ -90,6 +90,9 @@ enum MockHub {
             let now = Int64(Date().timeIntervalSince1970 * 1000)
             return (200, #"{"values":[{"name":"github-token","prefix":"ghp_","setAt":\#(now - 3 * 86_400_000)},{"name":"notion-key","prefix":"secr","setAt":\#(now - 7_200_000)},{"name":"telegram.bot","managedBy":"Settings > Notifications"}]}"#)
         }
+        if path == "/api/remote" {
+            return (200, #"{"mode":"quick","state":"on","url":"https://mint-river-42.trycloudflare.com","since":1,"addresses":[{"url":"https://mint-river-42.trycloudflare.com","kind":"quick","label":"Cloudflare quick tunnel"},{"url":"http://192.168.1.20:8787","kind":"lan","label":"Wi-Fi 192.168.1.20"}],"lan":{"on":true,"listening":true},"cloudflareToken":false}"#)
+        }
         if path == "/api/people" {
             let now = Int64(Date().timeIntervalSince1970 * 1000)
             return (200, #"[{"id":"owner","name":"owner","displayName":"Kai","role":"owner","passwordSet":true,"createdAt":1,"devices":3,"apps":3,"providers":{},"spend":[]},{"id":"m1","name":"sam","displayName":"Sam Lee","role":"member","passwordSet":true,"createdAt":1,"devices":1,"apps":2,"providers":{"anthropic":{"monthlyUsd":10}},"spend":[{"provider":"anthropic","name":"Anthropic","monthlyUsd":10,"spentUsd":3.2}],"webSearch":true},{"id":"m2","name":"ria","role":"member","passwordSet":false,"inviteExpiresAt":\#(now + 6 * 86_400_000),"createdAt":1,"devices":0,"apps":0,"providers":{},"spend":[]}]"#)

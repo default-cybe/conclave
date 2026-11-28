@@ -41,6 +41,14 @@ struct ConfigPathTests {
         #expect(JSONValue.array([.string("a"), .number(1)]).arrayStrings == ["a"])
     }
 
+    @Test func remoteWords() throws {
+        let s = try JSONDecoder().decode(RemoteStatus.self, from: Data(#"{"mode":"quick","state":"on","url":"https://a.trycloudflare.com","addresses":[{"url":"https://a.trycloudflare.com","kind":"quick","label":"Cloudflare"}],"lan":{"on":true,"listening":true}}"#.utf8))
+        #expect(RemoteWords.state(s) == "On. Phones and computers reach the hub at https://a.trycloudflare.com.")
+        #expect(s.lan.on && s.addresses.count == 1)
+        #expect(RemoteWords.label("custom") == "My own URL")
+        #expect(RemoteWords.urlOK("https://madx.tail4e2a.ts.net") && !RemoteWords.urlOK("madx") && !RemoteWords.urlOK("ftp://x.y"))
+    }
+
     @Test func configReadsInsideTheWrapper() async throws {
         let hub = MockHub()
         let c = hub.client()
