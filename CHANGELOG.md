@@ -13,6 +13,15 @@ like `## [0.4.16] - 2026-10-24`.
 
 - The model picker on web, desktop and Android has a "Use this model for all subagents" switch (Same model for all work) under Effort. It works on open chats and sessions and on a new chat, Code or Assistant start, where it goes with the create call. A member whose account may not use the model sees it off with the hub's reason, and the hub now checks this at session create too.
 
+## [0.4.110] - 2026-11-28
+
+### Fixed
+
+- A Claude plan whose sign-in expired no longer looks like an overloaded server: CLIProxyAPI's `auth_unavailable: no auth available` 503 now counts as a sign-in problem, so the call is not retried four times with backoff; it moves at once to the next account or model in your order, with the notice "Claude sign-in for <plan> expired or is missing. Sign in again in Settings > Models > Subscriptions."
+- The cost estimate a task's fallback ceiling checks before a failover now counts the same output cap the request asks for (the model's own maximum since 0.4.108), not a fixed 32K.
+- A model that refuses the output size Conclave asks for (a 400 saying `max_tokens` is too large or above the model's maximum) is asked once more with the limit the error names, or the old 32K when it names none, instead of failing the turn. Qwen3.8 Max and Flash now ask for at most 128,000 output tokens, Alibaba's documented "128k", instead of 131,072.
+- The GLM PDF transcription tests no longer fail on a host that has `pdftotext` installed: they run with a stub `pdftotext`, so `bun run test` gives the same result everywhere.
+
 ## [0.4.109] - 2026-11-28
 
 ### Fixed

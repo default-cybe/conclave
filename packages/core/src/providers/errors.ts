@@ -479,6 +479,7 @@ export function classifyHttpError(
   const typeKind = kindFromType(info.type) ?? kindFromType(info.code) ?? kindFromType(info.status);
   const zcode = zaiCode(info);
   const spendCap = isSpendCapError(status, bodyText);
+  const signIn = !spendCap && !zcode && isSignInMissingText(message);
 
   let kind: ProviderErrorKind;
   // a spend cap is a quota: retrying in seconds cannot help, another account can
@@ -486,6 +487,8 @@ export function classifyHttpError(
   else if (zcode) kind = ZAI_CODES[zcode];
   else if (status === 401 || status === 403) kind = 'auth';
   else if (status === 402) kind = 'quota';
+  // CLIProxyAPI's 503 when no signed-in credential is left for the model (an expired or missing plan login): not a busy server
+  else if (signIn) kind = 'auth';
   else if (status === 529 || status === 503) kind = 'overloaded';
   // Gemini says "exceeded your current quota" for per-minute limits too; the details decide.
   else if (status === 429 && info.status === 'RESOURCE_EXHAUSTED') kind = 'rate_limit';
@@ -515,7 +518,7 @@ export function classifyHttpError(
 
   let retryAfterMs = parseRetryAfter(headers, now);
   let resetAt: number | undefined;
-  let code: ProviderErrorCode | undefined = spendCap ? 'spend_cap' : badImage ? 'image_unreadable' : badPdf ? 'pdf_unreadable' : bound ? 'thinking_bound' : undefined;
+  let code: ProviderErrorCode | undefined = spendCap ? 'spend_cap' : signIn ? 'sign_in' : badImage ? 'image_unreadable' : badPdf ? 'pdf_unreadable' : bound ? 'thinking_bound' : undefined;
 
   if (kind === 'rate_limit' || kind === 'quota' || kind === 'overloaded') {
     const gem = geminiRetry(info);
@@ -585,6 +588,41 @@ export function classifyHttpError(
     body: bodyText.slice(0, 4000),
     ...(code ? { code } : {}),
   });
+}
+
+/** CLIProxyAPI's "auth_unavailable: no auth available (providers=claude, model=...)": no signed-in credential for the model, e.g. an expired plan login. */
+const SIGN_IN_MISSING_RE = /\bauth_unavailable\b|no auth available/i;
+
+export function isSignInMissingText(text: string): boolean {
+  return SIGN_IN_MISSING_RE.test(text);
+}
+
+/** A 400 that says the asked output (max_tokens and its names) is above the model's maximum. */
+const OUTPUT_FIELD_RE = /max_tokens|max_output_tokens|max_completion_tokens|maxOutputTokens|output tokens|completion tokens/i;
+const TOO_LARGE_RE = /too large|exceed|maximum|at most|valid range|supported range|> ?\d/i;
+/** Input plus output over the context window: compaction's job, not a smaller output cap. */
+const CONTEXT_LIMIT_RE = /context (limit|length|window)|prompt is too long/i;
+/** Where each vendor states the limit, most specific first. Gemini's "(exclusive)" bound is one past it. */
+const LIMIT_RES: Array<[RegExp, number]> = [
+  [/> ?(\d+), which is the maximum/i, 0], // Anthropic: "max_tokens: 128000 > 64000, which is the maximum allowed number of output tokens"
+  [/supports at most (\d+)/i, 0], // OpenAI: "This model supports at most 32768 completion tokens"
+  [/to (\d+) \(exclusive\)/i, -1], // Gemini: "the supported range is from 1 (inclusive) to 65537 (exclusive)"
+  [/\[\s*1\s*,\s*(\d+)\s*\]/, 0], // DeepSeek: "the valid range of max_tokens is [1, 8192]"
+  [/(?:maximum|at most|up to|less than or equal to|<=|≤)\D{0,40}?(\d{4,})/i, 0],
+];
+
+/**
+ * The output limit a 400 states when the request asked for more than the
+ * model allows: the number it names, else the old fixed 32K. Undefined when the
+ * error is about something else.
+ */
+export function statedOutputLimit(text: string): number | undefined {
+  if (!OUTPUT_FIELD_RE.test(text) || !TOO_LARGE_RE.test(text) || CONTEXT_LIMIT_RE.test(text)) return undefined;
+  for (const [re, shift] of LIMIT_RES) {
+    const n = Number(text.match(re)?.[1]) + shift;
+    if (Number.isSafeInteger(n) && n > 0) return n;
+  }
+  return 32_000;
 }
 
 /**

@@ -6,12 +6,26 @@
  *
  *   bun test packages/core/test/engine/image-text.test.ts
  */
-import { afterEach, describe, expect, test } from 'bun:test';
-import { writeFileSync } from 'node:fs';
+import { afterAll, afterEach, beforeAll, describe, expect, test } from 'bun:test';
+import { chmodSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { PNG, b64 } from '../attachments/zipkit';
 import { startTestEngine, type RequestBody, type Step, type TestEngine } from './harness';
 import { VISION_MAX_PDFS_PER_REQUEST, visionModelFor } from '../../src/session/image-text';
+
+// the test PDFs are stubs a real pdftotext calls damaged (attachments/pdf.ts checkPdf): a fake one that opens them keeps the result the same on every host
+const fakeBin = mkdtempSync(join(tmpdir(), 'cv-image-text-bin-'));
+const realPath = process.env.PATH;
+beforeAll(() => {
+  writeFileSync(join(fakeBin, 'pdftotext'), '#!/bin/sh\ncat >/dev/null\necho page\n');
+  chmodSync(join(fakeBin, 'pdftotext'), 0o755);
+  process.env.PATH = `${fakeBin}:${realPath}`;
+});
+afterAll(() => {
+  process.env.PATH = realPath;
+  rmSync(fakeBin, { recursive: true, force: true });
+});
 
 let t: TestEngine | undefined;
 afterEach(async () => {
