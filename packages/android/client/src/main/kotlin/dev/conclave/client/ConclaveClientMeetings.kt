@@ -1,6 +1,7 @@
 package dev.conclave.client
 
 import dev.conclave.client.model.Meeting
+import dev.conclave.client.model.Session
 import dev.conclave.client.model.MeetingFolder
 import dev.conclave.client.model.MeetingFolders
 import dev.conclave.client.model.MeetingInput
@@ -35,6 +36,13 @@ suspend fun ConclaveClient.deleteMeeting(id: String) = sendUnit("DELETE", p("api
 
 /** An ended meeting's notes as Markdown; 404 before wrap-up. */
 suspend fun ConclaveClient.meetingNotes(id: String): String = get(p("api", "meetings", id, "notes"), MeetingNotes.serializer()).markdown
+
+/** "Save to memory": the notes as one memory; the meeting comes back with its memoryId. 409 before wrap-up. */
+suspend fun ConclaveClient.saveMeetingToMemory(id: String): Meeting = sendJson("POST", p("api", "meetings", id, "memory"), null, Meeting.serializer())
+
+/** "Open as chat": a new chat ([to] chat) or Code session ([to] code) holding the meeting's prep, notes and transcript. */
+suspend fun ConclaveClient.meetingToChat(id: String, to: String = "chat"): Session =
+    sendJson("POST", p("api", "meetings", id, "chat"), buildJsonObject { put("to", to) }, Session.serializer())
 
 /** The account's known device and folder pairs, newest first. */
 suspend fun ConclaveClient.meetingFolders(q: String? = null): List<MeetingFolder> =

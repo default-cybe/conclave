@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.MoreVert
@@ -65,6 +66,8 @@ import dev.conclave.client.logic.Meetings
 import dev.conclave.client.meeting
 import dev.conclave.client.meetingNotes
 import dev.conclave.client.meetingPrep
+import dev.conclave.client.meetingToChat
+import dev.conclave.client.saveMeetingToMemory
 import dev.conclave.client.model.EngineEvent
 import dev.conclave.client.model.Meeting
 import dev.conclave.client.model.MeetingInput
@@ -150,6 +153,12 @@ class MeetingDetailViewModel(hub: HubRepository, private val id: String) : HubVi
         meeting.value = hub.api { it.updateMeeting(id, MeetingInput(steering = text.trim(), steeringPreset = preset, answerLength = length)) }
     }
 
+    /** The notes as one memory; a second tap finds the same one (core meeting saveToMemory). */
+    fun saveToMemory() = action("Saved to memory") { meeting.value = hub.api { it.saveMeetingToMemory(id) } }
+
+    /** A new chat with the meeting's prep, notes and transcript; no turn runs until you ask. */
+    fun openAsChat(onOpen: (String) -> Unit) = action { onOpen(hub.api { it.meetingToChat(id) }.id) }
+
     fun delete(onDone: () -> Unit) = action {
         hub.api { it.deleteMeeting(id) }
         onDone()
@@ -164,7 +173,7 @@ private enum class Tab(val label: String) { PREP("Prep"), STEERING("Steering"), 
  * points to the desktop app.
  */
 @Composable
-fun MeetingDetailScreen(id: String, onBack: () -> Unit, onEdit: (String) -> Unit) {
+fun MeetingDetailScreen(id: String, onBack: () -> Unit, onEdit: (String) -> Unit, onOpenChat: (String) -> Unit = {}) {
     val hub = LocalAppContainer.current.hub
     val vm: MeetingDetailViewModel = viewModel(key = "meeting:$id") { MeetingDetailViewModel(hub, id) }
     val meeting by vm.meeting.collectAsStateWithLifecycle()
@@ -206,7 +215,7 @@ fun MeetingDetailScreen(id: String, onBack: () -> Unit, onEdit: (String) -> Unit
                     TextButton(onClick = { vm.load() }) { Text("Retry") }
                 }
                 m == null -> LoadingBox()
-                else -> Body(vm, m, prep, onEdit)
+                else -> Body(vm, m, prep, onEdit, onOpenChat)
             }
         }
     }
@@ -226,7 +235,7 @@ fun MeetingDetailScreen(id: String, onBack: () -> Unit, onEdit: (String) -> Unit
 }
 
 @Composable
-private fun Body(vm: MeetingDetailViewModel, m: Meeting, prep: PrepView?, onEdit: (String) -> Unit) {
+private fun Body(vm: MeetingDetailViewModel, m: Meeting, prep: PrepView?, onEdit: (String) -> Unit, onOpenChat: (String) -> Unit) {
     val c = Conclave.colors
     val devices by LocalAppContainer.current.hub.devices.collectAsStateWithLifecycle()
     val notes by vm.notes.collectAsStateWithLifecycle()
@@ -260,7 +269,18 @@ private fun Body(vm: MeetingDetailViewModel, m: Meeting, prep: PrepView?, onEdit
         }
         if (m.status == "ended" && !notes.isNullOrBlank()) {
             Text("Notes", style = ConclaveType.section, color = c.fg)
-            MarkdownText(notes.orEmpty())
+            // long-press selects and copies, as in a chat reply
+            SelectionContainer { MarkdownText(notes.orEmpty()) }
+            // the after-actions where the notes are (web MeetingDetail): keep them, or ask about them
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                val saved = m.memoryId != null
+                OutlinedButton(onClick = { vm.saveToMemory() }, enabled = !saved, colors = outlineButtonColors(), border = outlineButtonBorder(), modifier = Modifier.weight(1f).heightIn(min = 48.dp)) {
+                    Text(if (saved) "Saved to memory" else "Save to memory")
+                }
+                OutlinedButton(onClick = { vm.openAsChat(onOpenChat) }, colors = outlineButtonColors(), border = outlineButtonBorder(), modifier = Modifier.weight(1f).heightIn(min = 48.dp)) {
+                    Text("Open as chat")
+                }
+            }
         }
         Segmented(value = tab, options = Tab.entries.map { it to it.label }, onChange = { tab = it }, modifier = Modifier.fillMaxWidth())
         when (tab) {

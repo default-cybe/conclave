@@ -233,6 +233,7 @@ fun ChatScreen(
     var sheet by remember { mutableStateOf(false) }
     var renaming by remember { mutableStateOf(false) }
     var deleting by remember { mutableStateOf(false) }
+    var checkpoints by remember { mutableStateOf(false) }
 
     // a chat opened as a session goes where chats are (CHAT-AND-MOTION 2.2)
     LaunchedEffect(session?.kind) {
@@ -315,7 +316,17 @@ fun ChatScreen(
                         busy = sending,
                         placeholder = if (running) "Queue a message" else Start.placeholder(StartMode.CODE),
                         // a message that is one of the hub's commands runs as that command
-                        onSend = { if (command != null) vm.runCommand(draft) else vm.send() },
+                        onSend = {
+                            when (command) {
+                                // /export opens the share sheet, not a toast with the whole Markdown
+                                "export" -> {
+                                    vm.draft.value = ""
+                                    vm.export { _, md -> context.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).setType("text/markdown").putExtra(Intent.EXTRA_TEXT, md), "Share session")) }
+                                }
+                                null -> vm.send()
+                                else -> vm.runCommand(draft)
+                            }
+                        },
                         onStop = vm::stop,
                         rim = rim,
                         effort = info?.effort,
@@ -508,6 +519,13 @@ fun ChatScreen(
                 if (Delegated.isDelegated(s)) add(SheetAction(Delegated.MOVE, onClick = then { vm.moveToMainList() }))
                 add(SheetAction("Rename", onClick = then { renaming = true }))
                 add(SheetAction("Add a note", onClick = then { addingNote = true }))
+                if (!running) add(SheetAction("Compact", onClick = then { vm.runCommand("/compact") }))
+                add(SheetAction("Checkpoints", onClick = then { checkpoints = true }))
+                add(
+                    SheetAction("Share as Markdown", onClick = then {
+                        vm.export { _, md -> context.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).setType("text/markdown").putExtra(Intent.EXTRA_TEXT, md), "Share session")) }
+                    }),
+                )
                 if (ShareWords.canSend(s)) add(SheetAction("Send to friend", onClick = then { sendingToFriend = true }))
                 // a repo session: Push, Open pull request, View pull request, Check now, Clean up (docs/DESIGN.md 30)
                 val r = repoLive
@@ -550,7 +568,37 @@ fun ChatScreen(
             vm.archive()
             onBack()
         })
-        if (sendingToFriend) {
+        if (checkpoints) {
+        val list by vm.checkpoints.collectAsStateWithLifecycle()
+        LaunchedEffect(Unit) { vm.loadCheckpoints() }
+        var confirm by remember { mutableStateOf<dev.conclave.client.model.Checkpoint?>(null) }
+        dev.conclave.app.ui.conversation.OptionsSheet("Checkpoints", onDismiss = { checkpoints = false }) {
+            val l = list
+            when {
+                l == null -> LoadingBox()
+                l.isEmpty() -> Text("No checkpoints yet. The hub takes one before each file change.", style = ConclaveType.body, color = Conclave.colors.fg3, modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp))
+                else -> l.forEach { cp ->
+                    val words = listOf(dev.conclave.client.logic.Format.relative(cp.createdAt, System.currentTimeMillis()), if (cp.files == 1) "1 file" else "${cp.files} files", cp.commit.take(7)).joinToString(" · ")
+                    OptionRow(words, "Restore files only", onClick = { confirm = cp })
+                }
+            }
+        }
+        confirm?.let { cp ->
+            ConfirmDialog(
+                title = "Restore files only?",
+                text = "Files go back to how they were at this checkpoint. Every message stays.",
+                confirmLabel = "Restore files",
+                destructive = true,
+                onConfirm = {
+                    confirm = null
+                    checkpoints = false
+                    vm.restoreFiles(cp.id)
+                },
+                onDismiss = { confirm = null },
+            )
+        }
+    }
+    if (sendingToFriend) {
             SendToFriendSheet(sessionId = s0.id, title = s0.title, chat = s0.isChat, onDismiss = { sendingToFriend = false }, onOpenFriend = onOpenFriend)
         }
         if (deleting) {

@@ -540,6 +540,9 @@ class ChatThreadViewModel(
     }
 
     fun stop() = action { hub.api { it.abort(sessionId) } }
+
+    /** Compact from the chat sheet: older messages become a summary, so the chat has room again. */
+    fun compact() = action { hub.api { it.command(sessionId, "/compact") }.output?.trim()?.ifEmpty { null }?.let { say(it) } }
     fun pause() = action { hub.api { it.pauseSession(sessionId) } }
     fun resume() = action { hub.api { it.resumeSession(sessionId) } }
 

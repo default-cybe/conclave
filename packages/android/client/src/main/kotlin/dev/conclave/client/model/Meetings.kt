@@ -47,6 +47,8 @@ data class Meeting(
     val prepAt: Long? = null,
     val prepEditedAt: Long? = null,
     val prepError: String? = null,
+    /** Set once "Save to memory" saved the notes: the memory's id. */
+    val memoryId: String? = null,
 )
 
 /** The prep job's progress (11.4.3). [phase]: inventory, waiting-approval, map, merge, reduce or done. */

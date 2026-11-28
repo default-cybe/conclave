@@ -304,6 +304,20 @@ class ChatViewModel(hub: HubRepository, val sessionId: String, drafts: DraftStor
      * one): the hub runs it, and what it says comes back as a line. On a
      * failure the words go back in the box.
      */
+    /** The checkpoints the hub took before file edits, newest first (Checkpoints in the session sheet). */
+    val checkpoints = kotlinx.coroutines.flow.MutableStateFlow<List<dev.conclave.client.model.Checkpoint>?>(null)
+
+    fun loadCheckpoints() = action { checkpoints.value = hub.api { it.checkpoints(sessionId) }.sortedByDescending { it.createdAt } }
+
+    /** "Restore files only": the files go back to the checkpoint, every message stays (web ContextPanel). */
+    fun restoreFiles(checkpointId: String) = action("Files restored. The chat is unchanged.") { hub.api { it.restoreCheckpoint(sessionId, checkpointId) } }
+
+    /** The session as Markdown, for the share sheet (/export and Share as Markdown). */
+    fun export(onReady: (String, String) -> Unit) = action {
+        val r = hub.api { it.exportSession(sessionId, "md") }
+        onReady(r.filename.ifBlank { "session.md" }, r.content)
+    }
+
     fun runCommand(line: String) {
         val text = line.trim()
         if (text.isEmpty() || sending.value) return
