@@ -642,6 +642,8 @@ export class Engine implements EngineApi {
     // an agent's tier word (fast, smart, deep) resolves against the default model (extensions/agent-model.ts)
     const defaultModel = prefs.defaultModel ?? cfg.defaultModel;
     const model = input.model ?? (def?.model ? agentModelRef(this, def.model, defaultModel).model : defaultModel);
+    // a member pins only to a model their account may use, as updateSession checks (session/model-pin.ts)
+    if (opts.byPerson && chat?.sameModel && isMember(acct) && !memberCanUse(this, acct, model)) throw new EngineError(400, `Same model for all work needs a model your account may use; ${model} is not one.`);
     // the hub's default device applies only while it is connected; otherwise the session runs on the hub (a member's never uses the owner's)
     // a member's own default device is one of theirs (people/member-defaults.ts), checked again here in case it was unpaired
     const dflt = isMember(acct) ? prefs.defaultDevice : cfg.defaultDevice;
