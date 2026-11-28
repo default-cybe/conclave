@@ -44,11 +44,11 @@ import { ConfirmDialog, MenuList, Popover, Sheet } from '@/components/ui/Overlay
 import { LoadingRows } from '@/components/ui/EmptyState';
 import { ModelList } from '@/components/pickers/ModelPicker';
 import { Elapsed, GapList, Knot, LiveStatus, usePresence } from '@/components/motion';
-import { BubbleText } from '@/components/ui/Bubble';
+import { BubbleText, MARKDOWN_MAX } from '@/components/ui/Bubble';
 import { ImageThumb, type MediaItem } from '@/components/ui/ImageViewer';
 import { useUi } from '@/store/ui';
 import { pictureRow, pictureRows, ToolImages } from './ToolImages';
-import { Attachments, chipsOf, filesOf, receiptsOf } from '@/features/conversation/UserMessage';
+import { Attachments, chipsOf, filesOf, receiptsOf, userWords } from '@/features/conversation/UserMessage';
 import { BlockView, SecondOpinion, turnPieces } from './Turn';
 import { Markdown } from './Markdown';
 import { DebateGroup, JuryGroup } from './Group';
@@ -257,7 +257,7 @@ function Empty({ session }: { session: Session }) {
 
 /** Your words in a bubble at the right: surface-2, radius 20, at most 85% wide, your markdown as on desktop. A long press selects the text. */
 export const Bubble = memo(function Bubble({ message }: { message: Message }) {
-  const text = msgText(message);
+  const { text, files } = userWords(message);
   const images = message.content.filter((b): b is Extract<Message['content'][number], { type: 'image' }> => b.type === 'image');
   // sent while it worked: "Queued" or "Steered the running turn", where the pending one said it (Pending.tsx)
   const busyWord = storedWord(message.meta?.whenBusy);
@@ -271,12 +271,10 @@ export const Bubble = memo(function Bubble({ message }: { message: Message }) {
         </div>
       )}
       {/* a chip per file: "sent", or "saved to uploads/" in the session's folder (core attachments/budget.ts) */}
-      <Attachments images={[]} files={chipsOf(receiptsOf(message), filesOf(message))} />
+      <Attachments images={[]} files={[...chipsOf(receiptsOf(message), filesOf(message)), ...files.map((name) => ({ name }))]} />
       {text && (
         <div className="max-w-[85%] rounded-[20px] bg-surface-2 px-4 py-2.5 text-fg">
-          <BubbleText text={text}>
-            <Markdown text={text} />
-          </BubbleText>
+          <BubbleText text={text}>{text.length <= MARKDOWN_MAX ? <Markdown text={text} /> : undefined}</BubbleText>
         </div>
       )}
       {busyWord && <span className="flex items-center px-1 text-[13px] text-fg-3">{busyWord}</span>}

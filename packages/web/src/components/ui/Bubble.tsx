@@ -16,6 +16,13 @@ export const BUBBLE = 'rounded-[var(--r-2)] border border-rule bg-raise px-3.5 p
 /** Lines a long message shows until you ask for all of it. */
 export const BUBBLE_LINES = 14;
 
+/**
+ * Past this many characters your words show as plain text, not markdown:
+ * react-markdown with remark-gfm grows faster than linear (200 KB took 2 s,
+ * a 1.2 MB imported paste froze the desktop app for minutes).
+ */
+export const MARKDOWN_MAX = 20_000;
+
 /** A message is long past this many lines, or this many characters (about 20 lines of a bubble). */
 export function isLongText(text: string): boolean {
   return text.split('\n').length > BUBBLE_LINES + 4 || text.length > 1600;

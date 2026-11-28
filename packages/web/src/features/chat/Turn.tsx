@@ -27,7 +27,7 @@ import { Checkbox } from '@/components/ui/Field';
 import { ConfirmDialog, MenuList, Popover } from '@/components/ui/Overlay';
 import { ModelList } from '@/components/pickers/ModelPicker';
 import { Fold, InkReveal, Swap, arrived } from '@/components/motion';
-import { BUBBLE, BubbleText } from '@/components/ui/Bubble';
+import { BUBBLE, BubbleText, MARKDOWN_MAX } from '@/components/ui/Bubble';
 import { ActionText, AuthorLine, LogRow, REVEAL } from './Log';
 import { Markdown, StreamedMarkdown } from './Markdown';
 import { ToolGroup, type ThoughtItem, type WorkItem } from './ToolRows';
@@ -37,7 +37,7 @@ import { thoughtTime } from '@/lib/toolLine';
 import { COMPOSE_EVENT, SHAPED_CALL, msgText, readDismissed, writeDismissed, type ComposeDetail } from './util';
 import { storedWord } from './Pending';
 import { senderName } from './shared';
-import { Attachments, chipsOf, filesOf, imagesOf, receiptsOf } from '@/features/conversation/UserMessage';
+import { Attachments, chipsOf, filesOf, imagesOf, receiptsOf, userWords } from '@/features/conversation/UserMessage';
 
 // ---------------------------------------------------------------------------
 // The owner
@@ -57,7 +57,8 @@ type UserMessageProps = { message: Message; session: Session; /** It arrived aft
 export const UserMessage = memo(function UserMessage({ message, session, enter }: UserMessageProps) {
   const [copied, copy] = useCopy();
   const [confirm, setConfirm] = useState(false);
-  const text = msgText(message);
+  // an imported message's "[Attached x]" blocks are chips, as on the Chat page
+  const { text, files } = userWords(message);
   // sent while it worked: "Queued" or "Steered the running turn", next to the bubble where the pending one said it (Pending.tsx)
   const busyWord = storedWord(message.meta?.whenBusy);
   const time = hhmm(message.createdAt);
@@ -76,7 +77,7 @@ export const UserMessage = memo(function UserMessage({ message, session, enter }
       {/* your words in the Chat page's bubble, at the right; Copy and Edit wait at its left on hover (always on touch) */}
       <div data-author="you" className="flex flex-col items-end">
         {/* a chip per file: "sent", or "saved to uploads/" in the session's folder (core attachments/budget.ts) */}
-        <Attachments images={imagesOf(message)} files={chipsOf(receiptsOf(message), filesOf(message))} />
+        <Attachments images={imagesOf(message)} files={[...chipsOf(receiptsOf(message), filesOf(message)), ...files.map((name) => ({ name }))]} />
         <div className="flex w-full items-end justify-end gap-2">
           <div className="flex shrink-0 items-center pb-1">
             {text && (
@@ -91,9 +92,7 @@ export const UserMessage = memo(function UserMessage({ message, session, enter }
           </div>
           {text && (
             <div className={cn(BUBBLE, 'min-w-0 max-w-[min(85%,520px)]')}>
-              <BubbleText text={text}>
-                <Markdown text={text} />
-              </BubbleText>
+              <BubbleText text={text}>{text.length <= MARKDOWN_MAX ? <Markdown text={text} /> : undefined}</BubbleText>
             </div>
           )}
         </div>
