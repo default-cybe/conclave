@@ -53,6 +53,25 @@ struct ProvidersTests {
         #expect(SignedInApp(id: "d", lastSeenAt: now - 5_000).line(now: now) == "App, last seen just now")
     }
 
+    @Test func secretNamesAndRoutes() async throws {
+        #expect(SecretWords.nameError("", taken: []) == nil)
+        #expect(SecretWords.nameError("github-token", taken: []) == nil)
+        #expect(SecretWords.nameError("GitHub", taken: []) != nil)
+        #expect(SecretWords.nameError("a b", taken: []) != nil)
+        #expect(SecretWords.nameError("constructor", taken: []) != nil)
+        #expect(SecretWords.nameError("x", taken: ["x"]) == "x exists. Use Replace on its row.")
+        #expect(SecretWords.meta(SecretInfo(name: "t", prefix: "ghp_", setAt: 0), now: 3 * 86_400_000) == "ghp_…, set 3d ago")
+        let hub = MockHub()
+        let c = hub.client()
+        hub.enqueue(#"{"ok":true}"#)
+        try await c.setSecret("gh", "v", member: false)
+        #expect(hub.take()?.json == .object(["kind": .string("values"), "key": .string("gh"), "value": .string("v")]))
+        hub.enqueue(#"{"ok":true}"#)
+        try await c.setSecret("gh", nil, member: true)
+        let r = try #require(hub.take())
+        #expect(r.path == "/api/me/secrets" && r.json == .object(["key": .string("gh"), "value": .null]))
+    }
+
     @Test func routes() async throws {
         let hub = MockHub()
         let c = hub.client()

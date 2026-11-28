@@ -36,11 +36,12 @@ struct SettingsView: View {
                 }
             }
             SignedInSection(hub: hub)
-            if me?.isMember == false {
-                CardSection(title: "Models and plans") {
+            CardSection(title: "Models and plans") {
+                if me?.isMember == false {
                     link("Providers", "API keys for Anthropic, OpenAI, Z.ai and others", .providers)
                     link("Subscriptions", "Sign in to a Claude, ChatGPT or Gemini plan instead of a key", .subscriptions)
                 }
+                link("Secrets", "Tokens MCP servers use by name", .secrets)
             }
             // the hub's own settings: a member sees none of them (v0.4.112)
             if me?.isMember == false { HubSettingsSections(hub: hub) }

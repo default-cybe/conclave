@@ -85,7 +85,11 @@ enum MockHub {
             if path.contains("zai") { return (200, #"{"ok":false,"detail":"HTTP 401 Unauthorized"}"#) }
             return (200, #"{"ok":true,"detail":"Found 12 models","latencyMs":184}"#)
         }
-        if path == "/api/secrets" { return (200, #"{"ok":true}"#) }
+        if path == "/api/secrets" {
+            if method != "GET" { return (200, #"{"ok":true}"#) }
+            let now = Int64(Date().timeIntervalSince1970 * 1000)
+            return (200, #"{"values":[{"name":"github-token","prefix":"ghp_","setAt":\#(now - 3 * 86_400_000)},{"name":"notion-key","prefix":"secr","setAt":\#(now - 7_200_000)},{"name":"telegram.bot","managedBy":"Settings > Notifications"}]}"#)
+        }
         if path == "/api/clients" {
             let now = Int64(Date().timeIntervalSince1970 * 1000)
             return (200, #"[{"id":"cl-ipad","name":"Kai's iPad","platform":"ios","createdAt":1,"online":true,"revoked":false},{"id":"cl-pixel","name":"Pixel 8","platform":"android","createdAt":1,"lastSeenAt":\#(now - 3 * 3_600_000),"revoked":false},{"id":"cl-cli","name":"madx","platform":"linux","createdAt":1,"lastSeenAt":\#(now - 2 * 86_400_000),"revoked":false}]"#)
