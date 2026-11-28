@@ -20,8 +20,14 @@ final class HubModel {
     private(set) var childTick = 0
     /// Bumps on device.updated and device.deleted: the Devices page reads again.
     private(set) var deviceTick = 0
+    /// Bumps on every workflow.* event (run, phase, agent, log, progress): an open run reads again.
+    private(set) var workflowTick = 0
     /// The hub's model list, read when a picker first opens.
     private(set) var models: [ModelGroup] = []
+    /// GET /api/agents, read when a picker or the Agents page first needs it.
+    private(set) var agents: [AgentDef] = []
+    /// GET /api/devices, for the session menu's Run on.
+    private(set) var devices: [Device] = []
     /// Who signs in with this token (GET /api/me), the hub's ui.name and its info: the account row.
     private(set) var me: Me?
     private(set) var uiName: String?
@@ -67,7 +73,11 @@ final class HubModel {
         async let m = try? client.me()
         async let u = try? client.uiName()
         async let i = try? client.info()
-        let (me, ui, info) = await (m, u, i)
+        async let a = try? client.agents()
+        async let d = try? client.devices()
+        let (me, ui, info, agents, devices) = await (m, u, i, a, d)
+        if let agents { self.agents = agents }
+        if let devices { self.devices = devices }
         if let me { self.me = me }
         if let ui { uiName = ui }
         if let info { self.info = info }
@@ -122,6 +132,9 @@ final class HubModel {
             if !questions.contains(where: { $0.id == q.id }) { questions.append(q) }
         case .other(let type) where type == "device.updated" || type == "device.deleted":
             deviceTick += 1
+            Task { if let d = try? await client.devices() { devices = d } }
+        case .other(let type) where type.hasPrefix("workflow."):
+            workflowTick += 1
         case .approvalResolved, .questionAnswered:
             // the event names the one that asked, not where it showed: read the list again
             Task { await loadAsks() }
@@ -154,6 +167,23 @@ final class HubModel {
     func loadModels() async {
         guard models.isEmpty, let m = try? await client.models() else { return }
         models = m
+    }
+
+    /// `force`: read again (the Agents page's pull to refresh).
+    func loadAgents(force: Bool = false) async {
+        guard force || agents.isEmpty, let a = try? await client.agents() else { return }
+        agents = a
+    }
+
+    /// Agent or device of a session (session menu). Nil when it worked; the hub's words when not
+    /// (a device move with no folder found answers 409).
+    func place(_ id: String, _ patch: SessionPlacePatch) async -> String? {
+        do {
+            apply(.sessionUpdated(try await client.updateSession(id, patch)))
+            return nil
+        } catch {
+            return (error as? ConclaveAPIError)?.message ?? error.localizedDescription
+        }
     }
 
     /// A model or effort pick is the chat's default from now on (PATCH, as Android).

@@ -82,6 +82,12 @@ enum MockHub {
         if path == "/api/approvals" { return (200, approvals) }
         if path == "/api/questions" { return (200, questions) }
         if path == "/api/models" { return (200, models) }
+        if path == "/api/agents" { return (200, agents) }
+        if path == "/api/assistant/today" { return (200, today) }
+        if path == "/api/goals" { return (200, goals) }
+        if path == "/api/routines/preview" { return (200, #"{"next":[\#(now + 3_600_000),\#(now + 90_000_000)]}"#) }
+        if path == "/api/routines" { return (200, method == "POST" ? #"{"id":"r9","name":"New routine","schedule":"0 9 * * *"}"# : routineList) }
+        if path.hasPrefix("/api/routines/"), path.hasSuffix("/runs") { return (200, routineRuns) }
         return (200, "[]")
     }
 
@@ -136,7 +142,7 @@ enum MockHub {
     static var sessions: String {
         """
         [
-         {"id":"s1","title":"Native iPad client plan","kind":"chat","model":"anthropic/claude-opus-5-5","chat":{"thinking":"high"},"updatedAt":\(ago(0.2))},
+         {"id":"s1","title":"Native iPad client plan","kind":"chat","model":"anthropic/claude-opus-5-5","chat":{"thinking":"high","sameModel":true},"updatedAt":\(ago(0.2))},
          {"id":"s2","title":"Fix login redirect after the passkey prompt is dismissed on Safari and the hub restarts","agent":"coder","cwd":"/home/conclave/work/conclave","device":"local","status":"running","updatedAt":\(ago(1))},
          {"id":"s3","title":"Backup script for PBS","agent":"coder","cwd":"/root/scripts","device":"d3","status":"waiting_approval","updatedAt":\(ago(3))},
          {"id":"s7","title":"Move auth middleware to jose","agent":"coder","cwd":"/home/conclave/work/conclave","updatedAt":\(ago(5))},
@@ -219,6 +225,30 @@ enum MockHub {
      {"provider":"zai","name":"Z.ai","enabled":true,"configured":true,"models":[
       {"id":"glm-5","ref":"zai/glm-5","name":"GLM-5"}]}]
     """
+
+    static let agents = """
+    [{"name":"coder","description":"Writes and fixes code in your projects.","model":"anthropic/claude-opus-5-5","source":"builtin","tools":["Bash","Read","Edit","Write","Grep"],"prompt":"You are a careful senior engineer."},
+     {"name":"security","description":"Hunts bugs within scope.yaml and proves each finding.","model":"anthropic/claude-opus-5-5","source":"builtin"},
+     {"name":"assistant","description":"Your day: calendar, mail, goals and reminders.","model":"anthropic/claude-sonnet-5-5","source":"builtin"},
+     {"name":"chat","description":"Plain chat.","source":"builtin"},
+     {"name":"researcher","description":"Web research with sources, checked against primary pages.","model":"openai/gpt-5.5","source":"user"},
+     {"name":"explore","description":"Read-only search of files and git history.","model":"anthropic/claude-haiku-5","source":"builtin","subagent":true,"primary":false},
+     {"name":"reviewer","description":"Reviews a diff for bugs, security holes and test gaps.","source":"builtin","subagent":true,"primary":false}]
+    """
+
+    static var today: String {
+        #"{"date":"2026-11-28","timezone":"America/Los_Angeles","tasks":{"dueToday":3,"overdue":1},"plan":{"summary":"FSE camera-ready is the big one today; gym after lunch, then interview prep.","focus":{"text":"Threats to validity rewrite","start":"09:30","end":"11:30"},"items":[{"time":"09:30","text":"Deep work: FSE threats to validity","kind":"focus"},{"time":"12:30","text":"Gym","kind":"event"},{"time":"15:00","text":"Recruiter call, Cloudflare","kind":"event"},{"text":"LeetCode 238 in Python","kind":"task"}]},"events":[{"id":"e1","title":"Recruiter call","start":\#(now + 7_200_000),"end":\#(now + 9_000_000),"calendar":"Work","color":"#2e7d32"},{"id":"e2","title":"CyLab group meeting","start":\#(now + 14_400_000),"end":\#(now + 18_000_000),"calendar":"CMU"}]}"#
+    }
+
+    static let goals = #"[{"id":"g1","title":"Land a full-time security role","area":"career","nextStep":"Two applications this week","targetDate":"2027-03-01","status":"active"},{"id":"g2","title":"Ship the FSE paper","area":"study","nextStep":"Camera-ready by Dec 5","status":"active"}]"#
+
+    static var routineList: String {
+        #"[{"id":"r1","name":"Evening check-in","schedule":"0 21 * * *","timezone":"America/Los_Angeles","agent":"assistant","prompt":"Short casual bullets: what is due tomorrow, and a wind-down line.","enabled":true,"lastRunAt":\#(ago(20)),"nextRunAt":\#(now + 10_800_000)},{"id":"r2","name":"Morning brief","schedule":"30 7 * * 1-5","agent":"assistant","prompt":"Summarize my calendar, unread mail and goals for the day.","enabled":true,"lastRunAt":\#(ago(9)),"nextRunAt":\#(now + 40_000_000)},{"id":"r3","name":"Sonarr check","schedule":"@every 6h","agent":"coder","prompt":"Check every tracked show downloaded its new episodes.","enabled":false}]"#
+    }
+
+    static var routineRuns: String {
+        #"[{"id":"rr1","sessionId":"a3","status":"ok","trigger":"schedule","startedAt":\#(ago(20)),"summary":"3 things due tomorrow."},{"id":"rr2","status":"error","trigger":"manual","startedAt":\#(ago(44)),"error":"Plan refused: rate limited"}]"#
+    }
 
     /// The composer as the screenshots show it: words and one picture.
     @MainActor

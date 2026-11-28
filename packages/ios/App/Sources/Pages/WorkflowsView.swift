@@ -99,8 +99,8 @@ private struct RunRow: View {
 
 /// One run (Android WorkflowRunScreen): the status sentence and what runs now, the phases in order
 /// with a row per agent (label, model and last tool, state word), the result and the narrator log.
-/// Pause, Resume and Stop as the run allows. A live run reads again every few seconds; an agent
-/// row with a session opens it.
+/// Pause, Resume and Stop as the run allows. A live run reads again on the hub's workflow.* events;
+/// an agent row with a session opens it, and its menu skips or re-runs that call.
 struct WorkflowRunView: View {
     let hub: HubModel
     let runId: String
@@ -152,15 +152,11 @@ struct WorkflowRunView: View {
             }
         }
         .refreshable { await load() }
-        // restarts when the run goes live again (a resume), so polling picks up again
-        .task(id: "\(runId)|\(detail.map { WorkflowWords.isLive($0.run.status) } ?? true)") {
-            // shortcut: polls every 3 s while live instead of following workflow.* events; follow events when the socket carries them here
+        // workflow.* events bump the tick; a burst reads once, 400 ms after the last one
+        .task(id: "\(runId)|\(hub.workflowTick)") {
+            if detail != nil { try? await Task.sleep(for: .milliseconds(400)) }
+            guard !Task.isCancelled else { return }
             await load()
-            while !Task.isCancelled, let d = detail, WorkflowWords.isLive(d.run.status) {
-                try? await Task.sleep(for: .seconds(3))
-                if Task.isCancelled { break }
-                await load()
-            }
         }
         .confirmationDialog("Stop \(detail?.run.name ?? "this run")?", isPresented: $stopping, titleVisibility: .visible) {
             Button("Stop", role: .destructive) { Task { await control { try await hub.client.stopWorkflow(runId) } } }
@@ -250,12 +246,23 @@ struct WorkflowRunView: View {
         .padding(.leading, 14 + CGFloat(row.depth) * 16).padding(.trailing, 14).padding(.vertical, 9)
         .frame(minHeight: 48)
         .contentShape(Rectangle())
-        if let sid = c.childSessionId {
-            Button { open(sid) } label: { line }
-                .buttonStyle(QuietPress(radius: 0))
-                .accessibilityIdentifier("call-\(c.seq)")
-        } else {
-            line.accessibilityElement(children: .combine)
+        Group {
+            if let sid = c.childSessionId {
+                Button { open(sid) } label: { line }
+                    .buttonStyle(QuietPress(radius: 0))
+                    .accessibilityIdentifier("call-\(c.seq)")
+            } else {
+                line.accessibilityElement(children: .combine)
+            }
+        }
+        // web RunGraph node menu: Skip a queued or running call, Re-run a finished one (its dependents follow)
+        .contextMenu {
+            if c.state == .queued || c.state == .running {
+                Button("Skip this call", systemImage: "forward") { Task { await control { try await hub.client.skipWorkflowCall(runId, seq: c.seq) } } }
+            } else {
+                Button("Re-run this call", systemImage: "arrow.clockwise") { Task { await control { try await hub.client.rerunWorkflow(runId, seqs: [c.seq]) } } }
+                Button("Re-run from here", systemImage: "arrow.uturn.forward") { Task { await control { try await hub.client.rerunWorkflow(runId, fromSeq: c.seq) } } }
+            }
         }
     }
 

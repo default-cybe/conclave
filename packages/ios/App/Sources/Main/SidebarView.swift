@@ -129,11 +129,20 @@ struct SidebarView: View {
                 .accessibilityIdentifier("nav-new")
             NavRow(icon: "tray", label: "Inbox", m: m, count: hub.approvals.count + hub.questions.count, on: page == .inbox) { page = .inbox }
                 .accessibilityIdentifier("nav-inbox")
+            // the Assistant's home and its schedules, where the assistant is used (web AssistantHome)
+            if start == .assistant {
+                NavRow(icon: "sun.max", label: "Today", m: m, on: page == .today) { page = .today }
+                    .accessibilityIdentifier("nav-today")
+                NavRow(icon: "clock.arrow.circlepath", label: "Routines", m: m, on: page == .routines) { page = .routines }
+                    .accessibilityIdentifier("nav-routines")
+            }
             // web: More holds the pages; Devices is one of them, Group by sits by the list (Code and Security)
             Menu {
                 Button("Filter this list", systemImage: "line.3.horizontal.decrease") { searching = true; searchFocus = true }
                 Button("Tasks", systemImage: "checklist") { page = .tasks }
                 Button("Workflows", systemImage: "point.3.connected.trianglepath.dotted") { page = .workflows }
+                Button("Agents", systemImage: "person.2") { page = .agents }
+                Button("Routines", systemImage: "clock.arrow.circlepath") { page = .routines }
                 Button("Memory", systemImage: "brain") { page = .memory }
                 Button("Usage", systemImage: "chart.bar") { page = .usage }
                 Button("Devices", systemImage: "desktopcomputer") { page = .devices }

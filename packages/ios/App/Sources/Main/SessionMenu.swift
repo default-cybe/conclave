@@ -55,6 +55,30 @@ struct SessionMenu: View {
                 }
             } label: { Label("Model", systemImage: "cpu") }
         }
+        // a chat runs the chat agent on the hub; agent sessions can change both (web session menu, Android ContinueSheet)
+        if !session.isChat {
+            let agents = AgentPicks.switchable(hub.agents)
+            if !agents.isEmpty {
+                Menu {
+                    ForEach(agents) { a in
+                        Button { Task { await sheets.place(session.id, SessionPlacePatch(agent: a.name), hub: hub) } } label: {
+                            if a.name == session.agent { Label(AgentPicks.label(a.name), systemImage: "checkmark") } else { Text(AgentPicks.label(a.name)) }
+                        }
+                    }
+                } label: { Label("Agent", systemImage: "person.crop.square") }
+            }
+            let computers = FolderWords.computers(hub.devices)
+            if computers.count > 1 {
+                Menu {
+                    ForEach(computers) { d in
+                        Button { Task { await sheets.move(session.id, to: d.id, hub: hub) } } label: {
+                            if d.id == session.device { Label(FolderWords.placeName(d), systemImage: "checkmark") } else { Text(FolderWords.placeName(d)) }
+                        }
+                        .disabled(!d.online && d.id != "local")
+                    }
+                } label: { Label("Run on", systemImage: "desktopcomputer") }
+            }
+        }
         Section {
             Button(session.archived ? "Unarchive" : "Archive", systemImage: session.archived ? "tray.and.arrow.up" : "archivebox") {
                 Task { if await sheets.archive(session, hub: hub) { opened(nil) } }
@@ -139,6 +163,23 @@ final class SessionSheets {
         } catch {
             self.error = Self.words(error)
             return false
+        }
+    }
+
+    /// A new agent for the session; the hub's words when it refuses.
+    func place(_ id: String, _ patch: SessionPlacePatch, hub: HubModel) async {
+        if let why = await hub.place(id, patch) { error = why }
+    }
+
+    /// Run the session on another computer: the hub finds the same folder there (POST move); when it
+    /// finds none, its line says why and the session stays where it was.
+    func move(_ id: String, to device: String, hub: HubModel) async {
+        do {
+            let r = try await hub.client.moveSession(id, device: device)
+            if let s = r.session { hub.apply(.sessionUpdated(s)) }
+            if !r.resolved { error = r.line.isEmpty ? "It did not move." : r.line }
+        } catch {
+            self.error = Self.words(error)
         }
     }
 

@@ -21,6 +21,9 @@ extension ConclaveClient {
         return try await send("POST", ["api", "sessions", id, "move"], JSONValue.object(body))
     }
 
+    /// GET /api/agents: the agents this account sees (routes.ts agentsFor).
+    public func agents() async throws -> [AgentDef] { try await get(["api", "agents"]) }
+
     /// Agent, device and folder: PATCH fields SessionPatch leaves out. A new device on an agent session goes
     /// through the move's folder search and answers 409 when none was found (routes-projects.ts patchSession).
     public func updateSession(_ id: String, _ patch: SessionPlacePatch) async throws -> Session {

@@ -17,6 +17,8 @@ struct ModelMenu: View {
         let phone = Metrics(sizeClass).compact
         Button { open = true } label: {
             HStack(spacing: 6) {
+                // Same model for all work is on: the web's SameModelDot, a 6 pt signal dot
+                if session.chat?.sameModel == true { Circle().fill(Tone.signal).frame(width: 6, height: 6) }
                 if let row { MakerLogo(key: row.harness ? ModelPicks.agents : (ModelPicks.makerOf(row.model) ?? "")).frame(width: 14, height: 14) }
                 Text(Effort.words(session.model.isEmpty ? nil : session.model, session.chat?.thinking, row?.model.effort)).lineLimit(1)
                 Image(systemName: "chevron.down").font(.system(size: 9, weight: .semibold)).foregroundStyle(Tone.fg4)
@@ -29,6 +31,7 @@ struct ModelMenu: View {
         }
         .buttonStyle(QuietPress(radius: Radius.r1))
         .accessibilityLabel("Model")
+        .accessibilityValue(session.chat?.sameModel == true ? "Same model for all work" : "")
         .popover(isPresented: $open, arrowEdge: .bottom) {
             ModelPicker(hub: hub, session: session, groups: groups, current: current) { open = false }
                 .frame(idealWidth: 340, idealHeight: 520)
@@ -83,6 +86,8 @@ private struct ModelPicker: View {
                     .animation(Motion.of(Motion.ease(Motion.dur1), reduce: reduce), value: level)
                     Rectangle().fill(Tone.rule).frame(height: 1).padding(.vertical, 10)
                 }
+                sameModelRow(m)
+                Rectangle().fill(Tone.rule).frame(height: 1).padding(.bottom, 6)
                 if hub.models.isEmpty {
                     Text("Loading models").font(.sans(13)).foregroundStyle(Tone.fg3).padding(12)
                 }
@@ -105,6 +110,29 @@ private struct ModelPicker: View {
             .padding(.horizontal, 4)
         }
         .background(Tone.raise)
+    }
+
+    /// "Use this model for all subagents" (chat.sameModel), the web's SameModelRow: a member on a model
+    /// their account may not use gets it off, with the hub's reason in place of the subtitle.
+    private func sameModelRow(_ m: Metrics) -> some View {
+        let on = session.chat?.sameModel == true
+        let refused = hub.models.lazy.flatMap(\.models).first { $0.fullRef == session.model }?.unavailable
+        let why = SessionModes.sameModelRefusal(member: hub.me?.role == "member", unavailable: refused, on: on, name: ModelRefs.displayName(session.model))
+        return HStack(spacing: 10) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Use this model for all subagents").font(.sans(m.compact ? 15 : 13)).foregroundStyle(why == nil ? Tone.fg : Tone.fg3)
+                Text(why ?? "Same model for all work").font(.sans(m.compact ? 13 : 11.5)).foregroundStyle(Tone.fg3).fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 0)
+            Toggle("Use this model for all subagents", isOn: Binding(
+                get: { on },
+                set: { v in Task { await hub.update(session.id, SessionPatch(chat: ChatSettingsPatch(sameModel: v))) } }
+            ))
+            .labelsHidden().tint(Tone.signal).controlSize(m.compact ? .regular : .mini)
+            .disabled(why != nil)
+        }
+        .padding(.horizontal, 12).padding(.vertical, 6)
+        .accessibilityIdentifier("same-model")
     }
 
     /// `maker`: the header the row sits under; a route named the same says nothing new.

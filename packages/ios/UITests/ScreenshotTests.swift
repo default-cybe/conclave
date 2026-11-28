@@ -97,6 +97,14 @@ final class ScreenshotTests: XCTestCase {
     @MainActor func testSessionMenuLight() throws { try sessionMenu("light") }
     @MainActor func testSessionMenuDark() throws { try sessionMenu("dark") }
 
+    // parity batch 2
+    @MainActor func testAgentsLight() throws { try page("agents", "light", ["-openPage", "agents"]) { Self.text($0, "researcher") } }
+    @MainActor func testAgentsDark() throws { try page("agents", "dark", ["-openPage", "agents"]) { Self.text($0, "researcher") } }
+    @MainActor func testTodayLight() throws { try page("today", "light", ["-openPage", "today"]) { Self.text($0, "Recruiter call") } }
+    @MainActor func testTodayDark() throws { try page("today", "dark", ["-openPage", "today"]) { Self.text($0, "Recruiter call") } }
+    @MainActor func testRoutinesLight() throws { try page("routines", "light", ["-openPage", "routines"]) { Self.text($0, "Morning brief") } }
+    @MainActor func testRoutinesDark() throws { try page("routines", "dark", ["-openPage", "routines"]) { Self.text($0, "Morning brief") } }
+
     /// Any element whose label holds `s`: a row's title may be a Button's label, not a StaticText.
     @MainActor private static func text(_ app: XCUIApplication, _ s: String) -> XCUIElement {
         app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", s)).firstMatch

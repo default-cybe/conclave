@@ -21,9 +21,6 @@ struct NewCodeSessionSheet: View {
     @State private var startError: String?
     @Environment(\.dismiss) private var dismiss
 
-    // shortcut: a fixed agent list, as no client call for GET /api/agents exists yet; custom agents come with it
-    private static let agents = [(StartMode.codeAgent, "Coder"), (StartMode.securityAgent, "Security")]
-
     private var picked: String { agent ?? (mode == .security ? StartMode.securityAgent : StartMode.codeAgent) }
 
     var body: some View {
@@ -41,7 +38,14 @@ struct NewCodeSessionSheet: View {
                 deviceSection
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Agent").font(.sans(12.5, .semibold)).foregroundStyle(Tone.fg3).padding(.leading, 2)
-                    Segmented(options: Self.agents, selection: Binding(get: { picked }, set: { agent = $0 }))
+                    // the hub's agents (GET /api/agents): Coder and Security, then custom ones
+                    ScrollView(.horizontal) {
+                        Segmented(options: AgentPicks.startChoices(hub.agents, mode: mode, picked: agent), selection: Binding(get: { picked }, set: { agent = $0 }))
+                    }
+                    .scrollIndicators(.hidden)
+                    if let d = hub.agents.first(where: { $0.name == picked })?.description, !d.isEmpty {
+                        Text(d).font(.sans(12.5)).foregroundStyle(Tone.fg3).lineLimit(2).padding(.leading, 2)
+                    }
                 }
                 VStack(alignment: .leading, spacing: 10) {
                     searchField
@@ -68,6 +72,7 @@ struct NewCodeSessionSheet: View {
         }
         .background(Tone.bg.ignoresSafeArea())
         .task { await loadDevices() }
+        .task { await hub.loadAgents() }
         .task { projects = (try? await hub.client.projects()) ?? [] }
         // a folder belongs to its computer
         .onChange(of: device) { cwd = nil }
