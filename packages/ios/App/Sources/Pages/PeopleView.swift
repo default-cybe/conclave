@@ -28,7 +28,7 @@ struct PeopleView: View {
                 CardSection(title: "Everyone", note: "Members get their own chats, memory, computers and keys. They use the hub's keys only where you allow it.") {
                     ForEach(people) { p in
                         Button { if !p.isOwner { open = p } } label: {
-                            CardRow(label: p.shownName + (p.isOwner ? "  owner" : ""), detail: ([p.name == p.shownName ? nil : p.name, PeopleWords.signIn(p, now: now), "\(p.apps) apps, \(p.devices) computers"] + PeopleWords.spend(p)).compactMap { $0 }.joined(separator: ". ")) {
+                            CardRow(label: p.shownName + (p.isOwner ? "  owner" : ""), detail: Self.detail(p, now: now)) {
                                 if !p.isOwner { Image(systemName: "chevron.right").font(.system(size: 12, weight: .semibold)).foregroundStyle(Tone.fg3) }
                             }
                             .contentShape(Rectangle())
@@ -44,6 +44,15 @@ struct PeopleView: View {
         .sheet(isPresented: $adding) { AddPersonSheet(hub: hub) { created in Task { await load() }; if let i = created.invite { shown = Shown(title: "Invite link for \(created.person.shownName)", lines: [i.url], note: "Shown once, good once, for 7 days. Send it to them; they set a password with it.") } } }
         .sheet(item: $open) { p in PersonSheet(hub: hub, person: p, changed: { Task { await load() } }, show: { shown = $0 }) }
         .sheet(item: $shown) { s in ShownSheet(shown: s) }
+    }
+
+    private static func detail(_ p: Person, now: Int64) -> String {
+        var bits: [String] = []
+        if p.name != p.shownName { bits.append(p.name) }
+        bits.append(PeopleWords.signIn(p, now: now))
+        bits.append("\(p.apps) apps, \(p.devices) computers")
+        bits += PeopleWords.spend(p)
+        return bits.joined(separator: ". ")
     }
 
     private func load() async {
@@ -160,47 +169,13 @@ private struct PersonSheet: View {
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
-        let now = Int64(Date().timeIntervalSince1970 * 1000)
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
                     if let line { Text(line).font(.sans(12.5)).foregroundStyle(Tone.fg2) }
-                    CardSection(title: "Sign in") {
-                        CardRow(person.name, PeopleWords.signIn(person, now: now))
-                        CardRow(label: "Invite link", detail: "A new link, shown once, good for 7 days. An older one stops working.") {
-                            Button("New link") { Task { await act { let i = try await hub.client.newInvite(person.id); show(Shown(title: "Invite link for \(person.shownName)", lines: [i.url], note: "Shown once, good once, for 7 days.")) } } }
-                                .buttonStyle(CVButton(look: .outline, height: 32))
-                        }
-                        CardRow(label: "Password", detail: "Set a new one. Their apps sign out.") {
-                            Button("Set") { resetting = true }.buttonStyle(CVButton(look: .outline, height: 32))
-                        }
-                        CardRow(label: "Workspace", detail: "A computer of their own on the hub machine: run the commands there.") {
-                            Button("Code") { Task { await act { let w = try await hub.client.workspaceCode(person.id); show(Shown(title: "Workspace for \(person.shownName)", lines: w.commands.linux.isEmpty ? [w.code] : w.commands.linux, note: "Run on the hub machine. The code works once, for 10 minutes.")) } } }
-                                .buttonStyle(CVButton(look: .outline, height: 32))
-                        }
-                    }
-                    CardSection(title: "The hub's keys", note: "Which of the hub's keys \(person.shownName) may use, and a monthly cap in dollars. Their own keys and plans are theirs.") {
-                        ForEach(Providers.keyed.filter { person.providers.keys.contains($0.id) || person.spend.contains(where: { s in s.provider == $0.id }) }) { k in
-                            CardRow(label: k.name, detail: person.spend.first { $0.provider == k.id }.map { String(format: "$%.2f this month", $0.spentUsd) }) {
-                                Toggle(k.name, isOn: Binding(get: { person.providers.keys.contains(k.id) }, set: { on in Task { await grant(k.id, on) } })).labelsHidden().tint(Tone.signal)
-                            }
-                        }
-                        Menu {
-                            ForEach(Providers.keyed.filter { !person.providers.keys.contains($0.id) }) { k in Button(k.name) { Task { await grant(k.id, true) } } }
-                        } label: { CardRow(label: "Allow another key") { Image(systemName: "plus").foregroundStyle(Tone.fg3) }.contentShape(Rectangle()) }
-                        CardRow(label: "Web search", detail: "Use the hub's web search when they have no key of their own.") {
-                            Toggle("Web search", isOn: Binding(get: { person.webSearch }, set: { v in Task { await patch(["webSearch": .bool(v)]) } })).labelsHidden().tint(Tone.signal)
-                        }
-                    }
-                    CardSection(title: "Access") {
-                        CardRow(label: person.disabled ? "Turn on" : "Turn off", detail: person.disabled ? "They can sign in and work again." : "Their work stops and their apps and computers are cut off at once. Nothing is deleted.") {
-                            Button(person.disabled ? "Turn on" : "Turn off") { if person.disabled { Task { await setOff(false) } } else { confirmOff = true } }
-                                .buttonStyle(CVButton(look: person.disabled ? .outline : .quietFault, height: 32))
-                        }
-                        CardRow(label: "Remove", detail: "Removes \(person.shownName) and everything that is theirs. This cannot be undone.") {
-                            Button("Remove") { confirmRemove = true }.buttonStyle(CVButton(look: .quietFault, height: 32))
-                        }
-                    }
+                    signInSection
+                    keysSection
+                    accessSection
                 }
                 .padding(20)
             }
@@ -210,7 +185,7 @@ private struct PersonSheet: View {
         }
         .alert("New password for \(person.shownName)", isPresented: $resetting) {
             SecureField("12 characters or more", text: $newPassword)
-            Button("Set") { Task { await act { person = try await hub.client.resetPersonPassword(person.id, newPassword); line = "Password set. Their apps signed out."; changed() }; newPassword = "" } }
+            Button("Set") { Task { await setPassword() } }
                 .disabled(!PeopleWords.passwordOK(newPassword))
             Button("Cancel", role: .cancel) { newPassword = "" }
         }
@@ -219,9 +194,105 @@ private struct PersonSheet: View {
             Button("Cancel", role: .cancel) {}
         } message: { Text("Their work stops and their apps and computers are cut off at once. Nothing is deleted.") }
         .alert("Remove \(person.shownName)?", isPresented: $confirmRemove) {
-            Button("Remove", role: .destructive) { Task { await act { try await hub.client.removePerson(person.id); changed(); dismiss() } } }
+            Button("Remove", role: .destructive) { Task { await remove() } }
             Button("Cancel", role: .cancel) {}
         } message: { Text("Their chats, memory, computers and keys are deleted. This cannot be undone.") }
+    }
+
+    // split into parts: one body this size was too much for the type checker
+    private var signInSection: some View {
+        CardSection(title: "Sign in") {
+            CardRow(person.name, PeopleWords.signIn(person, now: Int64(Date().timeIntervalSince1970 * 1000)))
+            CardRow(label: "Invite link", detail: "A new link, shown once, good for 7 days. An older one stops working.") {
+                Button("New link") { Task { await newInvite() } }.buttonStyle(CVButton(look: .outline, height: 32))
+            }
+            CardRow(label: "Password", detail: "Set a new one. Their apps sign out.") {
+                Button("Set") { resetting = true }.buttonStyle(CVButton(look: .outline, height: 32))
+            }
+            CardRow(label: "Workspace", detail: "A computer of their own on the hub machine: run the commands there.") {
+                Button("Code") { Task { await workspace() } }.buttonStyle(CVButton(look: .outline, height: 32))
+            }
+        }
+    }
+
+    private var shownKeys: [KeyProvider] {
+        let granted = Set(person.providers.keys)
+        let spent = Set(person.spend.map(\.provider))
+        return Providers.keyed.filter { granted.contains($0.id) || spent.contains($0.id) }
+    }
+
+    private var otherKeys: [KeyProvider] {
+        let granted = Set(person.providers.keys)
+        return Providers.keyed.filter { !granted.contains($0.id) }
+    }
+
+    private func spentWords(_ id: String) -> String? {
+        guard let s = person.spend.first(where: { $0.provider == id }) else { return nil }
+        return String(format: "$%.2f this month", s.spentUsd)
+    }
+
+    private func keyRow(_ k: KeyProvider) -> some View {
+        let on = Binding(get: { person.providers.keys.contains(k.id) }, set: { (v: Bool) in Task { await grant(k.id, v) } })
+        return CardRow(label: k.name, detail: spentWords(k.id)) { Toggle(k.name, isOn: on).labelsHidden().tint(Tone.signal) }
+    }
+
+    private var keysSection: some View {
+        let search = Binding(get: { person.webSearch }, set: { (v: Bool) in Task { await patch(["webSearch": .bool(v)]) } })
+        return CardSection(title: "The hub's keys", note: "Which of the hub's keys \(person.shownName) may use. Their own keys and plans are theirs.") {
+            ForEach(shownKeys) { k in keyRow(k) }
+            Menu {
+                ForEach(otherKeys) { k in Button(k.name) { Task { await grant(k.id, true) } } }
+            } label: { CardRow(label: "Allow another key") { Image(systemName: "plus").foregroundStyle(Tone.fg3) }.contentShape(Rectangle()) }
+            CardRow(label: "Web search", detail: "Use the hub's web search when they have no key of their own.") {
+                Toggle("Web search", isOn: search).labelsHidden().tint(Tone.signal)
+            }
+        }
+    }
+
+    private var accessSection: some View {
+        let off = person.disabled
+        return CardSection(title: "Access") {
+            CardRow(label: off ? "Turn on" : "Turn off", detail: off ? "They can sign in and work again." : "Their work stops and their apps and computers are cut off at once. Nothing is deleted.") {
+                Button(off ? "Turn on" : "Turn off") { if off { Task { await setOff(false) } } else { confirmOff = true } }
+                    .buttonStyle(CVButton(look: off ? .outline : .quietFault, height: 32))
+            }
+            CardRow(label: "Remove", detail: "Removes \(person.shownName) and everything that is theirs. This cannot be undone.") {
+                Button("Remove") { confirmRemove = true }.buttonStyle(CVButton(look: .quietFault, height: 32))
+            }
+        }
+    }
+
+    private func setPassword() async {
+        let pw = newPassword
+        newPassword = ""
+        await act {
+            person = try await hub.client.resetPersonPassword(person.id, pw)
+            line = "Password set. Their apps signed out."
+            changed()
+        }
+    }
+
+    private func remove() async {
+        await act {
+            try await hub.client.removePerson(person.id)
+            changed()
+            dismiss()
+        }
+    }
+
+    private func newInvite() async {
+        await act {
+            let i = try await hub.client.newInvite(person.id)
+            show(Shown(title: "Invite link for \(person.shownName)", lines: [i.url], note: "Shown once, good once, for 7 days."))
+        }
+    }
+
+    private func workspace() async {
+        await act {
+            let w = try await hub.client.workspaceCode(person.id)
+            let lines = w.commands.linux.isEmpty ? [w.code] : w.commands.linux
+            show(Shown(title: "Workspace for \(person.shownName)", lines: lines, note: "Run on the hub machine. The code works once, for 10 minutes."))
+        }
     }
 
     private func act(_ op: () async throws -> Void) async {
