@@ -52,6 +52,9 @@ struct SettingsView: View {
                 }
                 link("Secrets", "Tokens MCP servers use by name", .secrets)
             }
+            CardSection(title: "Assistant") {
+                link("Reflect", "Nightly reflection and the learnings waiting for you", .reflect)
+            }
             // the hub's own settings: a member sees none of them (v0.4.112)
             if me?.isMember == false { HubSettingsSections(hub: hub) }
             CardSection(title: "Appearance") {

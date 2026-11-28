@@ -90,6 +90,10 @@ enum MockHub {
             let now = Int64(Date().timeIntervalSince1970 * 1000)
             return (200, #"{"values":[{"name":"github-token","prefix":"ghp_","setAt":\#(now - 3 * 86_400_000)},{"name":"notion-key","prefix":"secr","setAt":\#(now - 7_200_000)},{"name":"telegram.bot","managedBy":"Settings > Notifications"}]}"#)
         }
+        if path == "/api/assistant/reflect" { return (200, #"{"enabled":true,"time":"02:40"}"#) }
+        if path.hasPrefix("/api/reflect/learnings") {
+            return (200, #"{"pending":2,"queued":0,"ideas":[],"items":[{"id":"l1","kind":"correction","fact":"The user wants pnpm, not npm, in this repo.","rule":"Use pnpm, not npm.","quote":"no, use pnpm here","confidence":0.9,"count":2,"sessionId":"s1","sessionTitle":"Fix the build","status":"pending","targets":[{"target":"memory","label":"Memory"},{"target":"project","label":"This project's CONCLAVE.md","ref":"~/work/app"}],"similar":[]},{"id":"l2","kind":"remember","fact":"The user's staging server is staging.dymnitguys.com.","rule":"Staging is staging.dymnitguys.com.","quote":"remember: staging is staging.dymnitguys.com","confidence":0.95,"count":1,"sessionId":"s2","status":"pending","targets":[{"target":"memory","label":"Memory"}],"similar":[]}]}"#)
+        }
         if path == "/api/remote" {
             return (200, #"{"mode":"quick","state":"on","url":"https://mint-river-42.trycloudflare.com","since":1,"addresses":[{"url":"https://mint-river-42.trycloudflare.com","kind":"quick","label":"Cloudflare quick tunnel"},{"url":"http://192.168.1.20:8787","kind":"lan","label":"Wi-Fi 192.168.1.20"}],"lan":{"on":true,"listening":true},"cloudflareToken":false}"#)
         }
