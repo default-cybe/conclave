@@ -1593,7 +1593,10 @@ export class Engine implements EngineApi {
     return new Promise<Record<string, string>>((resolve) => {
       this.questions.set(req.id, { req, resolve });
       signal.addEventListener('abort', () => {
-        if (this.questions.delete(req.id)) resolve({});
+        if (!this.questions.delete(req.id)) return;
+        // the turn was stopped or interrupted: clients drop the card, as when it is answered
+        this.bus.emit({ type: 'question.answered', id: req.id, sessionId });
+        resolve({});
       }, { once: true });
     }).then((a) => {
       if (this.repos.sessions.get(sessionId)?.status === 'waiting_input') this.setStatus(sessionId, 'running');

@@ -21,7 +21,7 @@ import { subagentNowOf } from '../src/features/chat/ToolRows';
 import { ApprovalCard } from '../src/components/inbox/ApprovalCard';
 import { QuestionCard } from '../src/components/inbox/QuestionCard';
 import { connectClient } from '../src/lib/api';
-import { answerApproval, applyEvent, useHub } from '../src/store/store';
+import { answerApproval, answerQuestion, applyEvent, syncQuestions, useHub } from '../src/store/store';
 
 const NOW = 1_800_000_000_000;
 
@@ -291,6 +291,61 @@ describe('an approval the hub no longer holds', () => {
     applyEvent({ type: 'session.updated', session: { ...top, status: 'idle' }, seq: 1, ts: NOW } as never);
     expect(useHub.getState().tools.tu_bash).toBeUndefined();
     expect(await until(() => !useHub.getState().approvals.ap_own)).toBe(true);
+  });
+});
+
+describe('a question the hub no longer holds', () => {
+  const ask = (id: string, sessionId = 's_mail'): QuestionRequest => ({ id, sessionId, rootSessionId: 's_mail', questions: [{ question: 'Where should the website be hosted?', options: [{ label: 'Vercel' }, { label: 'Netlify' }] }], createdAt: NOW });
+
+  /** A hub that answers every question with `status` and lists `open` as the pending ones. */
+  async function hubSays(status: number, open: QuestionRequest[]) {
+    const real = globalThis.fetch;
+    globalThis.fetch = (async (url: string | URL | Request) => {
+      const u = String(url);
+      if (u.endsWith('/api/questions')) return Response.json(open);
+      if (u.endsWith('/api/approvals')) return Response.json([]);
+      return Response.json(status === 200 ? { ok: true } : { error: 'question is not pending' }, { status });
+    }) as typeof fetch;
+    try {
+      await connectClient({ baseUrl: 'http://hub.test', token: 't' });
+    } finally {
+      globalThis.fetch = real;
+    }
+  }
+
+  test('a 404 "not pending" or a 409 removes the card with a quiet note, no error, and refetches the open ones', async () => {
+    for (const status of [404, 409]) {
+      await hubSays(status, [ask('q_live', 's_email')]);
+      useHub.setState({ questions: { q_stale: ask('q_stale') }, toasts: [] } as never);
+      expect(await answerQuestion('q_stale', { 'Where should the website be hosted?': 'Vercel' })).toBe(false);
+      expect(useHub.getState().questions.q_stale).toBeUndefined();
+      expect(useHub.getState().toasts.map((t) => [t.title, t.level])).toEqual([['This request expired', 'info']]);
+      expect(await until(() => !!useHub.getState().questions.q_live)).toBe(true);
+    }
+  });
+
+  test('an answer the hub takes removes the card', async () => {
+    await hubSays(200, []);
+    useHub.setState({ questions: { q_ok: ask('q_ok') }, toasts: [] } as never);
+    expect(await answerQuestion('q_ok', { 'Where should the website be hosted?': 'Netlify' })).toBe(true);
+    expect(useHub.getState().questions.q_ok).toBeUndefined();
+    expect(useHub.getState().toasts).toEqual([]);
+  });
+
+  test("the refetch replaces the list: one the hub dropped goes, one asked meanwhile stays", async () => {
+    await hubSays(200, [ask('q_held')]);
+    useHub.setState({ questions: { q_dropped: ask('q_dropped') } } as never);
+    const sync = syncQuestions();
+    applyEvent({ type: 'question.asked', question: ask('q_new'), seq: 1, ts: NOW } as never);
+    await sync;
+    expect(Object.keys(useHub.getState().questions).sort()).toEqual(['q_held', 'q_new']);
+  });
+
+  test('a turn that ended refetches its questions, so a stopped one leaves', async () => {
+    await hubSays(200, []);
+    useHub.setState({ sessions: { s_mail: top }, messages: {}, tools: {}, approvals: {}, questions: { q_cut: ask('q_cut') } } as never);
+    applyEvent({ type: 'session.updated', session: { ...top, status: 'idle' }, seq: 1, ts: NOW } as never);
+    expect(await until(() => !useHub.getState().questions.q_cut)).toBe(true);
   });
 });
 

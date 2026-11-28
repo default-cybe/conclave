@@ -764,6 +764,32 @@ class HubRepository(
         return taken
     }
 
+    /**
+     * Answers a question. False when the hub no longer holds it (its turn was stopped or
+     * interrupted, or the hub restarted): the card goes all the same and the open ones are refetched.
+     */
+    suspend fun answerQuestion(id: String, answers: Map<String, String>): Boolean {
+        val taken = try {
+            api { it.answerQuestion(id, answers) }
+            true
+        } catch (e: ConclaveApiException) {
+            if (e.status != 404 && e.status != 409) throw e
+            false
+        }
+        questions.update { list -> list.filterNot { it.id == id } }
+        if (!taken) try {
+            val before = questions.value.map { it.id }.toSet()
+            val fresh = api { it.questions() }
+            // one asked while the list was on its way stays; one answered meanwhile stays gone
+            questions.update { cur -> fresh.filter { f -> f.id !in before || cur.any { it.id == f.id } } + cur.filter { c -> c.id !in before && fresh.none { it.id == c.id } } }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            // the list refreshes on the next sync
+        }
+        return taken
+    }
+
     /** A friend changed (an event, or a call's answer). A removed one leaves the list. */
     fun putFriend(f: FriendDto) {
         friends.update { list -> list.filterNot { it.id == f.id } + listOfNotNull(f.takeUnless { it.isRemoved }) }
