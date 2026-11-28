@@ -61,7 +61,8 @@ async function setup() {
  * real folders come back in output as git for Windows prints them (C:/x).
  */
 function winDevice(t: TestEngine, base: string, map: Array<[win: string, real: string]>) {
-  const esc = (s: string) => s.replace(/[\\/]/g, '[\\\\/]').replace(/[.:]/g, '\\$&');
+  // each part escaped for a RegExp, either separator between them
+  const esc = (s: string) => s.split(/[\\/]/).map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('[\\\\/]');
   const toReal = (text: string) => map.reduce((s, [w, r]) => s.replace(new RegExp(`${esc(w)}((?:[\\\\/][^'"\\s]*)?)`, 'gi'), (_m, rest: string) => r + rest.replace(/\\/g, '/')), text);
   const toWin = (text: string) => map.reduce((s, [w, r]) => s.split(r).join(w.replace(/\\/g, '/')), text);
   class WinMachine extends HomeMachine {
