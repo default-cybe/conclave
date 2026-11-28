@@ -133,7 +133,8 @@ final class ScreenshotTests: XCTestCase {
     private func slash(_ appearance: String) throws {
         try page("slash", appearance, ["-openChat", "s2"]) { app in
             let box = app.textViews["composer"]
-            if box.waitForExistence(timeout: 12) { sleep(1); box.tap(); box.typeText("/") }
+            // the chat keeps a saved draft and the caret lands before it: select it all, "/" replaces it
+            if box.waitForExistence(timeout: 12) { sleep(1); box.tap(); box.typeKey("a", modifierFlags: .command); box.typeText("/") }
             return Self.text(app, "Use /compact")
         }
     }

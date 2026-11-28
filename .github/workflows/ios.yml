@@ -40,7 +40,7 @@ jobs:
   app:
     name: App on iPad simulator
     runs-on: macos-15
-    timeout-minutes: 45
+    timeout-minutes: 60
     defaults:
       run:
         working-directory: packages/ios
@@ -99,8 +99,9 @@ jobs:
       # UITests/ScreenshotTests.swift turns the device and writes the PNGs; TEST_RUNNER_ vars reach it.
       # The connect screen is shot there too: simctl install took 7.5 minutes in run 45871676418.
       - name: Screenshot connect, sidebar and transcript on iPad (mock hub)
-        # twelve shots now (picker, top and end of chat added): 10 minutes ran out on the ninth
-        timeout-minutes: 20
+        # twelve shots now (picker, top and end of chat added): 10 minutes ran out on the ninth;
+        # library, launch, findings, slash, checkpoints and hub settings added 14 more
+        timeout-minutes: 32
         run: |
           set -o pipefail
           TEST_RUNNER_SHOTS="$PWD/shots" TEST_RUNNER_SHOT_PREFIX=ipad TEST_RUNNER_SHOT_CONNECT=1 \
