@@ -519,6 +519,10 @@ data class SessionPatch(
     val chat: ChatSettingsPatch? = null,
     /** Ultra on or off. The hub refuses it on chats. */
     val ultra: Boolean? = null,
+    /** MCP servers whose tools this session leaves out (session.meta.mcpOff); an empty list turns all back on. */
+    val mcpOff: List<String>? = null,
+    /** The Security lane (ctf, variant, exploit, re, source, web); the hub takes it only with Security on. */
+    val lane: String? = null,
 )
 
 /**

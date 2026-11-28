@@ -1,5 +1,6 @@
 package dev.conclave.client
 
+import dev.conclave.client.model.AddFriendResult
 import dev.conclave.client.model.ApplyShareInput
 import dev.conclave.client.model.ApplyShareResult
 import dev.conclave.client.model.ApplySharePlan
@@ -8,6 +9,7 @@ import dev.conclave.client.model.FriendDto
 import dev.conclave.client.model.FriendInvite
 import dev.conclave.client.model.FriendInviteInput
 import dev.conclave.client.model.FriendReachability
+import dev.conclave.client.model.FriendSettings
 import dev.conclave.client.model.HandoffDraft
 import dev.conclave.client.model.HandoffShareInput
 import dev.conclave.client.model.InboxItemDto
@@ -48,6 +50,23 @@ suspend fun ConclaveClient.acceptFriendInvite(link: String, name: String? = null
     },
     FriendDto.serializer(),
 )
+
+/** Ask a hub to be friends by its address; [email] stays here as a label and where an invite goes. */
+suspend fun ConclaveClient.addFriendByAddress(address: String, email: String? = null, name: String? = null): AddFriendResult = sendJson(
+    "POST", p("api", "friends", "add"),
+    buildJsonObject {
+        put("address", address)
+        if (email != null) put("email", email)
+        if (name != null) put("name", name)
+    },
+    AddFriendResult.serializer(),
+)
+
+suspend fun ConclaveClient.friendSettings(): FriendSettings = get(p("api", "friends", "settings"), FriendSettings.serializer())
+
+/** Requests by address on or off. */
+suspend fun ConclaveClient.setFriendSettings(requestsByAddress: Boolean): FriendSettings =
+    sendJson("PUT", p("api", "friends", "settings"), buildJsonObject { put("requestsByAddress", requestsByAddress) }, FriendSettings.serializer())
 
 /** Accept a pending request from another hub. */
 suspend fun ConclaveClient.acceptFriend(id: String): FriendDto = sendJson("POST", p("api", "friends", id, "accept"), null, FriendDto.serializer())

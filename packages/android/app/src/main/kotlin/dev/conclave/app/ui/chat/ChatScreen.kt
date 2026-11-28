@@ -68,6 +68,7 @@ import dev.conclave.app.ui.common.TopBar
 import dev.conclave.app.ui.conversation.AgentOption
 import dev.conclave.app.ui.conversation.ChatComposer
 import dev.conclave.app.ui.conversation.ChatHandoff
+import dev.conclave.app.ui.conversation.ChoiceRow
 import dev.conclave.app.ui.conversation.ComposerModel
 import dev.conclave.app.ui.conversation.IncognitoMark
 import dev.conclave.app.ui.conversation.ConversationSheet
@@ -83,6 +84,7 @@ import dev.conclave.app.ui.conversation.RunningTasksLine
 import dev.conclave.app.ui.conversation.SessionWork
 import dev.conclave.app.ui.conversation.SheetAction
 import dev.conclave.app.ui.conversation.SheetRow
+import dev.conclave.app.ui.conversation.SwitchRow
 import dev.conclave.app.ui.conversation.deviceLabel
 import dev.conclave.app.ui.conversation.folderLabel
 import dev.conclave.app.ui.conversation.memoryModeOf
@@ -110,7 +112,9 @@ import dev.conclave.client.logic.NextModel
 import dev.conclave.client.logic.PendingQueue
 import dev.conclave.client.logic.RepoAction
 import dev.conclave.client.logic.RepoWords
+import dev.conclave.client.logic.SessionExtras
 import dev.conclave.client.logic.SessionLive
+import dev.conclave.client.logic.SessionModes
 import dev.conclave.client.logic.ShareWords
 import dev.conclave.client.logic.Start
 import dev.conclave.client.logic.StartMode
@@ -234,6 +238,9 @@ fun ChatScreen(
     var renaming by remember { mutableStateOf(false) }
     var deleting by remember { mutableStateOf(false) }
     var checkpoints by remember { mutableStateOf(false) }
+    var connectorsOpen by remember { mutableStateOf(false) }
+    var pickingLane by remember { mutableStateOf(false) }
+    var modeSetup by remember { mutableStateOf(false) }
 
     // a chat opened as a session goes where chats are (CHAT-AND-MOTION 2.2)
     LaunchedEffect(session?.kind) {
@@ -358,6 +365,10 @@ fun ChatScreen(
                                             else -> pickDevice = true
                                         }
                                     })
+                                }
+                                // Jury, Debate and Loop: their jurors, debaters or check (web Composer.tsx)
+                                SessionModes.setupWords(s.mode, s.modeConfig)?.let { w ->
+                                    QuietChip(w, onClickLabel = "Set up ${SessionModes.label(s.mode)}", onClick = { modeSetup = true })
                                 }
                             }
                         },
@@ -521,6 +532,10 @@ fun ChatScreen(
                 add(SheetAction("Add a note", onClick = then { addingNote = true }))
                 if (!running) add(SheetAction("Compact", onClick = then { vm.runCommand("/compact") }))
                 add(SheetAction("Checkpoints", onClick = then { checkpoints = true }))
+                add(SheetAction("Connectors", onClick = then { connectorsOpen = true }))
+                // Security sessions once a lane is set (web LaneChip)
+                val lane = SessionExtras.laneOf(s.meta)
+                if (s.chat?.security == true && lane != null) add(SheetAction("Lane: ${lane.short}", onClick = then { pickingLane = true }))
                 add(
                     SheetAction("Share as Markdown", onClick = then {
                         vm.export { _, md -> context.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).setType("text/markdown").putExtra(Intent.EXTRA_TEXT, md), "Share session")) }
@@ -569,36 +584,68 @@ fun ChatScreen(
             onBack()
         })
         if (checkpoints) {
-        val list by vm.checkpoints.collectAsStateWithLifecycle()
-        LaunchedEffect(Unit) { vm.loadCheckpoints() }
-        var confirm by remember { mutableStateOf<dev.conclave.client.model.Checkpoint?>(null) }
-        dev.conclave.app.ui.conversation.OptionsSheet("Checkpoints", onDismiss = { checkpoints = false }) {
-            val l = list
-            when {
-                l == null -> LoadingBox()
-                l.isEmpty() -> Text("No checkpoints yet. The hub takes one before each file change.", style = ConclaveType.body, color = Conclave.colors.fg3, modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp))
-                else -> l.forEach { cp ->
-                    val words = listOf(dev.conclave.client.logic.Format.relative(cp.createdAt, System.currentTimeMillis()), if (cp.files == 1) "1 file" else "${cp.files} files", cp.commit.take(7)).joinToString(" · ")
-                    OptionRow(words, "Restore files only", onClick = { confirm = cp })
+            val list by vm.checkpoints.collectAsStateWithLifecycle()
+            LaunchedEffect(Unit) { vm.loadCheckpoints() }
+            var confirm by remember { mutableStateOf<dev.conclave.client.model.Checkpoint?>(null) }
+            dev.conclave.app.ui.conversation.OptionsSheet("Checkpoints", onDismiss = { checkpoints = false }) {
+                val l = list
+                when {
+                    l == null -> LoadingBox()
+                    l.isEmpty() -> Text("No checkpoints yet. The hub takes one before each file change.", style = ConclaveType.body, color = Conclave.colors.fg3, modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp))
+                    else -> l.forEach { cp ->
+                        val words = listOf(dev.conclave.client.logic.Format.relative(cp.createdAt, System.currentTimeMillis()), if (cp.files == 1) "1 file" else "${cp.files} files", cp.commit.take(7)).joinToString(" · ")
+                        OptionRow(words, "Restore files only", onClick = { confirm = cp })
+                    }
+                }
+            }
+            confirm?.let { cp ->
+                ConfirmDialog(
+                    title = "Restore files only?",
+                    text = "Files go back to how they were at this checkpoint. Every message stays.",
+                    confirmLabel = "Restore files",
+                    destructive = true,
+                    onConfirm = {
+                        confirm = null
+                        checkpoints = false
+                        vm.restoreFiles(cp.id)
+                    },
+                    onDismiss = { confirm = null },
+                )
+            }
+        }
+        if (connectorsOpen) {
+            val list by vm.connectors.collectAsStateWithLifecycle()
+            LaunchedEffect(Unit) { vm.loadConnectors() }
+            val off = SessionExtras.mcpOff(s0.meta)
+            OptionsSheet("Connectors", onDismiss = { connectorsOpen = false }) {
+                val l = list
+                when {
+                    l == null -> LoadingBox()
+                    l.isEmpty() -> Text("No connected servers to turn on or off here.", style = ConclaveType.body, color = Conclave.colors.fg3, modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp))
+                    else -> l.forEach { m ->
+                        SwitchRow(m.name, if (m.tools == 1) "1 tool" else "${m.tools} tools", m.name !in off) { on -> vm.setMcpOff(SessionExtras.toggled(off, m.name, on)) }
+                    }
                 }
             }
         }
-        confirm?.let { cp ->
-            ConfirmDialog(
-                title = "Restore files only?",
-                text = "Files go back to how they were at this checkpoint. Every message stays.",
-                confirmLabel = "Restore files",
-                destructive = true,
-                onConfirm = {
-                    confirm = null
-                    checkpoints = false
-                    vm.restoreFiles(cp.id)
-                },
-                onDismiss = { confirm = null },
-            )
+        if (pickingLane) {
+            val cur = SessionExtras.laneOf(s0.meta)
+            OptionsSheet("Lane", onDismiss = { pickingLane = false }) {
+                SessionExtras.LANES.forEach { l ->
+                    ChoiceRow(l.label, selected = l.value == cur?.value, onClick = {
+                        pickingLane = false
+                        if (l.value != cur?.value) vm.setLane(l.value)
+                    })
+                }
+            }
         }
-    }
-    if (sendingToFriend) {
+        if (modeSetup && s0.mode in SessionModes.MORE_STYLES) {
+            ModeSetupSheet(s0.mode, s0.modeConfig, models, onSave = {
+                modeSetup = false
+                vm.setModeConfig(it)
+            }, onDismiss = { modeSetup = false })
+        }
+        if (sendingToFriend) {
             SendToFriendSheet(sessionId = s0.id, title = s0.title, chat = s0.isChat, onDismiss = { sendingToFriend = false }, onOpenFriend = onOpenFriend)
         }
         if (deleting) {

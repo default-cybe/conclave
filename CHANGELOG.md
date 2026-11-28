@@ -15,6 +15,10 @@ like `## [0.4.16] - 2026-10-24`.
 - Android: the session sheet has Compact, Share as Markdown and Checkpoints. Checkpoints lists each checkpoint with "Restore files only", which keeps every message. The chat sheet has Compact too.
 - Android: a meeting's notes can be selected and copied, with "Save to memory" and "Open as chat" right under them.
 - Android: the empty model picker now says where to add an API key or sign in to an AI plan.
+- Android: the session sheet has Connectors, to turn the hub's connected MCP servers on or off for that session, and in a Security session "Lane", to change the lane.
+- Android: Code's GitHub option can connect GitHub with a token when it is not connected yet, then lists the repositories.
+- Android: Friends has "Add by address", to ask a hub by its address (with an email if you like), plus the "Requests by address" switch and your hub's address to copy.
+- Android: Jury, Debate and Loop get a chip next to Options to pick the jurors, the two debaters and rounds, or the check command and the most runs.
 
 ## [0.4.111] - 2026-11-28
 
